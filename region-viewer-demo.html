@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>RegionViewer Class Demo</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    .region-viewer-tooltip {
+      position: absolute;
+      background: white;
+      border: 1px solid #ccc;
+      padding: 4px 8px;
+      font-size: 12px;
+      pointer-events: none;
+      display: none;
+      z-index: 1000;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .controls {
+      margin-bottom: 20px;
+    }
+    
+    .controls button {
+      margin: 5px;
+      padding: 8px 16px;
+      background: #007acc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    .controls button:hover {
+      background: #005a99;
+    }
+    
+    #viewer-container {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin-bottom: 20px;
+    }
+
+    .event-log {
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      height: 150px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>RegionViewer Demo</h1>
+  <p>This demo shows the RegionViewer class in action with gene tracks.</p>
+  
+  <div class="controls">
+    <button onclick="viewer.resetZoom()">Reset Zoom</button>
+    <button onclick="viewer.zoomTo(20, 60)">Zoom to 20-60</button>
+    <button onclick="addTrack()">Add Track</button>
+    <button onclick="updateDomain()">Update Domain (0-200)</button>
+  </div>
+
+  <div id="viewer-container"></div>
+  
+  <div class="event-log" id="event-log">
+    <div>Event log:</div>
+  </div>
+
+  <script type="module">
+    // Simplified RegionViewer class for demo purposes
+    // In your actual project, you'd import this from the built module
+    
+    class RegionViewer {
+      constructor(config) {
+        this.config = {
+          container: config.container,
+          width: config.width || 800,
+          height: config.height || 300,
+          margin: config.margin || { top: 20, right: 30, bottom: 20, left: 60 },
+          rowHeight: config.rowHeight || 30,
+          domain: config.domain || [0, 100],
+          zoomExtent: config.zoomExtent || [0.5, 20],
+          onAnnotationClick: config.onAnnotationClick || (() => {}),
+          onAnnotationHover: config.onAnnotationHover || (() => {})
+        };
+
+        this.currentTransform = d3.zoomIdentity;
+        this.data = [];
+        this.initialize();
+      }
+
+      initialize() {
+        const containerElement = typeof this.config.container === 'string' 
+          ? document.querySelector(this.config.container)
+          : this.config.container;
+
+        if (!containerElement) {
+          throw new Error('Container element not found');
+        }
+
+        // Create tooltip
+        this.tooltip = d3.select('body')
+          .append('div')
+          .attr('class', 'region-viewer-tooltip');
+
+        // Create SVG
+        this.svg = d3.select(containerElement)
+          .append('svg')
+          .attr('width', this.config.width)
+          .attr('height', this.config.height);
+
+        // Create chart group
+        this.chart = this.svg
+          .append('g')
+          .attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
+
+        // Create x-axis group
+        this.xAxisGroup = this.chart
+          .append('g')
+          .attr('class', 'x-axis');
+
+        // Initialize x scale
+        this.x = d3.scaleLinear()
+          .domain(this.config.domain)
+          .range([0, this.config.width - this.config.margin.left - this.config.margin.right]);
+
+        // Initialize zoom behavior
+        this.initializeZoom();
+      }
+
+      initializeZoom() {
+        const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
+        const chartHeight = this.config.height - this.config.margin.top - this.config.margin.bottom;
+
+        this.zoom = d3.zoom()
+          .scaleExtent(this.config.zoomExtent)
+          .translateExtent([[0, 0], [chartWidth, chartHeight]])
+          .extent([[0, 0], [chartWidth, chartHeight]])
+          .on('zoom', (event) => {
+            this.currentTransform = event.transform;
+            this.drawAnnotations();
+          });
+
+        // Create zoom overlay
+        this.svg
+          .append('rect')
+          .attr('class', 'zoom-overlay')
+          .attr('width', chartWidth)
+          .attr('height', chartHeight)
+          .attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`)
+          .style('fill', 'none')
+          .style('pointer-events', 'all')
+          .call(this.zoom);
+      }
+
+      updateHeight() {
+        const newHeight = this.data.length * this.config.rowHeight + this.config.margin.top + this.config.margin.bottom;
+        this.config.height = newHeight;
+        this.svg.attr('height', newHeight);
+
+        const chartHeight = this.data.length * this.config.rowHeight;
+        this.xAxisGroup.attr('transform', `translate(0, ${chartHeight})`);
+      }
+
+      createTrackGroups() {
+        this.trackGroups = this.chart
+          .selectAll('.track')
+          .data(this.data, d => d.id || d.track)
+          .join('g')
+          .attr('class', 'track')
+          .attr('transform', (d, i) => `translate(0, ${i * this.config.rowHeight})`);
+
+        // Add track labels
+        this.trackGroups
+          .selectAll('.track-label')
+          .data(d => [d])
+          .join('text')
+          .attr('class', 'track-label')
+          .attr('x', -10)
+          .attr('y', this.config.rowHeight / 2)
+          .attr('dy', '0.35em')
+          .attr('text-anchor', 'end')
+          .style('font', '12px sans-serif')
+          .text(d => d.track);
+
+        // Add annotation containers
+        this.trackGroups
+          .selectAll('.annotations')
+          .data(d => [d])
+          .join('g')
+          .attr('class', 'annotations');
+      }
+
+      drawAnnotations() {
+        const xz = this.currentTransform.rescaleX(this.x);
+
+        // Update axis
+        this.xAxisGroup.call(d3.axisBottom(xz));
+
+        // Update annotations for each track
+        this.trackGroups.each((trackData, trackIndex, trackNodes) => {
+          const trackGroup = d3.select(trackNodes[trackIndex]);
+          const annotationsGroup = trackGroup.select('.annotations');
+
+          const rects = annotationsGroup
+            .selectAll('rect')
+            .data(trackData.annotations, d => d.id || d.label);
+
+          rects
+            .join('rect')
+            .attr('class', 'annotation')
+            .attr('x', ann => xz(ann.start))
+            .attr('y', 5)
+            .attr('width', ann => Math.max(1, xz(ann.end) - xz(ann.start)))
+            .attr('height', this.config.rowHeight - 10)
+            .style('fill', 'steelblue')
+            .style('cursor', 'pointer')
+            .on('mouseover', (event, ann) => {
+              d3.select(event.currentTarget).style('fill', 'orange');
+              this.showTooltip(event, ann, trackData);
+            })
+            .on('mouseout', (event) => {
+              d3.select(event.currentTarget).style('fill', 'steelblue');
+              this.hideTooltip();
+            })
+            .on('click', (event, ann) => {
+              this.config.onAnnotationClick(ann, trackData);
+            });
+        });
+      }
+
+      showTooltip(event, annotation, track) {
+        this.tooltip
+          .style('display', 'block')
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 10}px`)
+          .html(`<strong>${annotation.label}</strong><br/>Start: ${annotation.start}<br/>End: ${annotation.end}<br/>Track: ${track.track}`);
+
+        this.config.onAnnotationHover(annotation, track, event);
+      }
+
+      hideTooltip() {
+        this.tooltip.style('display', 'none');
+      }
+
+      setData(data) {
+        this.data = data;
+        this.updateHeight();
+        this.createTrackGroups();
+        this.drawAnnotations();
+      }
+
+      addTrack(track) {
+        this.data.push(track);
+        this.setData(this.data);
+      }
+
+      removeTrack(trackId) {
+        this.data = this.data.filter(track => (track.id || track.track) !== trackId);
+        this.setData(this.data);
+      }
+
+      updateDomain(domain) {
+        this.config.domain = domain;
+        this.x.domain(domain);
+        this.drawAnnotations();
+      }
+
+      zoomTo(start, end) {
+        const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
+        const scale = chartWidth / (this.x(end) - this.x(start));
+        const translate = -this.x(start) * scale;
+
+        const transform = d3.zoomIdentity
+          .translate(translate, 0)
+          .scale(scale);
+
+        this.svg.select('.zoom-overlay')
+          .transition()
+          .duration(750)
+          .call(this.zoom.transform, transform);
+      }
+
+      resetZoom() {
+        this.svg.select('.zoom-overlay')
+          .transition()
+          .duration(750)
+          .call(this.zoom.transform, d3.zoomIdentity);
+      }
+
+      destroy() {
+        this.tooltip.remove();
+        this.svg.remove();
+      }
+    }
+
+    // Sample gene track data
+    const sampleData = [
+      {
+        track: "Genes",
+        annotations: [
+          { start: 10, end: 30, label: "geneA", id: "gene1" },
+          { start: 35, end: 55, label: "geneB", id: "gene2" },
+          { start: 60, end: 80, label: "geneC", id: "gene3" }
+        ]
+      },
+      {
+        track: "Domains",
+        annotations: [
+          { start: 15, end: 25, label: "domain1", id: "dom1" },
+          { start: 40, end: 50, label: "domain2", id: "dom2" },
+          { start: 65, end: 75, label: "domain3", id: "dom3" }
+        ]
+      },
+      {
+        track: "Regulatory",
+        annotations: [
+          { start: 5, end: 12, label: "promoter", id: "prom1" },
+          { start: 82, end: 90, label: "terminator", id: "term1" }
+        ]
+      }
+    ];
+
+    // Event logging function
+    function logEvent(message) {
+      const log = document.getElementById('event-log');
+      const timestamp = new Date().toLocaleTimeString();
+      log.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // Create viewer instance
+    window.viewer = new RegionViewer({
+      container: '#viewer-container',
+      width: 800,
+      height: 200,
+      domain: [0, 100],
+      onAnnotationClick: (annotation, track) => {
+        logEvent(`Clicked: ${annotation.label} on ${track.track} (${annotation.start}-${annotation.end})`);
+      },
+      onAnnotationHover: (annotation, track) => {
+        logEvent(`Hovered: ${annotation.label} on ${track.track}`);
+      }
+    });
+
+    // Set initial data
+    viewer.setData(sampleData);
+
+    // Global functions for demo buttons
+    let trackCounter = 4;
+    window.addTrack = function() {
+      const newTrack = {
+        track: `Track ${trackCounter}`,
+        annotations: [
+          { start: Math.random() * 50, end: Math.random() * 30 + 50, label: `item${trackCounter}A`, id: `t${trackCounter}a` },
+          { start: Math.random() * 20 + 70, end: Math.random() * 10 + 90, label: `item${trackCounter}B`, id: `t${trackCounter}b` }
+        ]
+      };
+      viewer.addTrack(newTrack);
+      trackCounter++;
+      logEvent(`Added ${newTrack.track}`);
+    };
+
+    window.updateDomain = function() {
+      viewer.updateDomain([0, 200]);
+      logEvent('Updated domain to 0-200');
+    };
+
+    logEvent('RegionViewer initialized');
+  </script>
+</body>
+</html>
