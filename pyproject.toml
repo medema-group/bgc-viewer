@@ -7,7 +7,7 @@ name = "bgc-viewer"
 version = "0.1.0"
 description = "A Flask server with static HTML and API endpoints"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "Petek Kok"},
 ]
 dependencies = [
     "flask>=2.3.0",
