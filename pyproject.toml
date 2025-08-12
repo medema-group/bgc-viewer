@@ -15,7 +15,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "waitress>=3.0.0",
 ]
-requires-python = ">=3.8.1"
+requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 
@@ -32,10 +32,10 @@ bgc-viewer = "bgc_viewer.app:main"
 
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = ['py311']
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
