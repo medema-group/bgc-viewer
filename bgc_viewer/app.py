@@ -25,8 +25,16 @@ ANTISMASH_DATA = load_antismash_data()
 
 @app.route('/')
 def index():
-    """Serve the main HTML page."""
-    return render_template('index.html')
+    """Serve the SPA."""
+    return app.send_static_file('dist/index.html')
+
+@app.route('/<path:path>')
+def spa_fallback(path):
+    """Fallback for SPA routing - serve index.html for all non-API routes."""
+    if path.startswith('api/'):
+        # Let API routes be handled by their specific handlers
+        return jsonify({"error": "Not found"}), 404
+    return app.send_static_file('dist/index.html')
 
 @app.route('/api/info')
 def get_info():
