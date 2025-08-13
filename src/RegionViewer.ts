@@ -30,17 +30,44 @@ export interface RegionViewerConfig {
   onAnnotationHover?: (annotation: Annotation, track: Track, event: MouseEvent) => void;
 }
 
+
+export type TrackData = {
+  id: string;
+  label: string;
+}
+
+export type AnnotationType = 'arrow' | 'box' | 'marker';
+
+export type AnnotationData = {
+  id: string;
+  trackId: string;
+  type: AnnotationType;
+  color: string;
+  label: string;
+  start: number;
+  end: number;
+  direction: 'left' | 'right' | 'none';
+}
+
+export type RegionViewerData = {
+  tracks: TrackData[];
+  annotations: AnnotationData[];
+}
+
+
 export class RegionViewer {
   private config: Required<RegionViewerConfig>;
   private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
   private chart!: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private clippedChart!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private xAxisGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private tooltip!: d3.Selection<HTMLDivElement, unknown, HTMLElement, any>;
   private x!: d3.ScaleLinear<number, number>;
   private currentTransform: d3.ZoomTransform;
   private zoom!: d3.ZoomBehavior<SVGRectElement, unknown>;
-  private data: Track[] = [];
-  private trackGroups!: d3.Selection<SVGGElement, Track, SVGGElement, unknown>;
+  private data: RegionViewerData = { tracks: [], annotations: [] };
+  private trackGroups!: d3.Selection<SVGGElement, TrackData, SVGGElement, unknown>;
+  private clipId!: string;
 
   constructor(config: RegionViewerConfig) {
     // Set default configuration
@@ -95,10 +122,29 @@ export class RegionViewer {
       .append('g')
       .attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
 
-    // Create x-axis group
+    // Create clipping path to prevent annotations from overlapping labels
+    const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
+    this.clipId = `clip-${Math.random().toString(36).substr(2, 9)}`;
+    
+    this.svg
+      .append('defs')
+      .append('clipPath')
+      .attr('id', this.clipId)
+      .append('rect')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', chartWidth)
+      .attr('height', '100%'); // Will be updated when height changes
+
+    // Create x-axis group (unclipped, so axis labels can extend)
     this.xAxisGroup = this.chart
       .append('g')
       .attr('class', 'x-axis');
+
+    // Create clipped container for track content
+    this.clippedChart = this.chart
+      .append('g')
+      .attr('clip-path', `url(#${this.clipId})`);
 
     // Initialize x scale
     this.x = d3.scaleLinear()
@@ -135,25 +181,36 @@ export class RegionViewer {
   }
 
   private updateHeight(): void {
-    const newHeight = this.data.length * this.config.rowHeight + this.config.margin.top + this.config.margin.bottom;
+    const newHeight = this.data.tracks.length * this.config.rowHeight + this.config.margin.top + this.config.margin.bottom;
     this.config.height = newHeight;
     this.svg.attr('height', newHeight);
 
     // Update x-axis position
-    const chartHeight = this.data.length * this.config.rowHeight;
+    const chartHeight = this.data.tracks.length * this.config.rowHeight;
     this.xAxisGroup.attr('transform', `translate(0, ${chartHeight})`);
+
+    // Update clipping path height
+    this.svg.select('clipPath rect')
+      .attr('height', chartHeight);
   }
 
   private createTrackGroups(): void {
-    this.trackGroups = this.chart
-      .selectAll<SVGGElement, Track>('.track')
-      .data(this.data, d => d.id || d.track)
+    this.trackGroups = this.clippedChart
+      .selectAll<SVGGElement, TrackData>('.track')
+      .data(this.data.tracks, d => d.id)
       .join('g')
       .attr('class', 'track')
       .attr('transform', (_, i) => `translate(0, ${i * this.config.rowHeight})`);
 
-    // Add track labels
-    this.trackGroups
+    // Add track labels (these should be outside the clipped area)
+    const labelGroups = this.chart
+      .selectAll<SVGGElement, TrackData>('.track-label-group')
+      .data(this.data.tracks, d => d.id)
+      .join('g')
+      .attr('class', 'track-label-group')
+      .attr('transform', (_, i) => `translate(0, ${i * this.config.rowHeight})`);
+
+    labelGroups
       .selectAll('.track-label')
       .data(d => [d])
       .join('text')
@@ -163,9 +220,9 @@ export class RegionViewer {
       .attr('dy', '0.35em')
       .attr('text-anchor', 'end')
       .style('font', '12px sans-serif')
-      .text(d => d.track);
+      .text(d => d.label);
 
-    // Add annotation containers
+    // Add annotation containers (inside clipped area)
     this.trackGroups
       .selectAll('.annotations')
       .data(d => [d])
@@ -189,41 +246,184 @@ export class RegionViewer {
       const trackGroup = d3.select(trackNodes[trackIndex]);
       const annotationsGroup = trackGroup.select('.annotations');
 
-      const rects = annotationsGroup
-        .selectAll<SVGRectElement, Annotation>('rect')
-        .data(trackData.annotations, d => d.id || d.label);
+      // Get annotations for this track
+      const trackAnnotations = this.data.annotations.filter(ann => ann.trackId === trackData.id);
 
-      rects
-        .join('rect')
-        .attr('class', 'annotation')
-        .attr('x', ann => xz(ann.start))
-        .attr('y', 5)
-        .attr('width', ann => Math.max(1, xz(ann.end) - xz(ann.start)))
-        .attr('height', this.config.rowHeight - 10)
-        .style('fill', 'steelblue')
-        .style('cursor', 'pointer')
-        .on('mouseover', (event, ann) => {
-          d3.select(event.currentTarget).style('fill', 'orange');
-          this.showTooltip(event, ann, trackData);
-        })
-        .on('mouseout', (event) => {
-          d3.select(event.currentTarget).style('fill', 'steelblue');
-          this.hideTooltip();
-        })
-        .on('click', (_, ann) => {
-          this.config.onAnnotationClick(ann, trackData);
-        });
+      // Clear existing annotations
+      annotationsGroup.selectAll('*').remove();
+
+      // Render each annotation based on its type
+      trackAnnotations.forEach(ann => {
+        this.renderAnnotation(annotationsGroup as any, ann, xz, trackData);
+      });
     });
   }
 
-  private showTooltip(event: MouseEvent, annotation: Annotation, track: Track): void {
+  private renderAnnotation(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    annotation: AnnotationData,
+    xScale: d3.ScaleLinear<number, number>,
+    trackData: TrackData
+  ): void {
+    const x = xScale(annotation.start);
+    const width = Math.max(1, xScale(annotation.end) - xScale(annotation.start));
+    const y = 5;
+    const height = this.config.rowHeight - 10;
+
+    let element: d3.Selection<any, unknown, null, undefined>;
+
+    switch (annotation.type) {
+      case 'arrow':
+        element = this.renderArrow(container, x, y, width, height, annotation.direction);
+        break;
+      case 'marker':
+        element = this.renderMarker(container, x, y, width, height);
+        break;
+      case 'box':
+      default:
+        element = this.renderBox(container, x, y, width, height);
+        break;
+    }
+
+    // Apply common styling and event handlers
+    element
+      .attr('class', 'annotation')
+      .style('fill', annotation.color || 'steelblue')
+      .style('cursor', 'pointer')
+      .on('mouseover', (event: any) => {
+        element.style('fill', 'orange');
+        this.showTooltip(event, annotation, trackData);
+      })
+      .on('mouseout', () => {
+        element.style('fill', annotation.color || 'steelblue');
+        this.hideTooltip();
+      })
+      .on('click', () => {
+        // Convert to old format for callback compatibility
+        const annotationCompat: Annotation = {
+          start: annotation.start,
+          end: annotation.end,
+          label: annotation.label,
+          id: annotation.id
+        };
+        const trackCompat: Track = {
+          track: trackData.label,
+          annotations: [], // Not used in callback
+          id: trackData.id
+        };
+        this.config.onAnnotationClick(annotationCompat, trackCompat);
+      });
+  }
+
+  private renderBox(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ): d3.Selection<SVGRectElement, unknown, null, undefined> {
+    return container
+      .append('rect')
+      .attr('x', x)
+      .attr('y', y)
+      .attr('width', width)
+      .attr('height', height)
+      .attr('rx', 2) // Slightly rounded corners
+      .attr('ry', 2);
+  }
+
+  private renderArrow(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    direction: 'left' | 'right' | 'none'
+  ): d3.Selection<SVGPathElement, unknown, null, undefined> {
+    const arrowHeadWidth = Math.min(width * 0.2, height * 0.5, 8); // Limit arrow head size
+    const bodyWidth = width - (direction !== 'none' ? arrowHeadWidth : 0);
+    
+    let pathData: string;
+    
+    if (direction === 'right') {
+      // Arrow pointing right: rectangular body + triangular head
+      pathData = `
+        M ${x} ${y}
+        L ${x + bodyWidth} ${y}
+        L ${x + width} ${y + height * 0.5}
+        L ${x + bodyWidth} ${y + height}
+        L ${x} ${y + height}
+        Z
+      `;
+    } else if (direction === 'left') {
+      // Arrow pointing left: triangular head + rectangular body
+      pathData = `
+        M ${x} ${y + height * 0.5}
+        L ${x + arrowHeadWidth} ${y}
+        L ${x + width} ${y}
+        L ${x + width} ${y + height}
+        L ${x + arrowHeadWidth} ${y + height}
+        Z
+      `;
+    } else {
+      // No direction specified, render as elongated hexagon
+      const indent = Math.min(width * 0.1, height * 0.3, 4);
+      pathData = `
+        M ${x + indent} ${y}
+        L ${x + width - indent} ${y}
+        L ${x + width} ${y + height * 0.5}
+        L ${x + width - indent} ${y + height}
+        L ${x + indent} ${y + height}
+        L ${x} ${y + height * 0.5}
+        Z
+      `;
+    }
+
+    return container
+      .append('path')
+      .attr('d', pathData);
+  }
+
+  private renderMarker(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ): d3.Selection<SVGPathElement, unknown, null, undefined> {
+    // Render marker as a circle
+    const centerX = x + width / 2;
+    const centerY = y + height / 2;
+    const radius = Math.min(width, height) / 2;
+    
+    return container
+      .append('circle')
+      .attr('cx', centerX)
+      .attr('cy', centerY)
+      .attr('r', radius)
+      .attr('class', 'annotation-marker');
+  }
+
+  private showTooltip(event: MouseEvent, annotation: AnnotationData, trackData: TrackData): void {
     this.tooltip
       .style('display', 'block')
       .style('left', `${event.pageX + 10}px`)
       .style('top', `${event.pageY - 10}px`)
-      .html(`<strong>${annotation.label}</strong><br/>Start: ${annotation.start}<br/>End: ${annotation.end}<br/>Track: ${track.track}`);
+      .html(`<strong>${annotation.label}</strong><br/>Start: ${annotation.start}<br/>End: ${annotation.end}<br/>Track: ${trackData.label}`);
 
-    this.config.onAnnotationHover(annotation, track, event);
+    // Convert to old format for callback compatibility
+    const annotationCompat: Annotation = {
+      start: annotation.start,
+      end: annotation.end,
+      label: annotation.label,
+      id: annotation.id
+    };
+    const trackCompat: Track = {
+      track: trackData.label,
+      annotations: [], // Not used in callback
+      id: trackData.id
+    };
+    this.config.onAnnotationHover(annotationCompat, trackCompat, event);
   }
 
   private hideTooltip(): void {
@@ -231,21 +431,84 @@ export class RegionViewer {
   }
 
   // Public API methods
-  public setData(data: Track[]): void {
+  public setData(data: RegionViewerData): void {
     this.data = data;
     this.updateHeight();
     this.createTrackGroups();
     this.drawAnnotations();
   }
 
-  public addTrack(track: Track): void {
-    this.data.push(track);
-    this.setData(this.data);
+  // Backward compatibility method
+  public setTrackData(tracks: Track[]): void {
+    // Convert old Track[] format to new RegionViewerData format
+    const trackData: TrackData[] = tracks.map(track => ({
+      id: track.id || track.track,
+      label: track.track
+    }));
+
+    const annotationData: AnnotationData[] = tracks.flatMap(track =>
+      track.annotations.map(annotation => ({
+        id: annotation.id || `${track.id || track.track}-${annotation.label}`,
+        trackId: track.id || track.track,
+        type: 'box' as AnnotationType,
+        color: 'steelblue',
+        label: annotation.label,
+        start: annotation.start,
+        end: annotation.end,
+        direction: 'none' as const
+      }))
+    );
+
+    this.setData({ tracks: trackData, annotations: annotationData });
+  }
+
+  public addTrack(track: TrackData, annotations?: AnnotationData[]): void {
+    this.data.tracks.push(track);
+    if (annotations) {
+      this.data.annotations.push(...annotations);
+    }
+    this.updateHeight();
+    this.createTrackGroups();
+    this.drawAnnotations();
+  }
+
+  // Backward compatibility method
+  public addTrackLegacy(track: Track): void {
+    const trackData: TrackData = {
+      id: track.id || track.track,
+      label: track.track
+    };
+
+    const annotationData: AnnotationData[] = track.annotations.map(annotation => ({
+      id: annotation.id || `${track.id || track.track}-${annotation.label}`,
+      trackId: track.id || track.track,
+      type: 'box' as AnnotationType,
+      color: 'steelblue',
+      label: annotation.label,
+      start: annotation.start,
+      end: annotation.end,
+      direction: 'none' as const
+    }));
+
+    this.addTrack(trackData, annotationData);
   }
 
   public removeTrack(trackId: string): void {
-    this.data = this.data.filter(track => (track.id || track.track) !== trackId);
-    this.setData(this.data);
+    this.data.tracks = this.data.tracks.filter(track => track.id !== trackId);
+    this.data.annotations = this.data.annotations.filter(annotation => annotation.trackId !== trackId);
+    this.updateHeight();
+    this.createTrackGroups();
+    this.drawAnnotations();
+  }
+
+  public addAnnotation(annotation: AnnotationData): void {
+    this.data.annotations.push(annotation);
+    this.drawAnnotations();
+  }
+
+  public removeAnnotation(annotationId: string): void {
+    this.data.annotations = this.data.annotations.filter(annotation => annotation.id !== annotationId);
+    this.drawAnnotations();
   }
 
   public updateDomain(domain: [number, number]): void {
@@ -287,7 +550,30 @@ export class RegionViewer {
     return { ...this.config };
   }
 
-  public getData(): Track[] {
-    return [...this.data];
+  public getData(): RegionViewerData {
+    return {
+      tracks: [...this.data.tracks],
+      annotations: [...this.data.annotations]
+    };
+  }
+
+  // Backward compatibility method
+  public getTrackData(): Track[] {
+    return this.data.tracks.map(track => {
+      const annotations = this.data.annotations
+        .filter(annotation => annotation.trackId === track.id)
+        .map(annotation => ({
+          start: annotation.start,
+          end: annotation.end,
+          label: annotation.label,
+          id: annotation.id
+        }));
+
+      return {
+        track: track.label,
+        annotations,
+        id: track.id
+      };
+    });
   }
 }

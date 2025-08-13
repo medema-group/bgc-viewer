@@ -12,7 +12,7 @@
   "scripts": {
     "build": "rollup -c",
     "build:watch": "rollup -c -w",
-    "dev": "rollup -c -w",
+    "dev": "NODE_ENV=development rollup -c -w",
     "start": "npm run dev",
     "test": "jest",
     "test:watch": "jest --watch",

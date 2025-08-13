@@ -1,4 +1,4 @@
-import { RegionViewer, Track } from '../RegionViewer';
+import { RegionViewer, Track, RegionViewerData, TrackData, AnnotationData } from '../RegionViewer';
 
 /**
  * RegionViewer tests using the real D3 library
@@ -61,7 +61,33 @@ describe('RegionViewer', () => {
     expect(config.onAnnotationClick).toBe(onAnnotationClick);
   });
 
-  test('should set and get data correctly', () => {
+  test('should set and get data correctly using new format', () => {
+    const viewer = new RegionViewer({
+      container: '#test-container'
+    });
+
+    const testData: RegionViewerData = {
+      tracks: [{ id: 'track1', label: 'Test Track' }],
+      annotations: [{
+        id: 'gene1',
+        trackId: 'track1',
+        type: 'box',
+        color: 'blue',
+        label: 'Gene1',
+        start: 10,
+        end: 30,
+        direction: 'none'
+      }]
+    };
+
+    viewer.setData(testData);
+    const retrievedData = viewer.getData();
+    
+    expect(retrievedData).toEqual(testData);
+    expect(retrievedData).not.toBe(testData); // Should be a copy
+  });
+
+  test('should set data using legacy format (backward compatibility)', () => {
     const viewer = new RegionViewer({
       container: '#test-container'
     });
@@ -75,14 +101,66 @@ describe('RegionViewer', () => {
       }
     ];
 
-    viewer.setData(testData);
-    const retrievedData = viewer.getData();
+    viewer.setTrackData(testData);
+    const retrievedData = viewer.getTrackData();
     
-    expect(retrievedData).toEqual(testData);
+    // The conversion process adds an id field if it wasn't present
+    const expectedData = [
+      {
+        track: 'Test Track',
+        id: 'Test Track',
+        annotations: [
+          { start: 10, end: 30, label: 'Gene1', id: 'gene1' }
+        ]
+      }
+    ];
+    
+    expect(retrievedData).toEqual(expectedData);
     expect(retrievedData).not.toBe(testData); // Should be a copy
   });
 
-  test('should add track correctly', () => {
+  test('should add track correctly using new format', () => {
+    const viewer = new RegionViewer({
+      container: '#test-container'
+    });
+
+    const initialData: RegionViewerData = {
+      tracks: [{ id: 'track1', label: 'Initial Track' }],
+      annotations: [{
+        id: 'initial1',
+        trackId: 'track1',
+        type: 'box',
+        color: 'blue',
+        label: 'Initial',
+        start: 5,
+        end: 15,
+        direction: 'none'
+      }]
+    };
+
+    const newTrack: TrackData = { id: 'track2', label: 'New Track' };
+    const newAnnotations: AnnotationData[] = [{
+      id: 'new1',
+      trackId: 'track2',
+      type: 'arrow',
+      color: 'green',
+      label: 'New Gene',
+      start: 20,
+      end: 40,
+      direction: 'right'
+    }];
+
+    viewer.setData(initialData);
+    viewer.addTrack(newTrack, newAnnotations);
+
+    const data = viewer.getData();
+    expect(data.tracks).toHaveLength(2);
+    expect(data.annotations).toHaveLength(2);
+    expect(data.tracks[1]).toEqual(newTrack);
+    expect(data.annotations[1]).toEqual(newAnnotations[0]);
+  });
+
+  test('should add track correctly using legacy format', () => {
     const viewer = new RegionViewer({
       container: '#test-container'
     });
@@ -97,12 +175,13 @@ describe('RegionViewer', () => {
       annotations: [{ start: 20, end: 40, label: 'New Gene' }]
     };
 
-    viewer.setData([initialTrack]);
-    viewer.addTrack(newTrack);
+    viewer.setTrackData([initialTrack]);
+    viewer.addTrackLegacy(newTrack);
 
-    const data = viewer.getData();
+    const data = viewer.getTrackData();
     expect(data).toHaveLength(2);
-    expect(data[1]).toEqual(newTrack);
+    expect(data[1].track).toBe(newTrack.track);
+    expect(data[1].annotations[0].label).toBe('New Gene');
   });
 
   test('should remove track correctly', () => {
@@ -110,25 +189,43 @@ describe('RegionViewer', () => {
       container: '#test-container'
     });
 
-    const tracks: Track[] = [
-      {
-        track: 'Track 1',
-        id: 'track1',
-        annotations: [{ start: 5, end: 15, label: 'Gene1' }]
-      },
-      {
-        track: 'Track 2', 
-        id: 'track2',
-        annotations: [{ start: 20, end: 40, label: 'Gene2' }]
-      }
-    ];
+    const data: RegionViewerData = {
+      tracks: [
+        { id: 'track1', label: 'Track 1' },
+        { id: 'track2', label: 'Track 2' }
+      ],
+      annotations: [
+        {
+          id: 'gene1',
+          trackId: 'track1',
+          type: 'box',
+          color: 'blue',
+          label: 'Gene1',
+          start: 5,
+          end: 15,
+          direction: 'none'
+        },
+        {
+          id: 'gene2',
+          trackId: 'track2',
+          type: 'box',
+          color: 'green',
+          label: 'Gene2',
+          start: 20,
+          end: 40,
+          direction: 'none'
+        }
+      ]
+    };
 
-    viewer.setData(tracks);
+    viewer.setData(data);
     viewer.removeTrack('track1');
 
-    const data = viewer.getData();
-    expect(data).toHaveLength(1);
-    expect(data[0].id).toBe('track2');
+    const resultData = viewer.getData();
+    expect(resultData.tracks).toHaveLength(1);
+    expect(resultData.annotations).toHaveLength(1);
+    expect(resultData.tracks[0].id).toBe('track2');
+    expect(resultData.annotations[0].id).toBe('gene2');
   });
 
   test('should update domain correctly', () => {
@@ -157,5 +254,88 @@ describe('RegionViewer', () => {
     });
 
     expect(viewer).toBeInstanceOf(RegionViewer);
+  });
+
+  test('should add and remove individual annotations', () => {
+    const viewer = new RegionViewer({
+      container: '#test-container'
+    });
+
+    const initialData: RegionViewerData = {
+      tracks: [{ id: 'track1', label: 'Test Track' }],
+      annotations: []
+    };
+
+    viewer.setData(initialData);
+
+    const annotation: AnnotationData = {
+      id: 'anno1',
+      trackId: 'track1',
+      type: 'arrow',
+      color: 'red',
+      label: 'Test Gene',
+      start: 10,
+      end: 30,
+      direction: 'right'
+    };
+
+    viewer.addAnnotation(annotation);
+    let data = viewer.getData();
+    expect(data.annotations).toHaveLength(1);
+    expect(data.annotations[0]).toEqual(annotation);
+
+    viewer.removeAnnotation('anno1');
+    data = viewer.getData();
+    expect(data.annotations).toHaveLength(0);
+  });
+
+  test('should handle different annotation types and colors', () => {
+    const viewer = new RegionViewer({
+      container: '#test-container'
+    });
+
+    const data: RegionViewerData = {
+      tracks: [{ id: 'track1', label: 'Mixed Track' }],
+      annotations: [
+        {
+          id: 'arrow1',
+          trackId: 'track1',
+          type: 'arrow',
+          color: '#4CAF50',
+          label: 'Gene',
+          start: 10,
+          end: 30,
+          direction: 'right'
+        },
+        {
+          id: 'box1',
+          trackId: 'track1',
+          type: 'box',
+          color: '#2196F3',
+          label: 'Domain',
+          start: 40,
+          end: 60,
+          direction: 'none'
+        },
+        {
+          id: 'marker1',
+          trackId: 'track1',
+          type: 'marker',
+          color: '#FF9800',
+          label: 'Site',
+          start: 70,
+          end: 75,
+          direction: 'none'
+        }
+      ]
+    };
+
+    viewer.setData(data);
+    const retrievedData = viewer.getData();
+    
+    expect(retrievedData.annotations).toHaveLength(3);
+    expect(retrievedData.annotations[0].type).toBe('arrow');
+    expect(retrievedData.annotations[1].type).toBe('box');
+    expect(retrievedData.annotations[2].type).toBe('marker');
   });
 });
