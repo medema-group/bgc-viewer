@@ -9,49 +9,32 @@ A viewer for BGC data.
 
 ```
 bgc-viewer/
-├── bgc_viewer/
-│   ├── __init__.py
-│   ├── app.py              # Main Flask application
-│   ├── static/
-│   │   └── style.css       # Styling
-│   │   └── app.js          # Frontend JavaScript
-│   └── templates/
-│       └── index.html      # Main HTML template
-├── data/
-│   └── custom_data.json    # Optional custom data file
-├── tests/
-│   └── test_app.py         # Test files
+├── bgc_viewer/             # Main application code
 ├── pyproject.toml          # Project configuration
-├── README.md
-└── .gitignore
+└── README.md
 ```
 
 ## Setup
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.11+
 - [uv](https://github.com/astral-sh/uv) package manager
 
 ### Installation
 
-1. Clone or create the project directory:
+1. Clone the repository:
+
    ```bash
-   mkdir bgc-viewer
+   git clone https://github.com/medema-group/bgc-viewer.git
    cd bgc-viewer
    ```
 
-2. Create the project structure and files (as shown above)
+2. Install with uv:
 
-3. Initialize the project with uv:
    ```bash
    uv venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   uv pip install -e .
-   ```
-
-4. For development dependencies:
-   ```bash
    uv pip install -e ".[dev]"
    ```
 
@@ -60,44 +43,19 @@ bgc-viewer/
 ### Running the Server
 
 ```bash
-# Using the console script
-serve
-
-# Or directly with Python
-python -m bgc_viewer.app
-
-# Or with environment variables
-FLASK_DEBUG=true PORT=8000 serve
+uv run python -m bgc_viewer.app
 ```
 
 The server will start on `http://localhost:5005` by default.
 
 ### API Endpoints
 
-- `GET /` - Main HTML page with interactive API tester
+- `GET /` - Main HTML page
 - `GET /api/data` - Get all custom data
 - `GET /api/users` - Get user list
 - `GET /api/users/<id>` - Get specific user
 - `GET /api/stats` - Get application statistics
 - `GET /api/health` - Health check endpoint
-
-### Testing the API
-
-Visit `http://localhost:5005` in your browser to access the interactive API tester, or use curl:
-
-```bash
-# Get all data
-curl http://localhost:5005/api/data
-
-# Get users
-curl http://localhost:5005/api/users
-
-# Get specific user
-curl http://localhost:5005/api/users/1
-
-# Health check
-curl http://localhost:5005/api/health
-```
 
 ## Development
 

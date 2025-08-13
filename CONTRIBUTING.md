@@ -47,9 +47,9 @@ We use several tools to maintain code quality:
 Run these tools before committing:
 
 ```bash
-black .
-flake8 .
-mypy bgc_viewer/
+uv run black .
+uv run flake8 .
+uv run mypy bgc_viewer/
 ```
 
 ### Testing
@@ -58,7 +58,7 @@ mypy bgc_viewer/
 - Ensure all tests pass before submitting a PR:
 
   ```bash
-  pytest tests/
+  uv run pytest bgc_viewer/tests/
   ```
 
 - Aim for good test coverage
