@@ -27,11 +27,11 @@ jobs:
 
     - name: Install dependencies
       run: |
-        poetry install --with dev
+        poetry install
 
     - name: Run tests
       run: |
-        poetry run pytest tests/ -v
+        poetry run pytest bgc_viewer/tests/ -v
 
     - name: Type check
       run: |

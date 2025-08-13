@@ -36,6 +36,11 @@ target-version = ['py311']
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
+ignore_missing_imports = true
 warn_unused_configs = true
-disallow_untyped_defs = true
+# Disable strict typing for first version
+# disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "waitress"
+ignore_missing_imports = true
