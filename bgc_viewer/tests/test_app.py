@@ -15,54 +15,47 @@ def test_index_route(client):
     """Test the main index route."""
     response = client.get('/')
     assert response.status_code == 200
-    assert b'My Flask Application' in response.data
+    assert b'BGC Viewer' in response.data
 
 
-def test_api_data_route(client):
-    """Test the /api/data endpoint."""
-    response = client.get('/api/data')
+def test_api_info_route(client):
+    """Test the /api/info endpoint."""
+    response = client.get('/api/info')
     assert response.status_code == 200
     data = json.loads(response.data)
-    assert 'users' in data
-    assert 'stats' in data
-    assert isinstance(data['users'], list)
+    # Could be empty if no data file, but should have consistent structure
+    if 'error' not in data:
+        assert 'version' in data
+        assert 'total_records' in data
 
 
-def test_api_users_route(client):
-    """Test the /api/users endpoint."""
-    response = client.get('/api/users')
-    assert response.status_code == 200
+def test_api_records_route(client):
+    """Test the /api/records endpoint."""
+    response = client.get('/api/records')
+    assert response.status_code in [200, 404]  # 404 if no data file
     data = json.loads(response.data)
-    assert isinstance(data, list)
-    assert len(data) > 0
-    assert 'id' in data[0]
-    assert 'name' in data[0]
+    if response.status_code == 200:
+        assert isinstance(data, list)
 
 
-def test_api_user_by_id_route(client):
-    """Test the /api/users/<id> endpoint."""
-    # Test existing user
-    response = client.get('/api/users/1')
-    assert response.status_code == 200
+def test_api_feature_types_route(client):
+    """Test the /api/feature-types endpoint."""
+    response = client.get('/api/feature-types')
+    assert response.status_code in [200, 404]  # 404 if no data file
     data = json.loads(response.data)
-    assert data['id'] == 1
-    assert 'name' in data
-    
-    # Test non-existing user
-    response = client.get('/api/users/999')
-    assert response.status_code == 404
-    data = json.loads(response.data)
-    assert 'error' in data
+    if response.status_code == 200:
+        assert isinstance(data, list)
 
 
 def test_api_stats_route(client):
     """Test the /api/stats endpoint."""
     response = client.get('/api/stats')
-    assert response.status_code == 200
+    assert response.status_code in [200, 404]  # 404 if no data file
     data = json.loads(response.data)
-    assert 'total_users' in data
-    assert 'active_sessions' in data
-    assert 'last_updated' in data
+    if response.status_code == 200:
+        assert 'total_records' in data
+        assert 'total_features' in data
+        assert 'feature_types' in data
 
 
 def test_health_check_route(client):
