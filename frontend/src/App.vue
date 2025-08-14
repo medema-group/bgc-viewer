@@ -5,10 +5,37 @@
     </header>
 
     <main>
+      <!-- File Selector Section -->
+      <section class="file-selector-section">
+        <h2>Data File Selection</h2>
+        <div class="file-selector">
+          <label for="file-select">Choose JSON file:</label>
+          <select 
+            id="file-select" 
+            v-model="selectedFile" 
+            @change="loadSelectedFile"
+            class="file-select"
+          >
+            <option value="" disabled>Select a file...</option>
+            <option 
+              v-for="file in availableFiles" 
+              :key="file" 
+              :value="file"
+            >
+              {{ file }}
+            </option>
+          </select>
+          <span v-if="currentFile" class="current-file">
+            Currently loaded: <strong>{{ currentFile }}</strong>
+          </span>
+          <span v-if="loadingFile" class="loading-indicator">Loading...</span>
+        </div>
+      </section>
+
       <!-- Region Viewer Section -->
       <section class="region-section">
         <h2>Region Visualization</h2>
-        <RegionViewerComponent />
+        <RegionViewerComponent ref="regionViewerRef" />
       </section>
       
       <!-- API Testing Section -->
@@ -58,7 +85,7 @@
 </template>
 
 <script>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import RegionViewerComponent from './components/RegionViewer.vue'
 
@@ -70,8 +97,14 @@ export default {
   setup() {
     const recordId = ref('')
     const featureType = ref('')
+    const selectedFile = ref('')
+    const availableFiles = ref([])
+    const currentFile = ref('')
+    const loadingFile = ref(false)
+    const regionViewerRef = ref(null)
     
     const endpoints = [
+      { method: 'GET', path: '/api/files', url: '/api/files', description: 'Get available files and current file', outputId: 'files-output' },
       { method: 'GET', path: '/api/info', url: '/api/info', description: 'Get dataset information and metadata', outputId: 'data-output' },
       { method: 'GET', path: '/api/records', url: '/api/records', description: 'Get all records (regions) summary', outputId: 'records-output' },
       { method: 'GET', path: '/api/feature-types', url: '/api/feature-types', description: 'Get all available feature types', outputId: 'feature-types-output' },
@@ -80,7 +113,8 @@ export default {
     ]
     
     const results = reactive([
-      { id: 'data-output', title: 'Dataset Info', content: 'Click "Test" buttons above to see API responses', status: '' },
+      { id: 'files-output', title: 'Available Files', content: 'Click "Test" buttons above to see API responses', status: '' },
+      { id: 'data-output', title: 'Dataset Info', content: '', status: '' },
       { id: 'records-output', title: 'Records', content: '', status: '' },
       { id: 'feature-types-output', title: 'Feature Types', content: '', status: '' },
       { id: 'stats-output', title: 'Dataset Statistics', content: '', status: '' },
@@ -117,13 +151,64 @@ export default {
       await fetchData(endpoint, 'record-features-output')
     }
     
+    const loadAvailableFiles = async () => {
+      try {
+        const response = await axios.get('/api/files')
+        availableFiles.value = response.data.available_files
+        currentFile.value = response.data.current_file
+        selectedFile.value = response.data.current_file
+      } catch (error) {
+        console.error('Failed to load available files:', error)
+      }
+    }
+    
+    const loadSelectedFile = async () => {
+      if (!selectedFile.value) return
+      
+      loadingFile.value = true
+      try {
+        const response = await axios.post(`/api/files/${encodeURIComponent(selectedFile.value)}`)
+        currentFile.value = response.data.current_file
+        
+        // Refresh all data outputs to reflect the new file
+        await Promise.all([
+          fetchData('/api/info', 'data-output'),
+          fetchData('/api/records', 'records-output'),
+          fetchData('/api/stats', 'stats-output')
+        ])
+        
+        // Refresh the RegionViewer component
+        if (regionViewerRef.value) {
+          await regionViewerRef.value.refreshData()
+        }
+        
+        alert(`Successfully loaded ${selectedFile.value}`)
+      } catch (error) {
+        console.error('Failed to load selected file:', error)
+        alert(`Failed to load ${selectedFile.value}: ${error.message}`)
+      } finally {
+        loadingFile.value = false
+      }
+    }
+    
+    // Load available files on component mount
+    onMounted(() => {
+      loadAvailableFiles()
+    })
+    
     return {
       recordId,
       featureType,
+      selectedFile,
+      availableFiles,
+      currentFile,
+      loadingFile,
+      regionViewerRef,
       endpoints,
       results,
       fetchData,
-      fetchRecordFeatures
+      fetchRecordFeatures,
+      loadSelectedFile
     }
   }
 }
@@ -134,6 +219,44 @@ export default {
   max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
+}
+
+.file-selector-section {
+  background: #e3f2fd;
+  border: 1px solid #bbdefb;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 30px;
+}
+
+.file-selector-section h2 {
+  margin-top: 0;
+  color: #1976d2;
+}
+
+.file-selector {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.file-select {
+  padding: 8px 12px;
+  border: 1px solid #1976d2;
+  border-radius: 4px;
+  background: white;
+  min-width: 200px;
+}
+
+.current-file {
+  color: #2e7d32;
+  font-size: 14px;
+}
+
+.loading-indicator {
+  color: #ff9800;
+  font-style: italic;
 }
 
 .endpoint-list {

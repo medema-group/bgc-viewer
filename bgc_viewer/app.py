@@ -12,16 +12,46 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-def load_antismash_data():
+# Global variable to store currently loaded data
+ANTISMASH_DATA = None
+CURRENT_FILE = None
+
+def get_available_files():
+    """Get list of available JSON files in the data directory."""
+    data_dir = Path("data")
+    if not data_dir.exists():
+        return []
+    
+    json_files = []
+    for file_path in data_dir.glob("*.json"):
+        json_files.append(file_path.name)
+    
+    return sorted(json_files)
+
+def load_antismash_data(filename=None):
     """Load AntiSMASH JSON data from file."""
-    data_file = Path("data/C178.transcripts.antismash8.output.json")
+    if filename is None:
+        # Default to Y16952.json if no file specified
+        filename = "Y16952.json"
+    
+    data_file = Path("data") / filename
     if data_file.exists():
         with open(data_file, 'r') as f:
             return json.load(f)
     return None
 
-# Load the data once at startup
-ANTISMASH_DATA = load_antismash_data()
+def set_current_file(filename):
+    """Set the current file and load its data."""
+    global ANTISMASH_DATA, CURRENT_FILE
+    data = load_antismash_data(filename)
+    if data is not None:
+        ANTISMASH_DATA = data
+        CURRENT_FILE = filename
+        return True
+    return False
+
+# Load the default data at startup
+set_current_file("Y16952.json")
 
 @app.route('/')
 def index():
@@ -36,6 +66,29 @@ def spa_fallback(path):
         return jsonify({"error": "Not found"}), 404
     return app.send_static_file('dist/index.html')
 
+@app.route('/api/files')
+def get_available_files_endpoint():
+    """API endpoint to get list of available JSON files."""
+    files = get_available_files()
+    return jsonify({
+        "available_files": files,
+        "current_file": CURRENT_FILE
+    })
+
+@app.route('/api/files/<filename>', methods=['POST'])
+def set_current_file_endpoint(filename):
+    """API endpoint to set the current file."""
+    if filename not in get_available_files():
+        return jsonify({"error": "File not found"}), 404
+    
+    if set_current_file(filename):
+        return jsonify({
+            "message": f"Successfully loaded {filename}",
+            "current_file": CURRENT_FILE
+        })
+    else:
+        return jsonify({"error": "Failed to load file"}), 500
+
 @app.route('/api/info')
 def get_info():
     """API endpoint to get basic information about the dataset."""
@@ -47,7 +100,8 @@ def get_info():
         "input_file": ANTISMASH_DATA.get("input_file"),
         "taxon": ANTISMASH_DATA.get("taxon"),
         "total_records": len(ANTISMASH_DATA.get("records", [])),
-        "schema": ANTISMASH_DATA.get("schema")
+        "schema": ANTISMASH_DATA.get("schema"),
+        "current_file": CURRENT_FILE
     })
 
 @app.route('/api/records')

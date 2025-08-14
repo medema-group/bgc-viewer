@@ -206,6 +206,27 @@ export default {
       return feature.type || 'Feature'
     }
     
+    const refreshData = async () => {
+      try {
+        loading.value = true
+        const response = await axios.get('/api/records')
+        records.value = response.data
+        
+        // Clear the current selection since the data changed
+        selectedRecord.value = ''
+        if (regionViewer) {
+          regionViewer.destroy()
+          regionViewer = null
+        }
+        
+        error.value = ''
+      } catch (err) {
+        error.value = `Failed to load records: ${err.message}`
+      } finally {
+        loading.value = false
+      }
+    }
+    
     return {
       viewerContainer,
       selectedRecord,
@@ -216,7 +237,8 @@ export default {
       showPFAM,
       showOther,
       onRecordChange,
-      updateViewer
+      updateViewer,
+      refreshData
     }
   }
 }
