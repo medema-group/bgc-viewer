@@ -64,7 +64,7 @@ export class RegionViewer {
   private tooltip!: d3.Selection<HTMLDivElement, unknown, HTMLElement, any>;
   private x!: d3.ScaleLinear<number, number>;
   private currentTransform: d3.ZoomTransform;
-  private zoom!: d3.ZoomBehavior<SVGRectElement, unknown>;
+  private zoom!: d3.ZoomBehavior<any, unknown>;
   private data: RegionViewerData = { tracks: [], annotations: [] };
   private trackGroups!: d3.Selection<SVGGElement, TrackData, SVGGElement, unknown>;
   private clipId!: string;
@@ -163,7 +163,7 @@ export class RegionViewer {
     const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
     const chartHeight = this.config.height - this.config.margin.top - this.config.margin.bottom;
 
-    this.zoom = d3.zoom<SVGRectElement, unknown>()
+    this.zoom = d3.zoom<any, unknown>()
       .scaleExtent(this.config.zoomExtent)
       .translateExtent([[0, 0], [chartWidth, chartHeight]])
       .extent([[0, 0], [chartWidth, chartHeight]])
@@ -172,16 +172,25 @@ export class RegionViewer {
         this.drawAnnotations();
       });
 
-    // Create zoom overlay
-    this.svg
-      .append('rect')
-      .attr('class', 'zoom-overlay')
+    // Apply zoom behavior to the main SVG instead of an overlay
+    // This allows individual elements to handle their own mouse events
+    this.svg.call(this.zoom);
+
+    // Create a background rect for empty areas to still capture zoom events
+    this.clippedChart
+      .insert('rect', ':first-child')
+      .attr('class', 'chart-background')
       .attr('width', chartWidth)
       .attr('height', chartHeight)
-      .attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`)
-      .style('fill', 'none')
+      .style('fill', 'transparent')
       .style('pointer-events', 'all')
-      .call(this.zoom);
+      .style('cursor', 'grab')
+      .on('mousedown', function() {
+        d3.select(this).style('cursor', 'grabbing');
+      })
+      .on('mouseup', function() {
+        d3.select(this).style('cursor', 'grab');
+      });
   }
 
   private updateHeight(): void {
@@ -195,6 +204,10 @@ export class RegionViewer {
 
     // Update clipping path height
     this.svg.select('clipPath rect')
+      .attr('height', chartHeight);
+
+    // Update chart background height
+    this.clippedChart.select('.chart-background')
       .attr('height', chartHeight);
   }
 
@@ -293,6 +306,7 @@ export class RegionViewer {
     element
       .attr('class', `annotation ${annotation.class}`)
       .style('cursor', 'pointer')
+      .style('pointer-events', 'all') // Ensure annotations can receive mouse events
       .on('mouseover', (event: any) => {
         element.classed('hovered', true);
         this.showTooltip(event, annotation, trackData);
@@ -490,13 +504,9 @@ export class RegionViewer {
       const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
       this.svg.select('clipPath rect').attr('width', chartWidth);
       
-      // Update zoom overlay
-      const zoomOverlay = this.svg.select('.zoom-overlay');
-      if (!zoomOverlay.empty()) {
-        zoomOverlay
-          .attr('width', chartWidth)
-          .attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
-      }
+      // Update chart background width
+      this.clippedChart.select('.chart-background')
+        .attr('width', chartWidth);
     }
   }
 
@@ -599,16 +609,14 @@ export class RegionViewer {
       .translate(translate, 0)
       .scale(scale);
 
-    const zoomRect = this.svg.select('.zoom-overlay') as d3.Selection<SVGRectElement, unknown, null, undefined>;
-    zoomRect
+    this.svg
       .transition()
       .duration(750)
       .call(this.zoom.transform, transform);
   }
 
   public resetZoom(): void {
-    const zoomRect = this.svg.select('.zoom-overlay') as d3.Selection<SVGRectElement, unknown, null, undefined>;
-    zoomRect
+    this.svg
       .transition()
       .duration(750)
       .call(this.zoom.transform, d3.zoomIdentity);
