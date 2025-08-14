@@ -8,7 +8,14 @@
         </option>
       </select>
       
-      <div v-if="selectedRecord" class="feature-controls">
+      <select v-if="selectedRecord" v-model="selectedRegion" @change="onRegionChange" class="region-select">
+        <option value="">Select a region...</option>
+        <option v-for="region in regions" :key="region.id" :value="region.id">
+          Region {{ region.region_number }} - {{ region.product.join(', ') }}
+        </option>
+      </select>
+      
+      <div v-if="selectedRecord && selectedRegion" class="feature-controls">
         <label>
           <input type="checkbox" v-model="showCDS" @change="updateViewer"> CDS
         </label>
@@ -21,7 +28,7 @@
       </div>
     </div>
     
-    <div ref="viewerContainer" class="viewer-container" v-show="selectedRecord"></div>
+    <div ref="viewerContainer" class="viewer-container" v-show="selectedRecord && selectedRegion"></div>
     
     <div v-if="loading" class="loading">
       Loading region data...
@@ -42,7 +49,9 @@ export default {
   setup() {
     const viewerContainer = ref(null)
     const selectedRecord = ref('')
+    const selectedRegion = ref('')
     const records = ref([])
+    const regions = ref([])
     const loading = ref(false)
     const error = ref('')
     
@@ -65,6 +74,9 @@ export default {
     })
     
     const onRecordChange = async () => {
+      selectedRegion.value = ''
+      regions.value = []
+      
       if (!selectedRecord.value) {
         if (regionViewer) {
           regionViewer.destroy()
@@ -77,42 +89,75 @@ export default {
       error.value = ''
       
       try {
-        // Load features for the selected record
-        const response = await axios.get(`/api/records/${selectedRecord.value}/features`)
-        currentFeatures = response.data.features
-        
-        await nextTick() // Wait for DOM update
-        initializeViewer()
-        updateViewer()
+        // Load regions for the selected record
+        const response = await axios.get(`/api/records/${selectedRecord.value}/regions`)
+        regions.value = response.data.regions
         
       } catch (err) {
-        error.value = `Failed to load features: ${err.message}`
+        error.value = `Failed to load regions: ${err.message}`
       } finally {
         loading.value = false
       }
     }
     
-    const initializeViewer = () => {
+    const onRegionChange = async () => {
+      if (!selectedRecord.value || !selectedRegion.value) {
+        if (regionViewer) {
+          regionViewer.destroy()
+          regionViewer = null
+        }
+        return
+      }
+      
+      loading.value = true
+      error.value = ''
+      
+      try {
+        // Load features for the selected region
+        const response = await axios.get(`/api/records/${selectedRecord.value}/regions/${selectedRegion.value}/features`)
+        currentFeatures = response.data.features
+        
+        await nextTick() // Wait for DOM update
+        initializeViewer(response.data.region_boundaries)
+        updateViewer()
+        
+      } catch (err) {
+        error.value = `Failed to load region features: ${err.message}`
+      } finally {
+        loading.value = false
+      }
+    }
+    
+    const initializeViewer = (regionBoundaries = null) => {
       if (regionViewer) {
         regionViewer.destroy()
       }
       
       if (!viewerContainer.value) return
       
-      // Calculate domain from features
-      const positions = currentFeatures
-        .filter(f => f.location)
-        .map(f => {
-          // Parse location string like "[164:2414](+)" or "[257:2393](+)"
-          const match = f.location.match(/\[(\d+):(\d+)\]/)
-          return match ? [parseInt(match[1]), parseInt(match[2])] : null
-        })
-        .filter(Boolean)
-        .flat()
+      let minPos, maxPos, padding
       
-      const minPos = Math.min(...positions) || 0
-      const maxPos = Math.max(...positions) || 1000
-      const padding = (maxPos - minPos) * 0.1
+      if (regionBoundaries) {
+        // Use region boundaries if provided
+        minPos = regionBoundaries.start
+        maxPos = regionBoundaries.end
+        padding = (maxPos - minPos) * 0.1
+      } else {
+        // Fallback to calculating from features
+        const positions = currentFeatures
+          .filter(f => f.location)
+          .map(f => {
+            // Parse location string like "[164:2414](+)" or "[257:2393](+)"
+            const match = f.location.match(/\[(\d+):(\d+)\]/)
+            return match ? [parseInt(match[1]), parseInt(match[2])] : null
+          })
+          .filter(Boolean)
+          .flat()
+        
+        minPos = Math.min(...positions) || 0
+        maxPos = Math.max(...positions) || 1000
+        padding = (maxPos - minPos) * 0.1
+      }
       
       regionViewer = new window.BgcViewer.RegionViewer({
         container: viewerContainer.value,
@@ -212,8 +257,10 @@ export default {
         const response = await axios.get('/api/records')
         records.value = response.data
         
-        // Clear the current selection since the data changed
+        // Clear the current selections since the data changed
         selectedRecord.value = ''
+        selectedRegion.value = ''
+        regions.value = []
         if (regionViewer) {
           regionViewer.destroy()
           regionViewer = null
@@ -230,13 +277,16 @@ export default {
     return {
       viewerContainer,
       selectedRecord,
+      selectedRegion,
       records,
+      regions,
       loading,
       error,
       showCDS,
       showPFAM,
       showOther,
       onRecordChange,
+      onRegionChange,
       updateViewer,
       refreshData
     }
@@ -262,6 +312,15 @@ export default {
   border-radius: 4px;
   font-size: 14px;
   margin-right: 10px;
+}
+
+.region-select {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  margin-right: 10px;
+  min-width: 250px;
 }
 
 .feature-controls {

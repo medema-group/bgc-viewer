@@ -107,6 +107,7 @@ export default {
       { method: 'GET', path: '/api/files', url: '/api/files', description: 'Get available files and current file', outputId: 'files-output' },
       { method: 'GET', path: '/api/info', url: '/api/info', description: 'Get dataset information and metadata', outputId: 'data-output' },
       { method: 'GET', path: '/api/records', url: '/api/records', description: 'Get all records (regions) summary', outputId: 'records-output' },
+      { method: 'GET', path: '/api/records/{id}/regions', url: '', description: 'Get regions for a specific record', outputId: 'regions-output', dynamic: true },
       { method: 'GET', path: '/api/feature-types', url: '/api/feature-types', description: 'Get all available feature types', outputId: 'feature-types-output' },
       { method: 'GET', path: '/api/stats', url: '/api/stats', description: 'Get dataset statistics', outputId: 'stats-output' },
       { method: 'GET', path: '/api/health', url: '/api/health', description: 'Health check endpoint', outputId: 'health-output' }
@@ -116,6 +117,7 @@ export default {
       { id: 'files-output', title: 'Available Files', content: 'Click "Test" buttons above to see API responses', status: '' },
       { id: 'data-output', title: 'Dataset Info', content: '', status: '' },
       { id: 'records-output', title: 'Records', content: '', status: '' },
+      { id: 'regions-output', title: 'Regions', content: '', status: '' },
       { id: 'feature-types-output', title: 'Feature Types', content: '', status: '' },
       { id: 'stats-output', title: 'Dataset Statistics', content: '', status: '' },
       { id: 'health-output', title: 'Health Status', content: '', status: '' },
@@ -128,7 +130,26 @@ export default {
       result.status = 'loading'
       
       try {
-        const response = await axios.get(endpoint)
+        let url = endpoint
+        
+        // Handle dynamic endpoints that need a record ID
+        if (!url && outputId === 'regions-output') {
+          // First fetch records to get the first available record ID
+          const recordsResponse = await axios.get('/api/records')
+          const records = recordsResponse.data
+          
+          if (records.length === 0) {
+            result.content = 'No records available'
+            result.status = 'error'
+            return
+          }
+          
+          // Use the first record's ID to construct the regions URL
+          const firstRecordId = records[0].id
+          url = `/api/records/${encodeURIComponent(firstRecordId)}/regions`
+        }
+        
+        const response = await axios.get(url)
         result.content = JSON.stringify(response.data, null, 2)
         result.status = response.status === 200 ? 'success' : 'error'
       } catch (error) {
