@@ -9,6 +9,11 @@ authors:
     email: p.kok@esciencecenter.nl
     affiliation: Netherlands eScience Center
     orcid: 'https://orcid.org/0000-0002-6630-7326'
+  - given-names: Vedran
+    family-names: Kasalica
+    email: v.kasalica@esciencecenter.nl
+    affiliation: Netherlands eScience Center, Netherlands
+    orcid: 'https://orcid.org/0000-0002-0097-1056'
 repository-code: "https://github.com/medema-group/bgc-viewer"
 url: "https://github.com/medema-group/bgc-viewer"
 license: Apache-2.0
