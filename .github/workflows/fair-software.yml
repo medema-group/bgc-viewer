@@ -18,4 +18,4 @@ jobs:
         env:
           PYCHARM_HOSTED: "Trick colorama into displaying colored output" 
         with:
-          MY_REPO_URL: "https://github.com/${{ github.repository }}"
+          MY_REPO_URL: "https://github.com/${{ github.repository }}/tree/${{ github.head_ref || github.ref_name }}"
