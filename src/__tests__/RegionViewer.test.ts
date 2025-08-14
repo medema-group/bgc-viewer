@@ -72,7 +72,7 @@ describe('RegionViewer', () => {
         id: 'gene1',
         trackId: 'track1',
         type: 'box',
-        color: 'blue',
+        class: 'test-blue',
         label: 'Gene1',
         start: 10,
         end: 30,
@@ -130,7 +130,7 @@ describe('RegionViewer', () => {
         id: 'initial1',
         trackId: 'track1',
         type: 'box',
-        color: 'blue',
+        class: 'test-blue',
         label: 'Initial',
         start: 5,
         end: 15,
@@ -143,7 +143,7 @@ describe('RegionViewer', () => {
       id: 'new1',
       trackId: 'track2',
       type: 'arrow',
-      color: 'green',
+      class: 'test-green',
       label: 'New Gene',
       start: 20,
       end: 40,
@@ -199,7 +199,7 @@ describe('RegionViewer', () => {
           id: 'gene1',
           trackId: 'track1',
           type: 'box',
-          color: 'blue',
+          class: 'test-blue',
           label: 'Gene1',
           start: 5,
           end: 15,
@@ -209,7 +209,7 @@ describe('RegionViewer', () => {
           id: 'gene2',
           trackId: 'track2',
           type: 'box',
-          color: 'green',
+          class: 'test-green',
           label: 'Gene2',
           start: 20,
           end: 40,
@@ -272,7 +272,7 @@ describe('RegionViewer', () => {
       id: 'anno1',
       trackId: 'track1',
       type: 'arrow',
-      color: 'red',
+      class: 'test-red',
       label: 'Test Gene',
       start: 10,
       end: 30,
@@ -289,7 +289,7 @@ describe('RegionViewer', () => {
     expect(data.annotations).toHaveLength(0);
   });
 
-  test('should handle different annotation types and colors', () => {
+  test('should handle different annotation types and classes', () => {
     const viewer = new RegionViewer({
       container: '#test-container'
     });
@@ -301,7 +301,7 @@ describe('RegionViewer', () => {
           id: 'arrow1',
           trackId: 'track1',
           type: 'arrow',
-          color: '#4CAF50',
+          class: 'annotation-gene',
           label: 'Gene',
           start: 10,
           end: 30,
@@ -311,7 +311,7 @@ describe('RegionViewer', () => {
           id: 'box1',
           trackId: 'track1',
           type: 'box',
-          color: '#2196F3',
+          class: 'annotation-domain',
           label: 'Domain',
           start: 40,
           end: 60,
@@ -321,7 +321,7 @@ describe('RegionViewer', () => {
           id: 'marker1',
           trackId: 'track1',
           type: 'marker',
-          color: '#FF9800',
+          class: 'annotation-regulatory',
           label: 'Site',
           start: 70,
           end: 75,

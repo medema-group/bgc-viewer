@@ -44,6 +44,39 @@
       margin-bottom: 20px;
     }
 
+    /* Annotation styling */
+    .annotation {
+      cursor: pointer;
+    }
+
+    .annotation-gene {
+      fill: #4CAF50;
+    }
+
+    .annotation-gene-alt {
+      fill: #2196F3;
+    }
+
+    .annotation-domain {
+      fill: #2196F3;
+    }
+
+    .annotation-regulatory {
+      fill: #FF9800;
+    }
+
+    .annotation-terminator {
+      fill: #F44336;
+    }
+
+    .annotation-default {
+      fill: #9C27B0;
+    }
+
+    .annotation.hovered {
+      fill: #FFA726 !important; /* Orange color for hover */
+    }
+
     .event-log {
       background: #f5f5f5;
       border: 1px solid #ddd;
@@ -84,22 +117,22 @@
       ],
       annotations: [
         // Gene track annotations
-        { id: "gene1", trackId: "genes", type: "arrow", color: "#4CAF50", label: "geneA", start: 10, end: 30, direction: "right" },
-        { id: "gene2", trackId: "genes", type: "arrow", color: "#4CAF50", label: "geneB", start: 35, end: 55, direction: "right" },
-        { id: "gene3", trackId: "genes", type: "arrow", color: "#4CAF50", label: "geneC", start: 60, end: 80, direction: "right" },
+        { id: "gene1", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneA", start: 10, end: 30, direction: "right" },
+        { id: "gene2", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "right" },
+        { id: "gene3", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneC", start: 60, end: 80, direction: "right" },
 
-        { id: "gene1", trackId: "genes2", type: "arrow", color: "#2196F3", label: "geneA", start: 10, end: 30, direction: "left" },
-        { id: "gene2", trackId: "genes2", type: "arrow", color: "#4CAF50", label: "geneB", start: 35, end: 55, direction: "left" },
-        { id: "gene3", trackId: "genes2", type: "arrow", color: "#2196F3", label: "geneC", start: 60, end: 80, direction: "left" },
+        { id: "gene1", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneA", start: 10, end: 30, direction: "left" },
+        { id: "gene2", trackId: "genes2", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "left" },
+        { id: "gene3", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneC", start: 60, end: 80, direction: "left" },
 
         // Domain track annotations
-        { id: "dom1", trackId: "domains", type: "box", color: "#2196F3", label: "domain1", start: 15, end: 25, direction: "none" },
-        { id: "dom2", trackId: "domains", type: "box", color: "#2196F3", label: "domain2", start: 40, end: 50, direction: "none" },
-        { id: "dom3", trackId: "domains", type: "box", color: "#2196F3", label: "domain3", start: 65, end: 75, direction: "none" },
+        { id: "dom1", trackId: "domains", type: "box", class: "annotation-domain", label: "domain1", start: 15, end: 25, direction: "none" },
+        { id: "dom2", trackId: "domains", type: "box", class: "annotation-domain", label: "domain2", start: 40, end: 50, direction: "none" },
+        { id: "dom3", trackId: "domains", type: "box", class: "annotation-domain", label: "domain3", start: 65, end: 75, direction: "none" },
 
         // Regulatory track annotations
-        { id: "prom1", trackId: "regulatory", type: "marker", color: "#FF9800", label: "promoter", start: 5, end: 12, direction: "none" },
-        { id: "term1", trackId: "regulatory", type: "marker", color: "#F44336", label: "terminator", start: 82, end: 90, direction: "none" }
+        { id: "prom1", trackId: "regulatory", type: "marker", class: "annotation-regulatory", label: "promoter", start: 5, end: 12, direction: "none" },
+        { id: "term1", trackId: "regulatory", type: "marker", class: "annotation-terminator", label: "terminator", start: 82, end: 90, direction: "none" }
       ]
     };
 
@@ -140,7 +173,7 @@
             id: `t${trackCounter}a`, 
             trackId: trackId, 
             type: "box", 
-            color: "#9C27B0", 
+            class: "annotation-default", 
             label: `item${trackCounter}A`, 
             start: Math.random() * 50, 
             end: Math.random() * 30 + 50, 
@@ -150,7 +183,7 @@
             id: `t${trackCounter}b`, 
             trackId: trackId, 
             type: "box", 
-            color: "#9C27B0", 
+            class: "annotation-default", 
             label: `item${trackCounter}B`, 
             start: Math.random() * 20 + 70, 
             end: Math.random() * 10 + 90, 

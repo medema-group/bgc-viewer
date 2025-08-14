@@ -42,7 +42,7 @@ export type AnnotationData = {
   id: string;
   trackId: string;
   type: AnnotationType;
-  color: string;
+  class: string;
   label: string;
   start: number;
   end: number;
@@ -287,15 +287,14 @@ export class RegionViewer {
 
     // Apply common styling and event handlers
     element
-      .attr('class', 'annotation')
-      .style('fill', annotation.color || 'steelblue')
+      .attr('class', `annotation ${annotation.class}`)
       .style('cursor', 'pointer')
       .on('mouseover', (event: any) => {
-        element.style('fill', 'orange');
+        element.classed('hovered', true);
         this.showTooltip(event, annotation, trackData);
       })
       .on('mouseout', () => {
-        element.style('fill', annotation.color || 'steelblue');
+        element.classed('hovered', false);
         this.hideTooltip();
       })
       .on('click', () => {
@@ -390,7 +389,7 @@ export class RegionViewer {
     y: number,
     width: number,
     height: number
-  ): d3.Selection<SVGPathElement, unknown, null, undefined> {
+  ): d3.Selection<SVGCircleElement, unknown, null, undefined> {
     // Render marker as a circle
     const centerX = x + width / 2;
     const centerY = y + height / 2;
@@ -451,7 +450,7 @@ export class RegionViewer {
         id: annotation.id || `${track.id || track.track}-${annotation.label}`,
         trackId: track.id || track.track,
         type: 'box' as AnnotationType,
-        color: 'steelblue',
+        class: 'annotation-default',
         label: annotation.label,
         start: annotation.start,
         end: annotation.end,
@@ -483,7 +482,7 @@ export class RegionViewer {
       id: annotation.id || `${track.id || track.track}-${annotation.label}`,
       trackId: track.id || track.track,
       type: 'box' as AnnotationType,
-      color: 'steelblue',
+      class: 'annotation-default',
       label: annotation.label,
       start: annotation.start,
       end: annotation.end,
