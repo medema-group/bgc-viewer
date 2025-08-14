@@ -5,6 +5,13 @@
     </header>
 
     <main>
+      <!-- Region Viewer Section -->
+      <section class="region-section">
+        <h2>Region Visualization</h2>
+        <RegionViewerComponent />
+      </section>
+      
+      <!-- API Testing Section -->
       <section class="api-section">
         <h2>API Endpoints</h2>
         <div class="endpoint-list">
@@ -53,9 +60,13 @@
 <script>
 import { ref, reactive } from 'vue'
 import axios from 'axios'
+import RegionViewerComponent from './components/RegionViewer.vue'
 
 export default {
   name: 'App',
+  components: {
+    RegionViewerComponent
+  },
   setup() {
     const recordId = ref('')
     const featureType = ref('')
@@ -170,5 +181,18 @@ export default {
 
 .success {
   color: #2e7d32;
+}
+
+.region-section {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 30px;
+}
+
+.region-section h2 {
+  margin-top: 0;
+  color: #495057;
 }
 </style>
