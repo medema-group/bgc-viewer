@@ -68,6 +68,7 @@ export class RegionViewer {
   private data: RegionViewerData = { tracks: [], annotations: [] };
   private trackGroups!: d3.Selection<SVGGElement, TrackData, SVGGElement, unknown>;
   private clipId!: string;
+  private originalLeftMargin: number; // Store original left margin
 
   constructor(config: RegionViewerConfig) {
     // Set default configuration
@@ -82,6 +83,9 @@ export class RegionViewer {
       onAnnotationClick: config.onAnnotationClick || (() => {}),
       onAnnotationHover: config.onAnnotationHover || (() => {})
     };
+
+    // Store the original left margin as minimum
+    this.originalLeftMargin = this.config.margin.left;
 
     this.currentTransform = d3.zoomIdentity;
     this.initialize();
@@ -429,9 +433,77 @@ export class RegionViewer {
     this.tooltip.style('display', 'none');
   }
 
+  // Calculate required left margin based on track label lengths
+  private calculateRequiredLeftMargin(): number {
+    if (this.data.tracks.length === 0) {
+      return this.originalLeftMargin;
+    }
+
+    // Create a temporary text element to measure text width
+    const tempText = this.svg
+      .append('text')
+      .style('font', '12px sans-serif')
+      .style('visibility', 'hidden');
+
+    let maxWidth = 0;
+    this.data.tracks.forEach(track => {
+      tempText.text(track.label);
+      const textNode = tempText.node() as SVGTextElement;
+      
+      // Fallback for environments where getBBox is not available (like jsdom)
+      if (textNode && typeof textNode.getBBox === 'function') {
+        try {
+          const bbox = textNode.getBBox();
+          maxWidth = Math.max(maxWidth, bbox.width);
+        } catch (error) {
+          // Fallback to rough estimation: 8px per character
+          maxWidth = Math.max(maxWidth, track.label.length * 8);
+        }
+      } else {
+        // Fallback to rough estimation: 8px per character
+        maxWidth = Math.max(maxWidth, track.label.length * 8);
+      }
+    });
+
+    // Remove the temporary text element
+    tempText.remove();
+
+    // Add some padding (10px for spacing from edge + 10px for spacing from chart)
+    const requiredMargin = Math.max(this.originalLeftMargin, maxWidth + 20);
+    return requiredMargin;
+  }
+
+  private updateMarginAndLayout(): void {
+    const newLeftMargin = this.calculateRequiredLeftMargin();
+    
+    // Only update if margin has changed significantly
+    if (Math.abs(this.config.margin.left - newLeftMargin) > 5) {
+      this.config.margin.left = newLeftMargin;
+      
+      // Update chart transform
+      this.chart.attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
+      
+      // Update x scale range
+      this.x.range([0, this.config.width - this.config.margin.left - this.config.margin.right]);
+      
+      // Update clipping path width
+      const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
+      this.svg.select('clipPath rect').attr('width', chartWidth);
+      
+      // Update zoom overlay
+      const zoomOverlay = this.svg.select('.zoom-overlay');
+      if (!zoomOverlay.empty()) {
+        zoomOverlay
+          .attr('width', chartWidth)
+          .attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
+      }
+    }
+  }
+
   // Public API methods
   public setData(data: RegionViewerData): void {
     this.data = data;
+    this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
     this.drawAnnotations();
@@ -466,6 +538,7 @@ export class RegionViewer {
     if (annotations) {
       this.data.annotations.push(...annotations);
     }
+    this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
     this.drawAnnotations();
@@ -495,6 +568,7 @@ export class RegionViewer {
   public removeTrack(trackId: string): void {
     this.data.tracks = this.data.tracks.filter(track => track.id !== trackId);
     this.data.annotations = this.data.annotations.filter(annotation => annotation.trackId !== trackId);
+    this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
     this.drawAnnotations();
