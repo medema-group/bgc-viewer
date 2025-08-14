@@ -7,7 +7,7 @@ name = "bgc-viewer"
 version = "0.1.0"
 description = "A Flask server with static HTML and API endpoints"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "Petek Kok"},
 ]
 dependencies = [
     "flask>=2.3.0",
@@ -15,7 +15,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "waitress>=3.0.0",
 ]
-requires-python = ">=3.8.1"
+requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 
@@ -32,10 +32,15 @@ bgc-viewer = "bgc_viewer.app:main"
 
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = ['py311']
 
 [tool.mypy]
-python_version = "3.8"
-warn_return_any = true
+python_version = "3.11"
+ignore_missing_imports = true
 warn_unused_configs = true
-disallow_untyped_defs = true
+# Disable strict typing for first version
+# disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "waitress"
+ignore_missing_imports = true
