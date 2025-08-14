@@ -5,6 +5,7 @@
 | **Build Status** | [![CI](https://github.com/medema-group/bgc-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/medema-group/bgc-viewer/actions/workflows/ci.yml) [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/) [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) |
 | **Software Directory** | [![Static Badge](https://img.shields.io/badge/RSD-BGCViewer-lib)](https://research-software-directory.org/software/bgc-viewer) |
 | **License** | [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) |
+| **Fairness** | [![fair-software.eu](https://img.shields.io/badge/fair--software.eu-%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F-green)](https://fair-software.eu) |
 
 A viewer for BGC data.
 
