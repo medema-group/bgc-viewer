@@ -40,6 +40,8 @@
                 onAnnotationClick: config.onAnnotationClick || (() => { }),
                 onAnnotationHover: config.onAnnotationHover || (() => { })
             };
+            // Store the original left margin as minimum
+            this.originalLeftMargin = this.config.margin.left;
             this.currentTransform = d3__namespace.zoomIdentity;
             this.initialize();
         }
@@ -111,16 +113,24 @@
                 this.currentTransform = event.transform;
                 this.drawAnnotations();
             });
-            // Create zoom overlay
-            this.svg
-                .append('rect')
-                .attr('class', 'zoom-overlay')
+            // Apply zoom behavior to the main SVG instead of an overlay
+            // This allows individual elements to handle their own mouse events
+            this.svg.call(this.zoom);
+            // Create a background rect for empty areas to still capture zoom events
+            this.clippedChart
+                .insert('rect', ':first-child')
+                .attr('class', 'chart-background')
                 .attr('width', chartWidth)
                 .attr('height', chartHeight)
-                .attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`)
-                .style('fill', 'none')
+                .style('fill', 'transparent')
                 .style('pointer-events', 'all')
-                .call(this.zoom);
+                .style('cursor', 'grab')
+                .on('mousedown', function () {
+                d3__namespace.select(this).style('cursor', 'grabbing');
+            })
+                .on('mouseup', function () {
+                d3__namespace.select(this).style('cursor', 'grab');
+            });
         }
         updateHeight() {
             const newHeight = this.data.tracks.length * this.config.rowHeight + this.config.margin.top + this.config.margin.bottom;
@@ -131,6 +141,9 @@
             this.xAxisGroup.attr('transform', `translate(0, ${chartHeight})`);
             // Update clipping path height
             this.svg.select('clipPath rect')
+                .attr('height', chartHeight);
+            // Update chart background height
+            this.clippedChart.select('.chart-background')
                 .attr('height', chartHeight);
         }
         createTrackGroups() {
@@ -207,15 +220,15 @@
             }
             // Apply common styling and event handlers
             element
-                .attr('class', 'annotation')
-                .style('fill', annotation.color || 'steelblue')
+                .attr('class', `annotation ${annotation.class}`)
                 .style('cursor', 'pointer')
+                .style('pointer-events', 'all') // Ensure annotations can receive mouse events
                 .on('mouseover', (event) => {
-                element.style('fill', 'orange');
+                element.classed('hovered', true);
                 this.showTooltip(event, annotation, trackData);
             })
                 .on('mouseout', () => {
-                element.style('fill', annotation.color || 'steelblue');
+                element.classed('hovered', false);
                 this.hideTooltip();
             })
                 .on('click', () => {
@@ -322,9 +335,63 @@
         hideTooltip() {
             this.tooltip.style('display', 'none');
         }
+        // Calculate required left margin based on track label lengths
+        calculateRequiredLeftMargin() {
+            if (this.data.tracks.length === 0) {
+                return this.originalLeftMargin;
+            }
+            // Create a temporary text element to measure text width
+            const tempText = this.svg
+                .append('text')
+                .style('font', '12px sans-serif')
+                .style('visibility', 'hidden');
+            let maxWidth = 0;
+            this.data.tracks.forEach(track => {
+                tempText.text(track.label);
+                const textNode = tempText.node();
+                // Fallback for environments where getBBox is not available (like jsdom)
+                if (textNode && typeof textNode.getBBox === 'function') {
+                    try {
+                        const bbox = textNode.getBBox();
+                        maxWidth = Math.max(maxWidth, bbox.width);
+                    }
+                    catch (error) {
+                        // Fallback to rough estimation: 8px per character
+                        maxWidth = Math.max(maxWidth, track.label.length * 8);
+                    }
+                }
+                else {
+                    // Fallback to rough estimation: 8px per character
+                    maxWidth = Math.max(maxWidth, track.label.length * 8);
+                }
+            });
+            // Remove the temporary text element
+            tempText.remove();
+            // Add some padding (10px for spacing from edge + 10px for spacing from chart)
+            const requiredMargin = Math.max(this.originalLeftMargin, maxWidth + 20);
+            return requiredMargin;
+        }
+        updateMarginAndLayout() {
+            const newLeftMargin = this.calculateRequiredLeftMargin();
+            // Only update if margin has changed significantly
+            if (Math.abs(this.config.margin.left - newLeftMargin) > 5) {
+                this.config.margin.left = newLeftMargin;
+                // Update chart transform
+                this.chart.attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
+                // Update x scale range
+                this.x.range([0, this.config.width - this.config.margin.left - this.config.margin.right]);
+                // Update clipping path width
+                const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
+                this.svg.select('clipPath rect').attr('width', chartWidth);
+                // Update chart background width
+                this.clippedChart.select('.chart-background')
+                    .attr('width', chartWidth);
+            }
+        }
         // Public API methods
         setData(data) {
             this.data = data;
+            this.updateMarginAndLayout();
             this.updateHeight();
             this.createTrackGroups();
             this.drawAnnotations();
@@ -340,7 +407,7 @@
                 id: annotation.id || `${track.id || track.track}-${annotation.label}`,
                 trackId: track.id || track.track,
                 type: 'box',
-                color: 'steelblue',
+                class: 'annotation-default',
                 label: annotation.label,
                 start: annotation.start,
                 end: annotation.end,
@@ -353,6 +420,7 @@
             if (annotations) {
                 this.data.annotations.push(...annotations);
             }
+            this.updateMarginAndLayout();
             this.updateHeight();
             this.createTrackGroups();
             this.drawAnnotations();
@@ -367,7 +435,7 @@
                 id: annotation.id || `${track.id || track.track}-${annotation.label}`,
                 trackId: track.id || track.track,
                 type: 'box',
-                color: 'steelblue',
+                class: 'annotation-default',
                 label: annotation.label,
                 start: annotation.start,
                 end: annotation.end,
@@ -378,6 +446,7 @@
         removeTrack(trackId) {
             this.data.tracks = this.data.tracks.filter(track => track.id !== trackId);
             this.data.annotations = this.data.annotations.filter(annotation => annotation.trackId !== trackId);
+            this.updateMarginAndLayout();
             this.updateHeight();
             this.createTrackGroups();
             this.drawAnnotations();
@@ -402,15 +471,13 @@
             const transform = d3__namespace.zoomIdentity
                 .translate(translate, 0)
                 .scale(scale);
-            const zoomRect = this.svg.select('.zoom-overlay');
-            zoomRect
+            this.svg
                 .transition()
                 .duration(750)
                 .call(this.zoom.transform, transform);
         }
         resetZoom() {
-            const zoomRect = this.svg.select('.zoom-overlay');
-            zoomRect
+            this.svg
                 .transition()
                 .duration(750)
                 .call(this.zoom.transform, d3__namespace.zoomIdentity);

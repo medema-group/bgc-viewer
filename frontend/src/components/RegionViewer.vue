@@ -162,7 +162,7 @@ export default {
             trackId: feature.type,
             type: feature.type === 'CDS' ? 'arrow' : 'box',
             direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
-            color: getFeatureColor(feature.type),
+            class: getFeatureClass(feature.type),
             label: getFeatureLabel(feature),
             start: start,
             end: end
@@ -182,15 +182,15 @@ export default {
       regionViewer.setData({ tracks, annotations })
     }
     
-    const getFeatureColor = (type) => {
-      const colors = {
-        'CDS': '#4CAF50',
-        'PFAM_domain': '#2196F3', 
-        'region': '#FF9800',
-        'protocluster': '#9C27B0',
-        'cand_cluster': '#F44336'
+    const getFeatureClass = (type) => {
+      const classes = {
+        'CDS': 'feature-cds',
+        'PFAM_domain': 'feature-pfam', 
+        'region': 'feature-region',
+        'protocluster': 'feature-protocluster',
+        'cand_cluster': 'feature-cand-cluster'
       }
-      return colors[type] || '#757575'
+      return classes[type] || 'feature-default'
     }
     
     const getFeatureLabel = (feature) => {
@@ -296,5 +296,36 @@ export default {
   padding: 10px;
   border-radius: 4px;
   margin: 10px 0;
+}
+
+/* Feature styling classes for the RegionViewer */
+:global(.feature-cds) {
+  fill: #4CAF50;
+  stroke: #388E3C;
+}
+
+:global(.feature-pfam) {
+  fill: #2196F3;
+  stroke: #1976D2;
+}
+
+:global(.feature-region) {
+  fill: #FF9800;
+  stroke: #F57C00;
+}
+
+:global(.feature-protocluster) {
+  fill: #9C27B0;
+  stroke: #7B1FA2;
+}
+
+:global(.feature-cand-cluster) {
+  fill: #F44336;
+  stroke: #D32F2F;
+}
+
+:global(.feature-default) {
+  fill: #757575;
+  stroke: #424242;
 }
 </style>
