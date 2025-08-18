@@ -12,13 +12,14 @@ load_dotenv()
 
 # Get the directory where this module is installed
 app_dir = Path(__file__).parent
-# Look for build directory relative to the package root (one level up), fallback to package static
-build_dir = app_dir.parent / 'build'
-if not build_dir.exists():
-    build_dir = app_dir / 'static'
+# Look for frontend build directory (in development: ../../frontend/build, in package: static)
+frontend_build_dir = app_dir.parent.parent.parent / 'frontend' / 'build'
+if not frontend_build_dir.exists():
+    # Fallback to package static directory when installed
+    frontend_build_dir = app_dir / 'static'
 
 app = Flask(__name__, 
-           static_folder=str(build_dir),
+           static_folder=str(frontend_build_dir),
            static_url_path='/static')
 CORS(app)
 

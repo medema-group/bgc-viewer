@@ -3,53 +3,78 @@
 # Exit on any error
 set -e
 
-echo "Building BGC Viewer..."
+echo "Building BGC Viewer (Frontend + Backend)..."
 
 # Change to the project root directory
 cd "$(dirname "$0")"
 
-# Clean previous builds
-rm -rf dist/ bgc_viewer.egg-info/
-
-# Build the frontend
-echo "Building frontend..."
+# Build frontend first
+echo "=== Building Frontend ==="
 cd frontend
+
+# Clean previous build
+rm -rf build/ dist/
+
+# Install dependencies and build
 npm install
 npm run build
-cd ..
 
-# Verify build output exists
+# Verify build output
 if [ ! -f "build/index.html" ]; then
     echo "Error: Frontend build failed - index.html not found in build/"
     exit 1
 fi
 
-echo "Frontend built successfully. Files in build/:"
+echo "Frontend build completed successfully!"
+echo "Output: frontend/build/"
 ls -la build/
 
-# Copy build files to package static directory for packaging
-echo "Copying build files to package static directory..."
-mkdir -p bgc_viewer/static
-cp -r build/* bgc_viewer/static/
+cd ..
 
-# Build the Python package
+# Build backend (which includes copying frontend assets)
+echo ""
+echo "=== Building Backend ==="
+cd backend
+
+# Clean previous build
+rm -rf dist/ bgc_viewer.egg-info/
+
+# Copy frontend build files to static directory
+echo "Copying frontend assets..."
+if [ -d "../frontend/build" ]; then
+    mkdir -p bgc_viewer/static
+    cp -r ../frontend/build/* bgc_viewer/static/
+    echo "Frontend assets copied to bgc_viewer/static/"
+else
+    echo "Warning: Frontend not built. Something went wrong."
+    exit 1
+fi
+
+# Build Python package
 echo "Building Python package..."
 python -m build
 
-# Check if wheel was created
+# Verify build output
 if [ ! -f "dist/bgc_viewer-0.1.1-py3-none-any.whl" ]; then
     echo "Error: Python wheel was not created"
     exit 1
 fi
 
-# List wheel contents to verify static files are included
-echo "Wheel contents:"
+# Check wheel contents
+echo "Checking package contents:"
 python -m zipfile -l dist/bgc_viewer-0.1.1-py3-none-any.whl | grep -E "(static|index\.html|\.js|\.css)" || echo "Warning: No static files found in wheel"
 
-echo "Build completed successfully!"
-echo "Frontend: build/"
-echo "Package: dist/bgc_viewer-0.1.1-py3-none-any.whl"
+echo "Backend build completed successfully!"
+echo "Output: backend/dist/"
+ls -la dist/
+
+cd ..
+
+echo ""
+echo "=== Build Complete ==="
+echo "Frontend build: frontend/build/"
+echo "Backend package: backend/dist/"
 echo ""
 echo "To test the package:"
-echo "  pip install dist/bgc_viewer-0.1.1-py3-none-any.whl"
+echo "  pip install backend/dist/bgc_viewer-0.1.1-py3-none-any.whl"
 echo "  bgc-viewer"

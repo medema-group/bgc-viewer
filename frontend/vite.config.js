@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   build: {
-    outDir: '../build',
+    outDir: 'build',
     emptyOutDir: true,
     rollupOptions: {
       input: 'index.html'
