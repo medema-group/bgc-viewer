@@ -8,6 +8,14 @@
       <!-- File Selector Section -->
       <section class="file-selector-section">
         <h2>Data File Selection</h2>
+        <div class="folder-selector">
+          <button @click="showFolderDialog = true" class="browse-button">
+            Select Folder
+          </button>
+          <span v-if="currentFolderPath" class="current-folder">
+            Current folder: <strong>{{ currentFolderPath }}</strong>
+          </span>
+        </div>
         <div class="file-selector">
           <label for="file-select">Choose JSON file:</label>
           <select 
@@ -15,22 +23,81 @@
             v-model="selectedFile" 
             @change="loadSelectedFile"
             class="file-select"
+            :disabled="availableFiles.length === 0"
           >
-            <option value="" disabled>Select a file...</option>
+            <option value="" disabled>
+              {{ availableFiles.length === 0 ? 'No JSON files available - select a folder first' : 'Select a file...' }}
+            </option>
             <option 
               v-for="file in availableFiles" 
-              :key="file" 
-              :value="file"
+              :key="file.name || file" 
+              :value="file.path || file"
             >
-              {{ file }}
+              {{ file.relative_path || file.name || file }}{{ file.size ? ` (${formatFileSize(file.size)})` : '' }}
             </option>
           </select>
           <span v-if="currentFile" class="current-file">
             Currently loaded: <strong>{{ currentFile }}</strong>
           </span>
+          <span v-else-if="availableFiles.length === 0 && !loadingFile" class="no-file-indicator">
+            No data loaded - please select a folder containing JSON files
+          </span>
           <span v-if="loadingFile" class="loading-indicator">Loading...</span>
         </div>
       </section>
+
+      <!-- Folder Selection Modal -->
+      <div v-if="showFolderDialog" class="modal-overlay" @click="closeFolderDialog">
+        <div class="modal-dialog" @click.stop>
+          <div class="modal-header">
+            <h3>Select Folder</h3>
+            <button class="close-button" @click="closeFolderDialog">&times;</button>
+          </div>
+          
+          <div class="modal-body">
+            <div class="quick-nav">
+              <strong>Quick Navigation:</strong>
+              <button @click="browsePath('/')" class="quick-nav-button">Root (/)</button>
+              <button @click="browsePath('/Users')" class="quick-nav-button">Users</button>
+              <button @click="browsePath('.')" class="quick-nav-button">Application dir</button>
+            </div>
+            
+            <div class="current-path">
+              <strong>Current path:</strong> {{ currentBrowserPath || '.' }}
+            </div>
+            
+            <div class="folder-contents">
+              <div v-if="browserLoading" class="loading">Loading...</div>
+              <div v-else-if="browserError" class="error">{{ browserError }}</div>
+              <div v-else>
+                <div 
+                  v-for="item in browserItems" 
+                  :key="item.path"
+                  :class="['browser-item', item.type]"
+                  @click="handleBrowserItemClick(item)"
+                >
+                  <span class="item-icon">
+                    {{ item.type === 'directory' ? '📁' : '📄' }}
+                  </span>
+                  <span class="item-name">{{ item.name }}</span>
+                  <span v-if="item.size" class="item-size">
+                    ({{ formatFileSize(item.size) }})
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="modal-footer">
+            <button @click="selectCurrentFolder" class="confirm-button" :disabled="!currentBrowserPath">
+              Select This Folder
+            </button>
+            <button @click="closeFolderDialog" class="cancel-button">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
 
       <!-- Region Viewer Section -->
       <section class="region-section">
@@ -103,8 +170,16 @@ export default {
     const loadingFile = ref(false)
     const regionViewerRef = ref(null)
     
+    // Folder browser state
+    const showFolderDialog = ref(false)
+    const currentBrowserPath = ref('')
+    const currentFolderPath = ref('')
+    const browserItems = ref([])
+    const browserLoading = ref(false)
+    const browserError = ref('')
+    
     const endpoints = [
-      { method: 'GET', path: '/api/files', url: '/api/files', description: 'Get available files and current file', outputId: 'files-output' },
+      { method: 'GET', path: '/api/status', url: '/api/status', description: 'Get current file and loading status', outputId: 'status-output' },
       { method: 'GET', path: '/api/info', url: '/api/info', description: 'Get dataset information and metadata', outputId: 'data-output' },
       { method: 'GET', path: '/api/records', url: '/api/records', description: 'Get all records (regions) summary', outputId: 'records-output' },
       { method: 'GET', path: '/api/records/{id}/regions', url: '', description: 'Get regions for a specific record', outputId: 'regions-output', dynamic: true },
@@ -114,7 +189,7 @@ export default {
     ]
     
     const results = reactive([
-      { id: 'files-output', title: 'Available Files', content: 'Click "Test" buttons above to see API responses', status: '' },
+      { id: 'status-output', title: 'Current Status', content: 'Click "Test" buttons above to see API responses', status: '' },
       { id: 'data-output', title: 'Dataset Info', content: '', status: '' },
       { id: 'records-output', title: 'Records', content: '', status: '' },
       { id: 'regions-output', title: 'Regions', content: '', status: '' },
@@ -174,12 +249,125 @@ export default {
     
     const loadAvailableFiles = async () => {
       try {
-        const response = await axios.get('/api/files')
-        availableFiles.value = response.data.available_files
-        currentFile.value = response.data.current_file
-        selectedFile.value = response.data.current_file
+        // Get current status first
+        let currentStatus = null
+        try {
+          const statusResponse = await axios.get('/api/status')
+          currentStatus = statusResponse.data
+        } catch (statusError) {
+          console.warn('Could not get current status:', statusError.message)
+        }
+        
+        // Try to scan the default data directory
+        const dataDir = './data'
+        try {
+          const scanResponse = await axios.post('/api/scan-folder', {
+            path: dataDir
+          })
+          
+          if (scanResponse.data.json_files && scanResponse.data.json_files.length > 0) {
+            availableFiles.value = scanResponse.data.json_files
+            currentFolderPath.value = scanResponse.data.folder_path
+          } else {
+            // No files in data directory
+            availableFiles.value = []
+            currentFolderPath.value = ''
+          }
+          
+          // Set current file info from status
+          if (currentStatus) {
+            currentFile.value = currentStatus.current_file
+            selectedFile.value = currentStatus.current_file
+          }
+          
+        } catch (scanError) {
+          console.warn('Failed to scan data directory:', scanError.message)
+          availableFiles.value = []
+          currentFolderPath.value = ''
+          
+          // Still try to set current file info from status
+          if (currentStatus) {
+            currentFile.value = currentStatus.current_file
+            selectedFile.value = currentStatus.current_file
+          }
+        }
+        
       } catch (error) {
         console.error('Failed to load available files:', error)
+        availableFiles.value = []
+        currentFile.value = ''
+        selectedFile.value = ''
+      }
+    }
+    
+    // Load available files on component mount
+    onMounted(() => {
+      loadAvailableFiles()
+      browsePath('.') // Initialize folder browser
+    })
+    
+    const browsePath = async (path) => {
+      browserLoading.value = true
+      browserError.value = ''
+      
+      try {
+        const response = await axios.get('/api/browse', {
+          params: { path: path }
+        })
+        
+        currentBrowserPath.value = response.data.current_path
+        browserItems.value = response.data.items
+        
+      } catch (error) {
+        browserError.value = `Failed to browse path: ${error.response?.data?.error || error.message}`
+      } finally {
+        browserLoading.value = false
+      }
+    }
+    
+    const handleBrowserItemClick = async (item) => {
+      if (item.type === 'directory') {
+        await browsePath(item.path)
+      }
+      // Remove file clicking functionality - now only for directory navigation
+    }
+    
+    const closeFolderDialog = () => {
+      showFolderDialog.value = false
+    }
+    
+    const selectCurrentFolder = async () => {
+      if (!currentBrowserPath.value) return
+      
+      try {
+        loadingFile.value = true
+        const response = await axios.post('/api/scan-folder', {
+          path: currentBrowserPath.value
+        })
+        
+        // Update the available files with the scanned JSON files
+        availableFiles.value = response.data.json_files
+        currentFolderPath.value = response.data.folder_path
+        
+        // Clear current selection
+        selectedFile.value = ''
+        
+        // Close the dialog
+        closeFolderDialog()
+        
+        const count = response.data.count
+        const scanType = response.data.scan_type || 'recursive'
+        
+        if (count === 0) {
+          alert(`No JSON files found in the selected folder and its subdirectories`)
+        } else {
+          alert(`Found ${count} JSON file${count === 1 ? '' : 's'} in the selected folder (${scanType} scan)`)
+        }
+        
+      } catch (error) {
+        alert(`Failed to scan folder: ${error.response?.data?.error || error.message}`)
+      } finally {
+        loadingFile.value = false
       }
     }
     
@@ -188,7 +376,11 @@ export default {
       
       loadingFile.value = true
       try {
-        const response = await axios.post(`/api/files/${encodeURIComponent(selectedFile.value)}`)
+        // All files now use the /api/load-file endpoint with full path
+        const response = await axios.post('/api/load-file', {
+          path: selectedFile.value
+        })
+        
         currentFile.value = response.data.current_file
         
         // Refresh all data outputs to reflect the new file
@@ -203,19 +395,22 @@ export default {
           await regionViewerRef.value.refreshData()
         }
         
-        alert(`Successfully loaded ${selectedFile.value}`)
+        alert(`Successfully loaded ${response.data.current_file}`)
       } catch (error) {
         console.error('Failed to load selected file:', error)
-        alert(`Failed to load ${selectedFile.value}: ${error.message}`)
+        alert(`Failed to load file: ${error.response?.data?.error || error.message}`)
       } finally {
         loadingFile.value = false
       }
     }
     
-    // Load available files on component mount
-    onMounted(() => {
-      loadAvailableFiles()
-    })
+    const formatFileSize = (bytes) => {
+      if (bytes === 0) return '0 B'
+      const k = 1024
+      const sizes = ['B', 'KB', 'MB', 'GB']
+      const i = Math.floor(Math.log(bytes) / Math.log(k))
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+    }
     
     return {
       recordId,
@@ -225,11 +420,22 @@ export default {
       currentFile,
       loadingFile,
       regionViewerRef,
+      showFolderDialog,
+      currentBrowserPath,
+      currentFolderPath,
+      browserItems,
+      browserLoading,
+      browserError,
       endpoints,
       results,
       fetchData,
       fetchRecordFeatures,
-      loadSelectedFile
+      loadSelectedFile,
+      handleBrowserItemClick,
+      formatFileSize,
+      browsePath,
+      closeFolderDialog,
+      selectCurrentFolder
     }
   }
 }
@@ -270,6 +476,13 @@ export default {
   min-width: 200px;
 }
 
+.file-select:disabled {
+  background: #f5f5f5;
+  color: #9e9e9e;
+  border-color: #e0e0e0;
+  cursor: not-allowed;
+}
+
 .current-file {
   color: #2e7d32;
   font-size: 14px;
@@ -278,6 +491,281 @@ export default {
 .loading-indicator {
   color: #ff9800;
   font-style: italic;
+}
+
+.no-file-indicator {
+  color: #9e9e9e;
+  font-style: italic;
+  font-size: 14px;
+}
+
+.folder-selector {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #bbdefb;
+}
+
+.current-folder {
+  color: #2e7d32;
+  font-size: 14px;
+  margin-left: 15px;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-dialog {
+  background: white;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 80%;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #eee;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+}
+
+.modal-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-footer {
+  padding: 20px;
+  border-top: 1px solid #eee;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-button {
+  background: #1976d2;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.confirm-button:hover:not(:disabled) {
+  background: #1565c0;
+}
+
+.confirm-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.cancel-button {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cancel-button:hover {
+  background: #5a6268;
+}
+
+/* Folder Browser Styles (within modal) */
+.folder-browser {
+  padding: 0 20px;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.current-path {
+  background: #f5f5f5;
+  padding: 10px;
+  border-radius: 4px;
+  font-family: monospace;
+  margin-bottom: 15px;
+  font-size: 14px;
+}
+
+.quick-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.quick-nav-button {
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #1976d2;
+}
+
+.quick-nav-button:hover {
+  background: #bbdefb;
+}
+
+.folder-list {
+  flex: 1;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fafafa;
+  overflow-y: auto;
+  min-height: 200px;
+}
+
+.folder-item {
+  padding: 10px 15px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.folder-item:hover {
+  background: #e3f2fd;
+}
+
+.folder-item.selected {
+  background: #bbdefb;
+  color: #1976d2;
+  font-weight: bold;
+}
+
+.folder-item:last-child {
+  border-bottom: none;
+}
+
+.folder-item span {
+  margin-left: 8px;
+}
+
+.browse-button {
+  background: #1976d2;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.browse-button:hover {
+  background: #1565c0;
+}
+
+.folder-browser {
+  margin-top: 15px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: white;
+}
+
+.quick-nav {
+  padding: 10px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #ccc;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.quick-nav-button {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.quick-nav-button:hover {
+  background: #5a6268;
+}
+
+.current-path {
+  padding: 10px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ccc;
+  font-size: 14px;
+}
+
+.folder-contents {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.browser-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+}
+
+.browser-item:hover {
+  background: #f8f9fa;
+}
+
+.browser-item.directory {
+  font-weight: 500;
+}
+
+.browser-item.file {
+  color: #666;
+}
+
+.item-icon {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.item-name {
+  flex: 1;
+}
+
+.item-size {
+  font-size: 12px;
+  color: #888;
 }
 
 .endpoint-list {

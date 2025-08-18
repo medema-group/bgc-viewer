@@ -52,7 +52,19 @@ def set_current_file(filename):
     return False
 
 # Load the default data at startup
-set_current_file("Y16952.json")
+# Try to load a default file if it exists, but don't fail if it doesn't
+try:
+    if not set_current_file("Y16952.json"):
+        # Try to load any available JSON file from data directory
+        available_files = get_available_files()
+        if available_files:
+            set_current_file(available_files[0])
+        else:
+            print("No JSON files found in data directory. Application will start without loaded data.")
+except Exception as e:
+    print(f"Warning: Could not load default data on startup: {e}")
+    ANTISMASH_DATA = None
+    CURRENT_FILE = None
 
 @app.route('/')
 def index():
@@ -67,28 +79,165 @@ def spa_fallback(path):
         return jsonify({"error": "Not found"}), 404
     return app.send_static_file('dist/index.html')
 
-@app.route('/api/files')
-def get_available_files_endpoint():
-    """API endpoint to get list of available JSON files."""
-    files = get_available_files()
+@app.route('/api/status')
+def get_status():
+    """API endpoint to get current file and data loading status."""
     return jsonify({
-        "available_files": files,
-        "current_file": CURRENT_FILE
+        "current_file": CURRENT_FILE if CURRENT_FILE else None,
+        "has_loaded_data": ANTISMASH_DATA is not None,
+        "data_directory_exists": Path("data").exists()
     })
 
-@app.route('/api/files/<filename>', methods=['POST'])
-def set_current_file_endpoint(filename):
-    """API endpoint to set the current file."""
-    if filename not in get_available_files():
-        return jsonify({"error": "File not found"}), 404
+@app.route('/api/browse')
+def browse_filesystem():
+    """API endpoint to browse the server's filesystem."""
+    path = request.args.get('path', '.')
     
-    if set_current_file(filename):
+    try:
+        # Resolve the path
+        resolved_path = Path(path).resolve()
+        
+        if not resolved_path.exists():
+            return jsonify({"error": "Path does not exist"}), 404
+            
+        if not resolved_path.is_dir():
+            return jsonify({"error": "Path is not a directory"}), 400
+        
+        items = []
+        
+        # Add parent directory option (except for filesystem root)
+        if resolved_path.parent != resolved_path:  # Not at filesystem root
+            items.append({
+                "name": "..",
+                "type": "directory",
+                "path": str(resolved_path.parent)
+            })
+        
+        # List directory contents
+        for item in sorted(resolved_path.iterdir()):
+            try:
+                if item.is_dir():
+                    items.append({
+                        "name": item.name,
+                        "type": "directory", 
+                        "path": str(item)
+                    })
+                elif item.suffix.lower() == '.json':
+                    items.append({
+                        "name": item.name,
+                        "type": "file",
+                        "path": str(item),
+                        "size": item.stat().st_size
+                    })
+            except (OSError, PermissionError):
+                # Skip items we can't access
+                continue
+        
         return jsonify({
-            "message": f"Successfully loaded {filename}",
-            "current_file": CURRENT_FILE
+            "current_path": str(resolved_path),
+            "items": items
         })
-    else:
-        return jsonify({"error": "Failed to load file"}), 500
+        
+    except PermissionError:
+        return jsonify({"error": "Permission denied"}), 403
+    except Exception as e:
+        return jsonify({"error": f"Failed to browse directory: {str(e)}"}), 500
+
+@app.route('/api/scan-folder', methods=['POST'])
+def scan_folder_for_json():
+    """API endpoint to scan a folder recursively for JSON files."""
+    data = request.get_json()
+    folder_path = data.get('path')
+    
+    if not folder_path:
+        return jsonify({"error": "No folder path provided"}), 400
+    
+    try:
+        # Resolve the path
+        resolved_path = Path(folder_path).resolve()
+        
+        if not resolved_path.exists():
+            return jsonify({"error": "Folder does not exist"}), 404
+            
+        if not resolved_path.is_dir():
+            return jsonify({"error": "Path is not a directory"}), 400
+        
+        # Scan recursively for JSON files
+        json_files = []
+        try:
+            # Use rglob to recursively find all JSON files
+            for json_file in resolved_path.rglob('*.json'):
+                try:
+                    if json_file.is_file():
+                        # Calculate relative path from the base folder for display
+                        relative_path = json_file.relative_to(resolved_path)
+                        json_files.append({
+                            "name": json_file.name,
+                            "path": str(json_file),
+                            "relative_path": str(relative_path),
+                            "size": json_file.stat().st_size,
+                            "directory": str(json_file.parent.relative_to(resolved_path)) if json_file.parent != resolved_path else "."
+                        })
+                except (OSError, PermissionError):
+                    # Skip files we can't access
+                    continue
+        except PermissionError:
+            return jsonify({"error": "Permission denied to read folder"}), 403
+        
+        # Sort by relative path for better organization
+        json_files.sort(key=lambda x: x['relative_path'])
+        
+        return jsonify({
+            "folder_path": str(resolved_path),
+            "json_files": json_files,
+            "count": len(json_files),
+            "scan_type": "recursive"
+        })
+        
+    except PermissionError:
+        return jsonify({"error": "Permission denied"}), 403
+    except Exception as e:
+        return jsonify({"error": f"Failed to scan folder: {str(e)}"}), 500
+
+@app.route('/api/load-file', methods=['POST'])
+def load_file_from_path():
+    """API endpoint to load a JSON file from a specific path."""
+    data = request.get_json()
+    file_path = data.get('path')
+    
+    if not file_path:
+        return jsonify({"error": "No file path provided"}), 400
+    
+    try:
+        # Resolve the path
+        resolved_path = Path(file_path).resolve()
+        
+        if not resolved_path.exists():
+            return jsonify({"error": "File does not exist"}), 404
+            
+        if not resolved_path.is_file() or resolved_path.suffix.lower() != '.json':
+            return jsonify({"error": "Not a JSON file"}), 400
+        
+        # Load the file
+        global ANTISMASH_DATA, CURRENT_FILE
+        with open(resolved_path, 'r') as f:
+            data = json.load(f)
+        
+        ANTISMASH_DATA = data
+        CURRENT_FILE = resolved_path.name
+        
+        return jsonify({
+            "message": f"Successfully loaded {resolved_path.name}",
+            "current_file": CURRENT_FILE,
+            "file_path": str(resolved_path)
+        })
+        
+    except PermissionError:
+        return jsonify({"error": "Permission denied"}), 403
+    except json.JSONDecodeError as e:
+        return jsonify({"error": f"Invalid JSON file: {str(e)}"}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to load file: {str(e)}"}), 500
 
 @app.route('/api/info')
 def get_info():
