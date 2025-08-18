@@ -16,15 +16,51 @@
       </select>
       
       <div v-if="selectedRecord && selectedRegion" class="feature-controls">
-        <label>
-          <input type="checkbox" v-model="showCDS" @change="updateViewer"> CDS
-        </label>
-        <label>
-          <input type="checkbox" v-model="showPFAM" @change="updateViewer"> PFAM domains
-        </label>
-        <label>
-          <input type="checkbox" v-model="showOther" @change="updateViewer"> Other features
-        </label>
+        <div class="multi-select-container">
+          <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
+            <div class="selected-display">
+              <span v-if="selectedFeatureTypes.length === availableFeatureTypes.length">
+                All types ({{ selectedFeatureTypes.length }})
+              </span>
+              <span v-else-if="selectedFeatureTypes.length === 0">
+                No types selected
+              </span>
+              <span v-else>
+                {{ selectedFeatureTypes.length }} types selected
+              </span>
+              <span class="dropdown-arrow">▼</span>
+            </div>
+            <div v-if="dropdownOpen" class="dropdown-options" @click.stop>
+              <div class="select-all-option">
+                <label>
+                  <input 
+                    type="checkbox" 
+                    :checked="selectedFeatureTypes.length === availableFeatureTypes.length"
+                    :indeterminate="selectedFeatureTypes.length > 0 && selectedFeatureTypes.length < availableFeatureTypes.length"
+                    @change="toggleSelectAll"
+                  >
+                  Select All
+                </label>
+              </div>
+              <div class="option-separator"></div>
+              <div 
+                v-for="featureType in availableFeatureTypes" 
+                :key="featureType" 
+                class="dropdown-option"
+              >
+                <label>
+                  <input 
+                    type="checkbox" 
+                    :value="featureType"
+                    v-model="selectedFeatureTypes"
+                    @change="updateViewer"
+                  >
+                  {{ featureType }} ({{ getFeatureCount(featureType) }})
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -41,7 +77,7 @@
 </template>
 
 <script>
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
 
 export default {
@@ -55,15 +91,14 @@ export default {
     const loading = ref(false)
     const error = ref('')
     
-    // Feature type filters
-    const showCDS = ref(true)
-    const showPFAM = ref(true) 
-    const showOther = ref(false)
+    // Feature type management
+    const availableFeatureTypes = ref([])
+    const selectedFeatureTypes = ref([])
+    const dropdownOpen = ref(false)
     
     let regionViewer = null
     let currentFeatures = []
     
-    // Load records on mount
     onMounted(async () => {
       try {
         const response = await axios.get('/api/records')
@@ -71,6 +106,13 @@ export default {
       } catch (err) {
         error.value = `Failed to load records: ${err.message}`
       }
+      
+      // Add click outside listener
+      document.addEventListener('click', handleClickOutside)
+    })
+    
+    onUnmounted(() => {
+      document.removeEventListener('click', handleClickOutside)
     })
     
     const onRecordChange = async () => {
@@ -116,6 +158,13 @@ export default {
         // Load features for the selected region
         const response = await axios.get(`/api/records/${selectedRecord.value}/regions/${selectedRegion.value}/features`)
         currentFeatures = response.data.features
+        
+        // Extract unique feature types from the loaded features
+        const types = [...new Set(currentFeatures.map(f => f.type).filter(Boolean))].sort()
+        availableFeatureTypes.value = types
+        
+        // Select all types by default
+        selectedFeatureTypes.value = [...types]
         
         await nextTick() // Wait for DOM update
         initializeViewer(response.data.region_boundaries)
@@ -176,13 +225,10 @@ export default {
     const updateViewer = () => {
       if (!regionViewer || !currentFeatures.length) return
       
-      // Filter features based on checkboxes
-      const filteredFeatures = currentFeatures.filter(feature => {
-        if (feature.type === 'CDS' && showCDS.value) return true
-        if (feature.type === 'PFAM_domain' && showPFAM.value) return true
-        if (feature.type !== 'CDS' && feature.type !== 'PFAM_domain' && showOther.value) return true
-        return false
-      })
+      // Filter features based on selected feature types
+      const filteredFeatures = currentFeatures.filter(feature => 
+        selectedFeatureTypes.value.includes(feature.type)
+      )
       
       // Group features by type into tracks
       const trackData = {}
@@ -251,6 +297,30 @@ export default {
       return feature.type || 'Feature'
     }
     
+    const toggleDropdown = () => {
+      dropdownOpen.value = !dropdownOpen.value
+    }
+    
+    const toggleSelectAll = (event) => {
+      if (event.target.checked) {
+        selectedFeatureTypes.value = [...availableFeatureTypes.value]
+      } else {
+        selectedFeatureTypes.value = []
+      }
+      updateViewer()
+    }
+    
+    const getFeatureCount = (featureType) => {
+      return currentFeatures.filter(f => f.type === featureType).length
+    }
+    
+    // Close dropdown when clicking outside
+    const handleClickOutside = (event) => {
+      if (!event.target.closest('.multi-select-dropdown')) {
+        dropdownOpen.value = false
+      }
+    }
+    
     const refreshData = async () => {
       try {
         loading.value = true
@@ -261,6 +331,9 @@ export default {
         selectedRecord.value = ''
         selectedRegion.value = ''
         regions.value = []
+        availableFeatureTypes.value = []
+        selectedFeatureTypes.value = []
+        dropdownOpen.value = false
         if (regionViewer) {
           regionViewer.destroy()
           regionViewer = null
@@ -282,13 +355,16 @@ export default {
       regions,
       loading,
       error,
-      showCDS,
-      showPFAM,
-      showOther,
+      availableFeatureTypes,
+      selectedFeatureTypes,
+      dropdownOpen,
       onRecordChange,
       onRegionChange,
       updateViewer,
-      refreshData
+      refreshData,
+      toggleDropdown,
+      toggleSelectAll,
+      getFeatureCount
     }
   }
 }
@@ -329,11 +405,101 @@ export default {
   margin-left: 10px;
 }
 
-.feature-controls label {
+.multi-select-container {
+  position: relative;
+  display: inline-block;
+}
+
+.multi-select-container label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.multi-select-dropdown {
+  position: relative;
+  min-width: 250px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+
+.multi-select-dropdown.open {
+  border-color: #1976d2;
+}
+
+.selected-display {
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+.dropdown-arrow {
+  transition: transform 0.2s ease;
+  color: #666;
+}
+
+.multi-select-dropdown.open .dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.dropdown-options {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #ccc;
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.select-all-option {
+  padding: 8px 12px;
+  border-bottom: 1px solid #eee;
+  background-color: #f8f9fa;
+}
+
+.select-all-option label {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 14px;
+  gap: 8px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.option-separator {
+  height: 1px;
+  background-color: #e0e0e0;
+}
+
+.dropdown-option {
+  padding: 6px 12px;
+}
+
+.dropdown-option:hover {
+  background-color: #f5f5f5;
+}
+
+.dropdown-option label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  margin: 0;
+}
+
+.dropdown-option input[type="checkbox"] {
+  margin: 0;
 }
 
 .viewer-container {

@@ -395,7 +395,6 @@ export default {
           await regionViewerRef.value.refreshData()
         }
         
-        alert(`Successfully loaded ${response.data.current_file}`)
       } catch (error) {
         console.error('Failed to load selected file:', error)
         alert(`Failed to load file: ${error.response?.data?.error || error.message}`)
