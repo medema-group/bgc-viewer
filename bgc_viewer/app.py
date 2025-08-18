@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory
 from flask_cors import CORS
 import json
 import os
@@ -10,7 +10,16 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-app = Flask(__name__)
+# Get the directory where this module is installed
+app_dir = Path(__file__).parent
+# Look for build directory relative to the package root (one level up), fallback to package static
+build_dir = app_dir.parent / 'build'
+if not build_dir.exists():
+    build_dir = app_dir / 'static'
+
+app = Flask(__name__, 
+           static_folder=str(build_dir),
+           static_url_path='/static')
 CORS(app)
 
 # Global variable to store currently loaded data
@@ -68,16 +77,28 @@ except Exception as e:
 
 @app.route('/')
 def index():
-    """Serve the SPA."""
-    return app.send_static_file('dist/index.html')
+    """Serve the main Vue.js SPA."""
+    try:
+        return send_from_directory(app.static_folder, 'index.html')
+    except FileNotFoundError:
+        return jsonify({"error": "Frontend not built or not included in package. Run 'npm run build' in the frontend directory."}), 404
 
 @app.route('/<path:path>')
 def spa_fallback(path):
     """Fallback for SPA routing - serve index.html for all non-API routes."""
     if path.startswith('api/'):
         # Let API routes be handled by their specific handlers
-        return jsonify({"error": "Not found"}), 404
-    return app.send_static_file('dist/index.html')
+        return jsonify({"error": "API endpoint not found"}), 404
+    
+    # For all other routes, try to serve static files first
+    try:
+        return send_from_directory(app.static_folder, path)
+    except FileNotFoundError:
+        # Fallback to index.html for SPA routing
+        try:
+            return send_from_directory(app.static_folder, 'index.html')
+        except FileNotFoundError:
+            return jsonify({"error": "Frontend not found - ensure 'npm run build' was executed and static files are included in package"}), 404
 
 @app.route('/api/status')
 def get_status():
@@ -456,6 +477,25 @@ def get_stats():
 def health_check():
     """Health check endpoint."""
     return jsonify({"status": "healthy", "message": "Server is running"})
+
+@app.route('/api/debug/static-files')
+def debug_static_files():
+    """Debug endpoint to check what static files are available."""
+    static_dir = Path(app.static_folder)
+    
+    result = {
+        "static_folder": str(static_dir),
+        "static_folder_exists": static_dir.exists(),
+        "files": []
+    }
+    
+    if static_dir.exists():
+        for file_path in static_dir.rglob('*'):
+            if file_path.is_file():
+                result["files"].append(str(file_path.relative_to(static_dir)))
+    
+    result["files"] = sorted(result["files"])
+    return jsonify(result)
 
 @app.errorhandler(404)
 def not_found(error):

@@ -1,0 +1,4 @@
+include README.md LICENSE
+recursive-include bgc_viewer *.py
+recursive-include build *
+recursive-include bgc_viewer/templates *

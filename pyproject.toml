@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling", "hatch-nodejs"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
 name = "bgc-viewer"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Flask server for Biosynthetic Gene Cluster analysis"
 authors = [
     {name = "Your Name", email = "your.email@example.com"},
@@ -25,6 +25,8 @@ dev = [
     "black>=23.0.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
+    "build>=0.10.0",
+    "twine>=4.0.0",
 ]
 
 [project.scripts]
@@ -34,12 +36,22 @@ bgc-viewer = "bgc_viewer.app:main"
 [tool.hatch.build.targets.wheel]
 include = [
     "bgc_viewer/**/*.py",
-    "bgc_viewer/static/dist/**/*",
-    "bgc_viewer/templates/**/*",
+    "bgc_viewer/static/**/*",
+    "build/**/*",
 ]
 
-[tool.hatch.build.hooks.nodejs]
-build-script = "build"
+# Also include static files in source distribution
+[tool.hatch.build.targets.sdist]
+include = [
+    "bgc_viewer/**/*.py",
+    "bgc_viewer/static/**/*",
+    "build/**/*",
+    "frontend/**/*",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+    "MANIFEST.in",
+]
 
 [tool.black]
 line-length = 88

@@ -4,7 +4,7 @@
   "description": "Frontend assets for BGC Viewer",
   "scripts": {
     "dev": "vite",
-    "build": "vite build --outDir=bgc_viewer/static/dist",
+    "build": "vite build",
     "preview": "vite preview",
     "build-python": "npm run build && python -m build"
   },
