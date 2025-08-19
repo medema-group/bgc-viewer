@@ -128,7 +128,7 @@ export class RegionViewer {
 
     // Create clipping path to prevent annotations from overlapping labels
     const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
-    this.clipId = `clip-${Math.random().toString(36).substr(2, 9)}`;
+    this.clipId = `clip-${Math.random().toString(36).substring(2, 11)}`;
     
     this.svg
       .append('defs')
