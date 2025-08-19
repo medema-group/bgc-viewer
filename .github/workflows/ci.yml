@@ -18,21 +18,41 @@ jobs:
       with:
         python-version: "3.11"
 
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "18"
+
     - name: Install uv
       uses: astral-sh/setup-uv@v2
 
+    - name: Build frontend
+      working-directory: frontend
+      run: |
+        npm install
+        npm run build
+
+    - name: Copy frontend assets to backend
+      run: |
+        mkdir -p backend/bgc_viewer/static
+        cp -r frontend/build/* backend/bgc_viewer/static/
+
     - name: Install dependencies
+      working-directory: backend
       run: |
         uv pip install --system -e ".[dev]"
 
     - name: Run tests
+      working-directory: backend
       run: |
         pytest bgc_viewer/tests/ -v
 
     - name: Type check
+      working-directory: backend
       run: |
         mypy bgc_viewer/
 
     - name: Build package
+      working-directory: backend
       run: |
         uv build
