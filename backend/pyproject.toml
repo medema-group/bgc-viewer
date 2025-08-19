@@ -16,7 +16,7 @@ dependencies = [
     "waitress>=3.0.0",
 ]
 requires-python = ">=3.11"
-readme = "../README.md"
+readme = "README.md"
 license = {text = "Apache-2.0"}
 
 [project.optional-dependencies]
@@ -44,8 +44,8 @@ include = [
 include = [
     "bgc_viewer/**/*.py",
     "bgc_viewer/static/**/*",
-    "../README.md",
-    "../LICENSE",
+    "README.md",
+    "LICENSE",
     "pyproject.toml",
     "MANIFEST.in",
 ]

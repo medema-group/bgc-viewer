@@ -11,6 +11,9 @@ echo "Building BGC Viewer version ${VERSION}..."
 # Change to the project root directory
 cd "$(dirname "$0")"
 
+
+### ---------- Frontend ---------- ####
+
 # Build frontend first
 echo "=== Building Frontend ==="
 cd frontend
@@ -34,6 +37,9 @@ ls -la build/
 
 cd ..
 
+
+### ---------- Backend ---------- ####
+
 # Build backend (which includes copying frontend assets)
 echo ""
 echo "=== Building Backend ==="
@@ -41,6 +47,11 @@ cd backend
 
 # Clean previous build
 rm -rf dist/ bgc_viewer.egg-info/
+
+# Copy README and LICENSE from root
+echo "Copying README and LICENSE..."
+cp ../README.md ./README.md
+cp ../LICENSE ./LICENSE
 
 # Copy frontend build files to static directory
 echo "Copying frontend assets..."
@@ -53,9 +64,12 @@ else
     exit 1
 fi
 
-# Build Python package
+# Build Python package (now with uv for consistency)
 echo "Building Python package..."
-python -m build
+uv build
+
+# Clean up copied files
+rm -f README.md LICENSE
 
 # Verify build output
 if [ ! -f "dist/bgc_viewer-${VERSION}-py3-none-any.whl" ]; then
