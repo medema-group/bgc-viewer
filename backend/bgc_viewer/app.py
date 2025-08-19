@@ -265,7 +265,12 @@ def load_file_from_path():
 def get_info():
     """API endpoint to get basic information about the dataset."""
     if not ANTISMASH_DATA:
-        return jsonify({"error": "AntiSMASH data not found"}), 404
+        return jsonify({
+            "error": "No AntiSMASH data loaded",
+            "version": None,
+            "total_records": 0,
+            "current_file": None
+        }), 200
     
     return jsonify({
         "version": ANTISMASH_DATA.get("version"),
