@@ -20,6 +20,23 @@ async function fetchData(endpoint, outputId) {
     }
 }
 
+async function fetchRecordFeatures() {
+    const recordId = document.getElementById('record-id').value;
+    const featureType = document.getElementById('feature-type').value;
+    
+    if (!recordId) {
+        alert('Please enter a record ID');
+        return;
+    }
+    
+    let endpoint = `/api/records/${encodeURIComponent(recordId)}/features`;
+    if (featureType) {
+        endpoint += `?type=${encodeURIComponent(featureType)}`;
+    }
+    
+    await fetchData(endpoint, 'record-features-output');
+}
+
 // Add some interactive features
 document.addEventListener('DOMContentLoaded', function() {
     // Add click-to-copy functionality to code elements
@@ -45,11 +62,11 @@ document.addEventListener('DOMContentLoaded', function() {
             switch(e.key) {
                 case '1':
                     e.preventDefault();
-                    fetchData('/api/data', 'data-output');
+                    fetchData('/api/info', 'data-output');
                     break;
                 case '2':
                     e.preventDefault();
-                    fetchData('/api/users', 'users-output');
+                    fetchData('/api/records', 'users-output');
                     break;
                 case '3':
                     e.preventDefault();
@@ -58,6 +75,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 case '4':
                     e.preventDefault();
                     fetchData('/api/health', 'health-output');
+                    break;
+                case '5':
+                    e.preventDefault();
+                    fetchData('/api/feature-types', 'feature-types-output');
                     break;
             }
         }
