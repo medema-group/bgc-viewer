@@ -3,7 +3,10 @@
 # Exit on any error
 set -e
 
-echo "Building BGC Viewer (Frontend + Backend)..."
+# Extract version from pyproject.toml
+VERSION=$(grep '^version = ' backend/pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+
+echo "Building BGC Viewer version ${VERSION}..."
 
 # Change to the project root directory
 cd "$(dirname "$0")"
@@ -55,7 +58,7 @@ echo "Building Python package..."
 python -m build
 
 # Verify build output
-if [ ! -f "dist/bgc_viewer-0.1.1-py3-none-any.whl" ]; then
+if [ ! -f "dist/bgc_viewer-${VERSION}-py3-none-any.whl" ]; then
     echo "Error: Python wheel was not created"
     exit 1
 fi
