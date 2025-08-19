@@ -1,4 +1,4 @@
-# BGC-Viewer
+# BGC Viewer
 
 | Badges | |
 |:----:|----|
@@ -14,12 +14,24 @@ A viewer for BGC data.
 
 ```text
 bgc-viewer/
-├── bgc_viewer/             # Main application code
-├── pyproject.toml          # Project configuration
-└── README.md
+├── backend/             # Python Flask server that serves API and statically built frontend
+├── frontend/            # Vue.js web application that, together with the API, makes a stand-alone viewer
+├── viewer-js/           # Reusable TS/JS components for the frontend (WIP)
 ```
 
-## Setup
+## Installation
+
+Using Python 3.11 or higher, install and run the BGC Viewer as follows:
+
+```bash
+pip install bgc-viewer
+bgc-viewer
+```
+
+This will start the BGC Viewer server, to which you can connect with your web browser.
+
+
+## Development
 
 ### Prerequisites
 
