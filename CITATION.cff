@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "BGC-Viewer"
+abstract: "A Flask-based web application for viewing and exploring Biosynthetic Gene Cluster (BGC) data."
+authors:
+  - family-names: Peter
+    given-names: Kok
+    email: p.kok@esciencecenter.nl
+    affiliation: Netherlands eScience Center
+    orcid: 'https://orcid.org/0000-0002-6630-7326'
+  - given-names: Vedran
+    family-names: Kasalica
+    email: v.kasalica@esciencecenter.nl
+    affiliation: Netherlands eScience Center, Netherlands
+    orcid: 'https://orcid.org/0000-0002-0097-1056'
+repository-code: "https://github.com/medema-group/bgc-viewer"
+url: "https://github.com/medema-group/bgc-viewer"
+license: Apache-2.0
+version: "0.1.0"
+date-released: "2025-08-12"
+keywords:
+  - "bioinformatics"
+  - "biosynthetic gene clusters"
+  - "BGC"
+  - "web application"
+  - "flask"
+  - "genomics"
