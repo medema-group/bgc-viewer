@@ -62,7 +62,14 @@ fi
 
 # Check wheel contents
 echo "Checking package contents:"
-python -m zipfile -l dist/bgc_viewer-0.1.1-py3-none-any.whl | grep -E "(static|index\.html|\.js|\.css)" || echo "Warning: No static files found in wheel"
+if [ ! -f "dist/bgc_viewer-${VERSION}-py3-none-any.whl" ]; then
+    echo "Error: Python wheel was not created"
+    exit 1
+fi
+
+# Check wheel contents
+echo "Checking package contents:"
+python -m zipfile -l dist/bgc_viewer-${VERSION}-py3-none-any.whl | grep -E "(static|index\.html|\.js|\.css)" || echo "Warning: No static files found in wheel"
 
 echo "Backend build completed successfully!"
 echo "Output: backend/dist/"
