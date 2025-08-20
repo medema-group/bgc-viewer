@@ -1,6 +1,6 @@
 {
-  "name": "bgc-viewer-js",
-  "version": "0.1.0",
+  "name": "bgc-viewer-components",
+  "version": "0.1.1",
   "type": "module",
   "description": "A library containing visualization components (region views, and others) for the BGC Viewer",
   "main": "dist/index.js",
