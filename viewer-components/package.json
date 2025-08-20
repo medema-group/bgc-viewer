@@ -1,0 +1,58 @@
+{
+  "name": "bgc-viewer-js",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A library containing visualization components (region views, and others) for the BGC Viewer",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "build:watch": "rollup -c -w",
+    "dev": "NODE_ENV=development rollup -c -w",
+    "start": "npm run dev",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src --ext .js,.ts",
+    "lint:fix": "eslint src --ext .js,.ts --fix",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "d3",
+    "visualization",
+    "bioinformatics",
+    "biosynthetic gene clusters",
+    "genomics"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@rollup/plugin-terser": "^0.4.0",
+    "@rollup/plugin-typescript": "^11.0.0",
+    "@types/d3": "^7.4.0",
+    "@types/jest": "^29.5.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.40.0",
+    "jest": "^29.5.0",
+    "jest-environment-jsdom": "^30.0.4",
+    "jsdom": "^26.1.0",
+    "rollup": "^3.20.0",
+    "rollup-plugin-livereload": "^2.0.5",
+    "rollup-plugin-serve": "^3.0.0",
+    "ts-jest": "^29.4.0",
+    "tslib": "^2.8.1",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "d3": "^7.0.0"
+  },
+  "peerDependencies": {
+    "d3": "^7.0.0"
+  }
+}

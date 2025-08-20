@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>RegionViewer Development</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="dist/index.umd.js"></script>
+  <style>
+    .region-viewer-tooltip {
+      position: absolute;
+      background: white;
+      border: 1px solid #ccc;
+      padding: 4px 8px;
+      font-size: 12px;
+      pointer-events: none;
+      display: none;
+      z-index: 1000;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .controls {
+      margin-bottom: 20px;
+    }
+    
+    .controls button {
+      margin: 5px;
+      padding: 8px 16px;
+      background: #007acc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    .controls button:hover {
+      background: #005a99;
+    }
+    
+    #viewer-container {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin-bottom: 20px;
+    }
+
+    /* Annotation styling */
+    .annotation {
+      cursor: pointer;
+    }
+
+    .annotation-gene {
+      fill: #4CAF50;
+    }
+
+    .annotation-gene-alt {
+      fill: #2196F3;
+    }
+
+    .annotation-domain {
+      fill: #2196F3;
+    }
+
+    .annotation-regulatory {
+      fill: #FF9800;
+    }
+
+    .annotation-terminator {
+      fill: #F44336;
+    }
+
+    .annotation-default {
+      fill: #9C27B0;
+    }
+
+    .annotation.hovered {
+      fill: #FFA726 !important; /* Orange color for hover */
+    }
+
+    .event-log {
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      height: 150px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>RegionViewer Demo</h1>
+  <p>This demo shows the RegionViewer class in action with gene tracks.</p>
+  
+  <div class="controls">
+    <button onclick="viewer.resetZoom()">Reset Zoom</button>
+    <button onclick="viewer.zoomTo(20, 60)">Zoom to 20-60</button>
+    <button onclick="addTrack()">Add Track</button>
+    <button onclick="updateDomain()">Update Domain (0-200)</button>
+  </div>
+
+  <div id="viewer-container"></div>
+  
+  <div class="event-log" id="event-log">
+    <div>Event log:</div>
+  </div>
+
+  <script>
+    // Sample gene track data using new format
+    const sampleData = {
+      tracks: [
+        { id: "genes", label: "Primary Gene Clusters" },
+        { id: "genes2", label: "Secondary Genes" },
+        { id: "domains", label: "Protein Domains" },
+        { id: "regulatory", label: "Regulatory Elements & Sites" }
+      ],
+      annotations: [
+        // Gene track annotations
+        { id: "gene1", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneA", start: 10, end: 30, direction: "right" },
+        { id: "gene2", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "right" },
+        { id: "gene3", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneC", start: 60, end: 80, direction: "right" },
+
+        { id: "gene1", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneA", start: 10, end: 30, direction: "left" },
+        { id: "gene2", trackId: "genes2", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "left" },
+        { id: "gene3", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneC", start: 60, end: 80, direction: "left" },
+
+        // Domain track annotations
+        { id: "dom1", trackId: "domains", type: "box", class: "annotation-domain", label: "domain1", start: 15, end: 25, direction: "none" },
+        { id: "dom2", trackId: "domains", type: "box", class: "annotation-domain", label: "domain2", start: 40, end: 50, direction: "none" },
+        { id: "dom3", trackId: "domains", type: "box", class: "annotation-domain", label: "domain3", start: 65, end: 75, direction: "none" },
+
+        // Regulatory track annotations
+        { id: "prom1", trackId: "regulatory", type: "marker", class: "annotation-regulatory", label: "promoter", start: 5, end: 12, direction: "none" },
+        { id: "term1", trackId: "regulatory", type: "marker", class: "annotation-terminator", label: "terminator", start: 82, end: 90, direction: "none" }
+      ]
+    };
+
+    // Event logging function
+    function logEvent(message) {
+      const log = document.getElementById('event-log');
+      const timestamp = new Date().toLocaleTimeString();
+      log.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // Wait for the BgcViewer module to be loaded
+    window.addEventListener('DOMContentLoaded', function() {
+      // Create viewer instance using the built RegionViewer
+      window.viewer = new BgcViewer.RegionViewer({
+        container: '#viewer-container',
+        width: 800,
+        height: 200,
+        domain: [0, 100],
+        onAnnotationClick: (annotation, track) => {
+          logEvent(`Clicked: ${annotation.label} on ${track.track} (${annotation.start}-${annotation.end})`);
+        },
+        onAnnotationHover: (annotation, track) => {
+          logEvent(`Hovered: ${annotation.label} on ${track.track}`);
+        }
+      });
+
+      // Set initial data
+      viewer.setData(sampleData);
+
+      // Global functions for demo buttons
+      let trackCounter = 4;
+      window.addTrack = function() {
+        const trackId = `track${trackCounter}`;
+        const newTrack = { id: trackId, label: `Track ${trackCounter}` };
+        const newAnnotations = [
+          { 
+            id: `t${trackCounter}a`, 
+            trackId: trackId, 
+            type: "box", 
+            class: "annotation-default", 
+            label: `item${trackCounter}A`, 
+            start: Math.random() * 50, 
+            end: Math.random() * 30 + 50, 
+            direction: "none"
+          },
+          { 
+            id: `t${trackCounter}b`, 
+            trackId: trackId, 
+            type: "box", 
+            class: "annotation-default", 
+            label: `item${trackCounter}B`, 
+            start: Math.random() * 20 + 70, 
+            end: Math.random() * 10 + 90, 
+            direction: "none"
+          }
+        ];
+        viewer.addTrack(newTrack, newAnnotations);
+        trackCounter++;
+        logEvent(`Added ${newTrack.label}`);
+      };
+
+      window.updateDomain = function() {
+        viewer.updateDomain([0, 200]);
+        logEvent('Updated domain to 0-200');
+      };
+
+      logEvent('RegionViewer initialized');
+    });
+  </script>
+</body>
+</html>
