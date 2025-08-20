@@ -48,11 +48,6 @@ cd backend
 # Clean previous build
 rm -rf dist/ bgc_viewer.egg-info/
 
-# Copy README and LICENSE from root
-echo "Copying README and LICENSE..."
-cp ../README.md ./README.md
-cp ../LICENSE ./LICENSE
-
 # Copy frontend build files to static directory
 echo "Copying frontend assets..."
 if [ -d "../frontend/build" ]; then
@@ -67,9 +62,6 @@ fi
 # Build Python package (now with uv for consistency)
 echo "Building Python package..."
 uv build
-
-# Clean up copied files
-rm -f README.md LICENSE
 
 # Verify build output
 if [ ! -f "dist/bgc_viewer-${VERSION}-py3-none-any.whl" ]; then

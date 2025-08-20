@@ -7,7 +7,9 @@
 | **License** | [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) |
 | **Fairness** | [![fair-software.eu](https://img.shields.io/badge/fair--software.eu-%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8B-yellow)](https://fair-software.eu) |
 
-A viewer for BGC data.
+A viewer for biosynthetic gene cluster data.
+
+This is the development README. The README for end-users is here: [backend/README.md](backend/README.md) (it's the readme of the Python package)
 
 
 ## Project Structure
@@ -16,22 +18,12 @@ A viewer for BGC data.
 bgc-viewer/
 ├── backend/             # Python Flask server that serves API and statically built frontend
 ├── frontend/            # Vue.js web application that, together with the API, makes a stand-alone viewer
-├── viewer-js/           # Reusable TS/JS components for the frontend (WIP)
+├── viewer-components/   # Reusable TS/JS components for the frontend (WIP)
 ```
 
-## Installation
+## Installation & usage
 
-Using Python 3.11 or higher, install and run the BGC Viewer as follows:
-
-```bash
-pip install bgc-viewer
-bgc-viewer
-```
-
-This will start the BGC Viewer server, to which you can connect with your web browser.
-
-
-## Development
+For end-users, see this README: [backend/README.md](backend/README.md). For development, follow the steps below.
 
 ### Prerequisites
 
@@ -47,15 +39,14 @@ This will start the BGC Viewer server, to which you can connect with your web br
    cd bgc-viewer
    ```
 
-2. Install with uv:
+2. Install backend with uv:
 
    ```bash
+   cd backend/
    uv venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    uv pip install -e ".[dev]"
    ```
-
-## Usage
 
 ### Running the Server
 
@@ -73,8 +64,6 @@ The server will start on `http://localhost:5005` by default.
 - `GET /api/users/<id>` - Get specific user
 - `GET /api/stats` - Get application statistics
 - `GET /api/health` - Health check endpoint
-
-## Development
 
 ### Code Formatting
 

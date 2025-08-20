@@ -37,11 +37,6 @@ jobs:
         mkdir -p backend/bgc_viewer/static
         cp -r frontend/build/* backend/bgc_viewer/static/
 
-    - name: Copy README and LICENSE to backend
-      run: |
-        cp README.md backend/
-        cp LICENSE backend/
-
     - name: Install dependencies
       working-directory: backend
       run: |
