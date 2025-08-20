@@ -21,9 +21,11 @@ Environment variables can be set to change the configuration of the viewer.
 A convenient way to change them is to put a file called `.env` in the directory from
 which you are running the application.
 
-- `BGCV_HOST` - Server host (default: localhost)
-- `BGCV_PORT` - Server port (default: 5005)
-- `BGCV_DEBUG_MODE` - Enable dev/debug mode (default: False)
+```bash
+BGCV_HOST=localhost     # Server host (default: localhost)
+BGCV_PORT=5005          # Server port (default: 5005)
+BGCV_DEBUG_MODE=False   # Enable dev/debug mode (default: False)
+```
 
 
 ## License

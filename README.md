@@ -48,6 +48,18 @@ For end-users, see this README: [backend/README.md](backend/README.md). For deve
    uv pip install -e ".[dev]"
    ```
 
+## Configuration
+
+Environment variables can be set to change the configuration of the viewer.
+A convenient way to change them is to put a file called `.env` in the directory from
+which you are running the application.
+
+```bash
+BGCV_HOST=localhost     # Server host (default: localhost)
+BGCV_PORT=5005          # Server port (default: 5005)
+BGCV_DEBUG_MODE=False   # Enable dev/debug mode (default: False)
+```
+
 ### Running the Server
 
 ```bash
@@ -55,15 +67,6 @@ uv run python -m bgc_viewer.app
 ```
 
 The server will start on `http://localhost:5005` by default.
-
-### API Endpoints
-
-- `GET /` - Main HTML page
-- `GET /api/data` - Get all custom data
-- `GET /api/users` - Get user list
-- `GET /api/users/<id>` - Get specific user
-- `GET /api/stats` - Get application statistics
-- `GET /api/health` - Health check endpoint
 
 ### Code Formatting
 
@@ -88,37 +91,6 @@ uv run pytest
 uv run pytest --cov=bgc_viewer
 ```
 
-### Adding Custom Data
-
-1. Create a `data/custom_data.json` file with your data structure
-2. Modify the `load_custom_data()` function in `app.py` to read from your data source
-3. Update the API endpoints to serve your custom data
-
-## Customization
-
-### Adding New Endpoints
-
-1. Add new route functions to `app.py`
-2. Update the HTML template to include new endpoints
-3. Add corresponding JavaScript functions if needed
-
-### Styling
-
-Modify `static/css/style.css` to customize the appearance of the web interface.
-
-### Frontend Behavior
-
-Update `static/js/app.js` to add new interactive features.
-
-## Environment Variables
-
-Environment variables can be set to change the configuration of the viewer.
-A convenient way to change them is to put a file called `.env` in the directory from
-which you are running the application.
-
-- `BGCV_HOST` - Server host (default: localhost)
-- `BGCV_PORT` - Server port (default: 5005)
-- `BGCV_DEBUG_MODE` - Enable dev/debug mode (default: False)
 
 ## License
 
