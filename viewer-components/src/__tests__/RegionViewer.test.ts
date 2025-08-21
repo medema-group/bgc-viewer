@@ -1,8 +1,7 @@
 import { RegionViewer, RegionViewerData, TrackData, AnnotationData } from '../RegionViewer';
 
 /**
- * RegionViewer tests using the real D3 library
- * This approach is more reliable than mocking and tests actual integration
+ * RegionViewer tests
  */
 
 describe('RegionViewer', () => {
@@ -250,7 +249,8 @@ describe('RegionViewer', () => {
           label: 'Gene',
           start: 10,
           end: 30,
-          direction: 'right'
+          direction: 'right',
+          heightFraction: 0.8
         },
         {
           id: 'box1',
@@ -260,7 +260,8 @@ describe('RegionViewer', () => {
           label: 'Domain',
           start: 40,
           end: 60,
-          direction: 'none'
+          direction: 'none',
+          heightFraction: 0.5
         },
         {
           id: 'marker1',
@@ -271,6 +272,7 @@ describe('RegionViewer', () => {
           start: 70,
           end: 75,
           direction: 'none'
+          // No heightFraction - should use default
         }
       ],
       primitives: []
@@ -281,8 +283,11 @@ describe('RegionViewer', () => {
     
     expect(retrievedData.annotations).toHaveLength(3);
     expect(retrievedData.annotations[0].type).toBe('arrow');
+    expect(retrievedData.annotations[0].heightFraction).toBe(0.8);
     expect(retrievedData.annotations[1].type).toBe('box');
+    expect(retrievedData.annotations[1].heightFraction).toBe(0.5);
     expect(retrievedData.annotations[2].type).toBe('marker');
+    expect(retrievedData.annotations[2].heightFraction).toBeUndefined();
   });
 
   test('should handle drawing primitives', () => {

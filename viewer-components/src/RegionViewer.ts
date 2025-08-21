@@ -15,6 +15,7 @@ export type AnnotationData = {
   label: string;
   start: number;
   end: number;
+  heightFraction?: number;
   direction: 'left' | 'right' | 'none';
 }
 
@@ -300,8 +301,15 @@ export class RegionViewer {
   ): void {
     const x = xScale(annotation.start);
     const width = Math.max(1, xScale(annotation.end) - xScale(annotation.start));
-    const y = 5;
-    const height = this.config.rowHeight - 10;
+    
+    // Calculate height based on heightFraction if provided, otherwise use default
+    const defaultHeight = this.config.rowHeight - 10;
+    const height = annotation.heightFraction !== undefined 
+      ? this.config.rowHeight * annotation.heightFraction
+      : defaultHeight;
+    
+    // Center the annotation vertically in the track
+    const y = (this.config.rowHeight - height) / 2;
 
     let element: d3.Selection<any, unknown, null, undefined>;
 
