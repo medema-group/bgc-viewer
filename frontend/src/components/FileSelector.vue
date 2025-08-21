@@ -77,7 +77,7 @@ export default {
         }
         
         // Try to scan the default data directory
-        const dataDir = './data'
+        const dataDir = '../data'
         try {
           const scanResponse = await axios.post('/api/scan-folder', {
             path: dataDir
