@@ -144,3 +144,20 @@ Thumbs.db
 
 # Custom
 data/
+
+# Build artifacts
+backend/dist/
+backend/build/
+backend/bgc_viewer.egg-info/
+
+# Built frontend assets in backend
+backend/bgc_viewer/static/index.html
+backend/bgc_viewer/static/assets/
+backend/bgc_viewer/static/regionviewer.umd.js
+backend/bgc_viewer/static/regionviewer.umd.js.map
+
+# Frontend build artifacts
+frontend/build/
+frontend/dist/
+frontend/static/regionviewer.umd.js
+frontend/static/regionviewer.umd.js.map
