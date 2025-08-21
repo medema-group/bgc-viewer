@@ -4,5 +4,7 @@ export type {
   TrackData, 
   AnnotationData, 
   AnnotationType, 
-  RegionViewerData 
+  RegionViewerData,
+  DrawingPrimitive,
+  DrawingPrimitiveType
 } from './RegionViewer';

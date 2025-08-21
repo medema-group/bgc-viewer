@@ -18,9 +18,22 @@ export type AnnotationData = {
   direction: 'left' | 'right' | 'none';
 }
 
+export type DrawingPrimitiveType = 'horizontal-line';
+
+export type DrawingPrimitive = {
+  id: string;
+  trackId: string;
+  type: DrawingPrimitiveType;
+  class: string;
+  start?: number;
+  end?: number;
+  y?: number; // Optional vertical position override (relative to track)
+}
+
 export type RegionViewerData = {
   tracks: TrackData[];
   annotations: AnnotationData[];
+  primitives?: DrawingPrimitive[];
 }
 
 export interface RegionViewerConfig {
@@ -51,7 +64,7 @@ export class RegionViewer {
   private x!: d3.ScaleLinear<number, number>;
   private currentTransform: d3.ZoomTransform;
   private zoom!: d3.ZoomBehavior<any, unknown>;
-  private data: RegionViewerData = { tracks: [], annotations: [] };
+  private data: RegionViewerData = { tracks: [], annotations: [], primitives: [] };
   private trackGroups!: d3.Selection<SVGGElement, TrackData, SVGGElement, unknown>;
   private clipId!: string;
   private originalLeftMargin: number; // Store original left margin
@@ -155,7 +168,7 @@ export class RegionViewer {
       .extent([[0, 0], [chartWidth, chartHeight]])
       .on('zoom', (event) => {
         this.currentTransform = event.transform;
-        this.drawAnnotations();
+        this.drawTracks();
       });
 
     // Apply zoom behavior to the main SVG instead of an overlay
@@ -225,7 +238,14 @@ export class RegionViewer {
       .style('font', '12px sans-serif')
       .text(d => d.label);
 
-    // Add annotation containers (inside clipped area)
+    // Add primitives containers first (inside clipped area, will render behind annotations)
+    this.trackGroups
+      .selectAll('.primitives')
+      .data(d => [d])
+      .join('g')
+      .attr('class', 'primitives');
+
+    // Add annotation containers after (inside clipped area, will render in front of primitives)
     this.trackGroups
       .selectAll('.annotations')
       .data(d => [d])
@@ -233,7 +253,7 @@ export class RegionViewer {
       .attr('class', 'annotations');
   }
 
-  private drawAnnotations(): void {
+  private drawTracks(): void {
     const xz = this.currentTransform.rescaleX(this.x);
 
     // Update axis
@@ -244,18 +264,28 @@ export class RegionViewer {
       return;
     }
 
-    // Update annotations for each track
+    // Update annotations and primitives for each track
     this.trackGroups.each((trackData, trackIndex, trackNodes) => {
       const trackGroup = d3.select(trackNodes[trackIndex]);
       const annotationsGroup = trackGroup.select<SVGGElement>('.annotations');
+      const primitivesGroup = trackGroup.select<SVGGElement>('.primitives');
 
       // Get annotations for this track
       const trackAnnotations = this.data.annotations.filter(ann => ann.trackId === trackData.id);
+      
+      // Get primitives for this track
+      const trackPrimitives = (this.data.primitives || []).filter(prim => prim.trackId === trackData.id);
 
-      // Clear existing annotations
+      // Clear existing primitives and annotations
+      primitivesGroup.selectAll('*').remove();
       annotationsGroup.selectAll('*').remove();
 
-      // Render each annotation based on its type
+      // Render primitives first (so they appear behind annotations)
+      trackPrimitives.forEach(primitive => {
+        this.renderPrimitive(primitivesGroup, primitive, xz, trackData);
+      });
+
+      // Render annotations on top
       trackAnnotations.forEach(ann => {
         this.renderAnnotation(annotationsGroup, ann, xz, trackData);
       });
@@ -304,6 +334,75 @@ export class RegionViewer {
       .on('click', () => {
         this.config.onAnnotationClick(annotation, trackData);
       });
+  }
+
+  private renderPrimitive(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    primitive: DrawingPrimitive,
+    xScale: d3.ScaleLinear<number, number>,
+    _trackData: TrackData
+  ): void {
+    const trackHeight = this.config.rowHeight;
+    
+    let element: d3.Selection<any, unknown, null, undefined>;
+
+    switch (primitive.type) {
+      case 'horizontal-line':
+        element = this.renderHorizontalLine(container, primitive, xScale, trackHeight);
+        break;
+      default:
+        // Unknown primitive type, skip
+        return;
+    }
+
+    // Apply styling (no event handlers for primitives)
+    element.attr('class', `primitive ${primitive.class}`);
+  }
+
+  private renderHorizontalLine(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    primitive: DrawingPrimitive,
+    xScale: d3.ScaleLinear<number, number>,
+    trackHeight: number
+  ): d3.Selection<SVGLineElement, unknown, null, undefined> {
+    // If start is undefined, use the left edge of the chart
+    // If end is undefined, use the right edge of the chart
+    const range = xScale.range();
+    
+    let x1: number, x2: number;
+    
+    if (primitive.start !== undefined && primitive.end !== undefined) {
+      // Both start and end defined - use them
+      x1 = xScale(primitive.start);
+      x2 = xScale(primitive.end);
+    } else if (primitive.start !== undefined && primitive.end === undefined) {
+      // Only start defined - from start to end of visible range
+      x1 = xScale(primitive.start);
+      x2 = range[1]; // Right edge of chart
+    } else if (primitive.start === undefined && primitive.end !== undefined) {
+      // Only end defined - from start of visible range to end
+      x1 = range[0]; // Left edge of chart
+      x2 = xScale(primitive.end);
+    } else {
+      // Neither start nor end defined - span entire visible range
+      x1 = range[0]; // Left edge of chart
+      x2 = range[1]; // Right edge of chart
+    }
+    
+    const y = primitive.y !== undefined ? primitive.y : trackHeight / 2; // Use custom y or center of track
+
+    // Round to nearest pixel to avoid anti-aliasing blur
+    const roundedY = Math.round(y) + 0.5; // Add 0.5 for crisp 1px lines
+
+    return container
+      .append('line')
+      .attr('x1', x1)
+      .attr('x2', x2)
+      .attr('y1', roundedY)
+      .attr('y2', roundedY)
+      .style('stroke', 'currentColor')
+      .style('stroke-width', 1)
+      .style('shape-rendering', 'crispEdges'); // Ensure crisp rendering
   }
 
   private renderBox(
@@ -474,47 +573,73 @@ export class RegionViewer {
 
   // Public API methods
   public setData(data: RegionViewerData): void {
-    this.data = data;
+    this.data = {
+      tracks: data.tracks,
+      annotations: data.annotations,
+      primitives: data.primitives || []
+    };
     this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
-    this.drawAnnotations();
+    this.drawTracks();
   }
 
-  public addTrack(track: TrackData, annotations?: AnnotationData[]): void {
+  public addTrack(track: TrackData, annotations?: AnnotationData[], primitives?: DrawingPrimitive[]): void {
     this.data.tracks.push(track);
     if (annotations) {
       this.data.annotations.push(...annotations);
     }
+    if (primitives) {
+      if (!this.data.primitives) {
+        this.data.primitives = [];
+      }
+      this.data.primitives.push(...primitives);
+    }
     this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
-    this.drawAnnotations();
+    this.drawTracks();
   }
 
   public removeTrack(trackId: string): void {
     this.data.tracks = this.data.tracks.filter(track => track.id !== trackId);
     this.data.annotations = this.data.annotations.filter(annotation => annotation.trackId !== trackId);
+    this.data.primitives = (this.data.primitives || []).filter(primitive => primitive.trackId !== trackId);
     this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
-    this.drawAnnotations();
+    this.drawTracks();
   }
 
   public addAnnotation(annotation: AnnotationData): void {
     this.data.annotations.push(annotation);
-    this.drawAnnotations();
+    this.drawTracks();
   }
 
   public removeAnnotation(annotationId: string): void {
     this.data.annotations = this.data.annotations.filter(annotation => annotation.id !== annotationId);
-    this.drawAnnotations();
+    this.drawTracks();
+  }
+
+  public addPrimitive(primitive: DrawingPrimitive): void {
+    if (!this.data.primitives) {
+      this.data.primitives = [];
+    }
+    this.data.primitives.push(primitive);
+    this.drawTracks();
+  }
+
+  public removePrimitive(primitiveId: string): void {
+    if (this.data.primitives) {
+      this.data.primitives = this.data.primitives.filter(primitive => primitive.id !== primitiveId);
+      this.drawTracks();
+    }
   }
 
   public updateDomain(domain: [number, number]): void {
     this.config.domain = domain;
     this.x.domain(domain);
-    this.drawAnnotations();
+    this.drawTracks();
   }
 
   public zoomTo(start: number, end: number): void {
@@ -551,7 +676,8 @@ export class RegionViewer {
   public getData(): RegionViewerData {
     return {
       tracks: [...this.data.tracks],
-      annotations: [...this.data.annotations]
+      annotations: [...this.data.annotations],
+      primitives: this.data.primitives ? [...this.data.primitives] : []
     };
   }
 }

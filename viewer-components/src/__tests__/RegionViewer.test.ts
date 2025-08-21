@@ -77,7 +77,8 @@ describe('RegionViewer', () => {
         start: 10,
         end: 30,
         direction: 'none'
-      }]
+      }],
+      primitives: []
     };
 
     viewer.setData(testData);
@@ -271,7 +272,8 @@ describe('RegionViewer', () => {
           end: 75,
           direction: 'none'
         }
-      ]
+      ],
+      primitives: []
     };
 
     viewer.setData(data);
@@ -281,5 +283,77 @@ describe('RegionViewer', () => {
     expect(retrievedData.annotations[0].type).toBe('arrow');
     expect(retrievedData.annotations[1].type).toBe('box');
     expect(retrievedData.annotations[2].type).toBe('marker');
+  });
+
+  test('should handle drawing primitives', () => {
+    const viewer = new RegionViewer({
+      container: '#test-container'
+    });
+
+    const data: RegionViewerData = {
+      tracks: [{ id: 'track1', label: 'Track with Primitives' }],
+      annotations: [],
+      primitives: [
+        {
+          id: 'line1',
+          trackId: 'track1',
+          type: 'horizontal-line',
+          class: 'baseline',
+          start: 10,
+          end: 90
+        },
+        {
+          id: 'line2',
+          trackId: 'track1',
+          type: 'horizontal-line',
+          class: 'full-width',
+          // No start/end - should span entire axis
+        }
+      ]
+    };
+
+    viewer.setData(data);
+    const retrievedData = viewer.getData();
+    
+    expect(retrievedData.primitives).toHaveLength(2);
+    expect(retrievedData.primitives![0].type).toBe('horizontal-line');
+    expect(retrievedData.primitives![0].id).toBe('line1');
+    expect(retrievedData.primitives![0].start).toBe(10);
+    expect(retrievedData.primitives![0].end).toBe(90);
+    expect(retrievedData.primitives![1].id).toBe('line2');
+    expect(retrievedData.primitives![1].start).toBeUndefined();
+    expect(retrievedData.primitives![1].end).toBeUndefined();
+  });
+
+  test('should add and remove primitives individually', () => {
+    const viewer = new RegionViewer({
+      container: '#test-container'
+    });
+
+    const initialData: RegionViewerData = {
+      tracks: [{ id: 'track1', label: 'Test Track' }],
+      annotations: [],
+      primitives: []
+    };
+
+    viewer.setData(initialData);
+
+    const primitive = {
+      id: 'prim1',
+      trackId: 'track1',
+      type: 'horizontal-line' as const,
+      class: 'test-line',
+      start: 10,
+      end: 90
+    };
+
+    viewer.addPrimitive(primitive);
+    let data = viewer.getData();
+    expect(data.primitives).toHaveLength(1);
+    expect(data.primitives![0]).toEqual(primitive);
+
+    viewer.removePrimitive('prim1');
+    data = viewer.getData();
+    expect(data.primitives).toHaveLength(0);
   });
 });
