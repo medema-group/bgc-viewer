@@ -61,7 +61,7 @@ export class RegionViewer {
   private chart!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private clippedChart!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private xAxisGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
-  private tooltip!: d3.Selection<HTMLDivElement, unknown, HTMLElement, any>;
+  private tooltip!: d3.Selection<HTMLDivElement, unknown, null, undefined>;
   private x!: d3.ScaleLinear<number, number>;
   private currentTransform: d3.ZoomTransform;
   private zoom!: d3.ZoomBehavior<any, unknown>;
@@ -113,7 +113,7 @@ export class RegionViewer {
       .style('font-size', '12px')
       .style('pointer-events', 'none')
       .style('display', 'none')
-      .style('z-index', '1000') as any;
+      .style('z-index', '1000');
 
     // Create SVG
     this.svg = d3.select(containerElement)
@@ -261,7 +261,7 @@ export class RegionViewer {
     // Update annotations for each track
     this.trackGroups.each((trackData, trackIndex, trackNodes) => {
       const trackGroup = d3.select(trackNodes[trackIndex]);
-      const annotationsGroup = trackGroup.select('.annotations');
+      const annotationsGroup = trackGroup.select<SVGGElement>('.annotations');
 
       // Get annotations for this track
       const trackAnnotations = this.data.annotations.filter(ann => ann.trackId === trackData.id);
@@ -271,7 +271,7 @@ export class RegionViewer {
 
       // Render each annotation based on its type
       trackAnnotations.forEach(ann => {
-        this.renderAnnotation(annotationsGroup as any, ann, xz, trackData);
+        this.renderAnnotation(annotationsGroup, ann, xz, trackData);
       });
     });
   }
