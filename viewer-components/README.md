@@ -78,8 +78,8 @@ interface RegionViewerConfig {
   rowHeight?: number;                // Height of each track row (default: 30)
   domain?: [number, number];         // Genomic coordinate range (default: [0, 100])
   zoomExtent?: [number, number];     // Zoom scale limits (default: [0.5, 20])
-  onAnnotationClick?: (annotation: Annotation, track: Track) => void;
-  onAnnotationHover?: (annotation: Annotation, track: Track, event: MouseEvent) => void;
+  onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
+  onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
 }
 ```
 
@@ -165,7 +165,7 @@ viewer.destroy(): void
 const viewer = new RegionViewer({
   container: '#container',
   onAnnotationClick: (annotation, track) => {
-    console.log(`Clicked ${annotation.label} in ${track.track}`);
+    console.log(`Clicked ${annotation.label} in ${track.label}`);
   },
   onAnnotationHover: (annotation, track, event) => {
     console.log(`Hovering over ${annotation.label}`);

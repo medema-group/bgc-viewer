@@ -153,10 +153,10 @@
         height: 200,
         domain: [0, 100],
         onAnnotationClick: (annotation, track) => {
-          logEvent(`Clicked: ${annotation.label} on ${track.track} (${annotation.start}-${annotation.end})`);
+          logEvent(`Clicked: ${annotation.label} on ${track.label} (${annotation.start}-${annotation.end})`);
         },
         onAnnotationHover: (annotation, track) => {
-          logEvent(`Hovered: ${annotation.label} on ${track.track}`);
+          logEvent(`Hovered: ${annotation.label} on ${track.label}`);
         }
       });
 

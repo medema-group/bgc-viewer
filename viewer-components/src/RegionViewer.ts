@@ -1,36 +1,5 @@
 import * as d3 from 'd3';
 
-export interface Annotation {
-  start: number;
-  end: number;
-  label: string;
-  id?: string;
-}
-
-export interface Track {
-  track: string;
-  annotations: Annotation[];
-  id?: string;
-}
-
-export interface RegionViewerConfig {
-  container: string | HTMLElement;
-  width?: number;
-  height?: number;
-  margin?: {
-    top: number;
-    right: number;
-    bottom: number;
-    left: number;
-  };
-  rowHeight?: number;
-  domain?: [number, number];
-  zoomExtent?: [number, number];
-  onAnnotationClick?: (annotation: Annotation, track: Track) => void;
-  onAnnotationHover?: (annotation: Annotation, track: Track, event: MouseEvent) => void;
-}
-
-
 export type TrackData = {
   id: string;
   label: string;
@@ -52,6 +21,23 @@ export type AnnotationData = {
 export type RegionViewerData = {
   tracks: TrackData[];
   annotations: AnnotationData[];
+}
+
+export interface RegionViewerConfig {
+  container: string | HTMLElement;
+  width?: number;
+  height?: number;
+  margin?: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  };
+  rowHeight?: number;
+  domain?: [number, number];
+  zoomExtent?: [number, number];
+  onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
+  onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
 }
 
 
@@ -316,19 +302,7 @@ export class RegionViewer {
         this.hideTooltip();
       })
       .on('click', () => {
-        // Convert to old format for callback compatibility
-        const annotationCompat: Annotation = {
-          start: annotation.start,
-          end: annotation.end,
-          label: annotation.label,
-          id: annotation.id
-        };
-        const trackCompat: Track = {
-          track: trackData.label,
-          annotations: [], // Not used in callback
-          id: trackData.id
-        };
-        this.config.onAnnotationClick(annotationCompat, trackCompat);
+        this.config.onAnnotationClick(annotation, trackData);
       });
   }
 
@@ -428,19 +402,7 @@ export class RegionViewer {
       .style('top', `${event.pageY - 10}px`)
       .html(`<strong>${annotation.label}</strong><br/>Start: ${annotation.start}<br/>End: ${annotation.end}<br/>Track: ${trackData.label}`);
 
-    // Convert to old format for callback compatibility
-    const annotationCompat: Annotation = {
-      start: annotation.start,
-      end: annotation.end,
-      label: annotation.label,
-      id: annotation.id
-    };
-    const trackCompat: Track = {
-      track: trackData.label,
-      annotations: [], // Not used in callback
-      id: trackData.id
-    };
-    this.config.onAnnotationHover(annotationCompat, trackCompat, event);
+    this.config.onAnnotationHover(annotation, trackData, event);
   }
 
   private hideTooltip(): void {
@@ -519,30 +481,6 @@ export class RegionViewer {
     this.drawAnnotations();
   }
 
-  // Backward compatibility method
-  public setTrackData(tracks: Track[]): void {
-    // Convert old Track[] format to new RegionViewerData format
-    const trackData: TrackData[] = tracks.map(track => ({
-      id: track.id || track.track,
-      label: track.track
-    }));
-
-    const annotationData: AnnotationData[] = tracks.flatMap(track =>
-      track.annotations.map(annotation => ({
-        id: annotation.id || `${track.id || track.track}-${annotation.label}`,
-        trackId: track.id || track.track,
-        type: 'box' as AnnotationType,
-        class: 'annotation-default',
-        label: annotation.label,
-        start: annotation.start,
-        end: annotation.end,
-        direction: 'none' as const
-      }))
-    );
-
-    this.setData({ tracks: trackData, annotations: annotationData });
-  }
-
   public addTrack(track: TrackData, annotations?: AnnotationData[]): void {
     this.data.tracks.push(track);
     if (annotations) {
@@ -552,27 +490,6 @@ export class RegionViewer {
     this.updateHeight();
     this.createTrackGroups();
     this.drawAnnotations();
-  }
-
-  // Backward compatibility method
-  public addTrackLegacy(track: Track): void {
-    const trackData: TrackData = {
-      id: track.id || track.track,
-      label: track.track
-    };
-
-    const annotationData: AnnotationData[] = track.annotations.map(annotation => ({
-      id: annotation.id || `${track.id || track.track}-${annotation.label}`,
-      trackId: track.id || track.track,
-      type: 'box' as AnnotationType,
-      class: 'annotation-default',
-      label: annotation.label,
-      start: annotation.start,
-      end: annotation.end,
-      direction: 'none' as const
-    }));
-
-    this.addTrack(trackData, annotationData);
   }
 
   public removeTrack(trackId: string): void {
@@ -636,25 +553,5 @@ export class RegionViewer {
       tracks: [...this.data.tracks],
       annotations: [...this.data.annotations]
     };
-  }
-
-  // Backward compatibility method
-  public getTrackData(): Track[] {
-    return this.data.tracks.map(track => {
-      const annotations = this.data.annotations
-        .filter(annotation => annotation.trackId === track.id)
-        .map(annotation => ({
-          start: annotation.start,
-          end: annotation.end,
-          label: annotation.label,
-          id: annotation.id
-        }));
-
-      return {
-        track: track.label,
-        annotations,
-        id: track.id
-      };
-    });
   }
 }

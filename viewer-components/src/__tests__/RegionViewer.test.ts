@@ -1,4 +1,4 @@
-import { RegionViewer, Track, RegionViewerData, TrackData, AnnotationData } from '../RegionViewer';
+import { RegionViewer, RegionViewerData, TrackData, AnnotationData } from '../RegionViewer';
 
 /**
  * RegionViewer tests using the real D3 library
@@ -87,39 +87,7 @@ describe('RegionViewer', () => {
     expect(retrievedData).not.toBe(testData); // Should be a copy
   });
 
-  test('should set data using legacy format (backward compatibility)', () => {
-    const viewer = new RegionViewer({
-      container: '#test-container'
-    });
-
-    const testData: Track[] = [
-      {
-        track: 'Test Track',
-        annotations: [
-          { start: 10, end: 30, label: 'Gene1', id: 'gene1' }
-        ]
-      }
-    ];
-
-    viewer.setTrackData(testData);
-    const retrievedData = viewer.getTrackData();
-    
-    // The conversion process adds an id field if it wasn't present
-    const expectedData = [
-      {
-        track: 'Test Track',
-        id: 'Test Track',
-        annotations: [
-          { start: 10, end: 30, label: 'Gene1', id: 'gene1' }
-        ]
-      }
-    ];
-    
-    expect(retrievedData).toEqual(expectedData);
-    expect(retrievedData).not.toBe(testData); // Should be a copy
-  });
-
-  test('should add track correctly using new format', () => {
+  test('should add track correctly', () => {
     const viewer = new RegionViewer({
       container: '#test-container'
     });
@@ -158,30 +126,6 @@ describe('RegionViewer', () => {
     expect(data.annotations).toHaveLength(2);
     expect(data.tracks[1]).toEqual(newTrack);
     expect(data.annotations[1]).toEqual(newAnnotations[0]);
-  });
-
-  test('should add track correctly using legacy format', () => {
-    const viewer = new RegionViewer({
-      container: '#test-container'
-    });
-
-    const initialTrack: Track = {
-      track: 'Initial Track',
-      annotations: [{ start: 5, end: 15, label: 'Initial' }]
-    };
-
-    const newTrack: Track = {
-      track: 'New Track',
-      annotations: [{ start: 20, end: 40, label: 'New Gene' }]
-    };
-
-    viewer.setTrackData([initialTrack]);
-    viewer.addTrackLegacy(newTrack);
-
-    const data = viewer.getTrackData();
-    expect(data).toHaveLength(2);
-    expect(data[1].track).toBe(newTrack.track);
-    expect(data[1].annotations[0].label).toBe('New Gene');
   });
 
   test('should remove track correctly', () => {
