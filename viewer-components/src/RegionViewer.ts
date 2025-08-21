@@ -318,7 +318,7 @@ export class RegionViewer {
         element = this.renderArrow(container, x, y, width, height, annotation.direction);
         break;
       case 'marker':
-        element = this.renderMarker(container, x, y, width, height);
+        element = this.renderMarker(container, x, y, height);
         break;
       case 'box':
       default:
@@ -486,18 +486,15 @@ export class RegionViewer {
     container: d3.Selection<SVGGElement, unknown, null, undefined>,
     x: number,
     y: number,
-    width: number,
     height: number
   ): d3.Selection<SVGCircleElement, unknown, null, undefined> {
     // Render marker as a circle
-    const centerX = x + width / 2;
-    const centerY = y + height / 2;
-    const radius = Math.min(width, height) / 2;
+    const radius = height / 2;
     
     return container
       .append('circle')
-      .attr('cx', centerX)
-      .attr('cy', centerY)
+      .attr('cx', x)
+      .attr('cy', y + radius) // Center vertically in the track
       .attr('r', radius)
       .attr('class', 'annotation-marker');
   }
