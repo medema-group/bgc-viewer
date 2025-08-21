@@ -1,4 +1,4 @@
-import { RegionViewer, RegionViewerData, TrackData, AnnotationData } from '../RegionViewer';
+import { RegionViewer, RegionViewerData, TrackData, AnnotationData, DrawingPrimitive } from '../RegionViewer';
 
 /**
  * RegionViewer tests
@@ -343,10 +343,10 @@ describe('RegionViewer', () => {
 
     viewer.setData(initialData);
 
-    const primitive = {
+    const primitive: DrawingPrimitive = {
       id: 'prim1',
       trackId: 'track1',
-      type: 'horizontal-line' as const,
+      type: 'horizontal-line',
       class: 'test-line',
       start: 10,
       end: 90

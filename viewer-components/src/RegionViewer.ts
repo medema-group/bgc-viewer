@@ -19,7 +19,7 @@ export type AnnotationData = {
   direction: 'left' | 'right' | 'none';
 }
 
-export type DrawingPrimitiveType = 'horizontal-line';
+export type DrawingPrimitiveType = 'horizontal-line' | 'tbd';
 
 export type DrawingPrimitive = {
   id: string;
