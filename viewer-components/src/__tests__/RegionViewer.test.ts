@@ -1,8 +1,7 @@
-import { RegionViewer, Track, RegionViewerData, TrackData, AnnotationData } from '../RegionViewer';
+import { RegionViewer, RegionViewerData, TrackData, AnnotationData, DrawingPrimitive } from '../RegionViewer';
 
 /**
- * RegionViewer tests using the real D3 library
- * This approach is more reliable than mocking and tests actual integration
+ * RegionViewer tests
  */
 
 describe('RegionViewer', () => {
@@ -77,7 +76,8 @@ describe('RegionViewer', () => {
         start: 10,
         end: 30,
         direction: 'none'
-      }]
+      }],
+      primitives: []
     };
 
     viewer.setData(testData);
@@ -87,39 +87,7 @@ describe('RegionViewer', () => {
     expect(retrievedData).not.toBe(testData); // Should be a copy
   });
 
-  test('should set data using legacy format (backward compatibility)', () => {
-    const viewer = new RegionViewer({
-      container: '#test-container'
-    });
-
-    const testData: Track[] = [
-      {
-        track: 'Test Track',
-        annotations: [
-          { start: 10, end: 30, label: 'Gene1', id: 'gene1' }
-        ]
-      }
-    ];
-
-    viewer.setTrackData(testData);
-    const retrievedData = viewer.getTrackData();
-    
-    // The conversion process adds an id field if it wasn't present
-    const expectedData = [
-      {
-        track: 'Test Track',
-        id: 'Test Track',
-        annotations: [
-          { start: 10, end: 30, label: 'Gene1', id: 'gene1' }
-        ]
-      }
-    ];
-    
-    expect(retrievedData).toEqual(expectedData);
-    expect(retrievedData).not.toBe(testData); // Should be a copy
-  });
-
-  test('should add track correctly using new format', () => {
+  test('should add track correctly', () => {
     const viewer = new RegionViewer({
       container: '#test-container'
     });
@@ -158,30 +126,6 @@ describe('RegionViewer', () => {
     expect(data.annotations).toHaveLength(2);
     expect(data.tracks[1]).toEqual(newTrack);
     expect(data.annotations[1]).toEqual(newAnnotations[0]);
-  });
-
-  test('should add track correctly using legacy format', () => {
-    const viewer = new RegionViewer({
-      container: '#test-container'
-    });
-
-    const initialTrack: Track = {
-      track: 'Initial Track',
-      annotations: [{ start: 5, end: 15, label: 'Initial' }]
-    };
-
-    const newTrack: Track = {
-      track: 'New Track',
-      annotations: [{ start: 20, end: 40, label: 'New Gene' }]
-    };
-
-    viewer.setTrackData([initialTrack]);
-    viewer.addTrackLegacy(newTrack);
-
-    const data = viewer.getTrackData();
-    expect(data).toHaveLength(2);
-    expect(data[1].track).toBe(newTrack.track);
-    expect(data[1].annotations[0].label).toBe('New Gene');
   });
 
   test('should remove track correctly', () => {
@@ -305,7 +249,8 @@ describe('RegionViewer', () => {
           label: 'Gene',
           start: 10,
           end: 30,
-          direction: 'right'
+          direction: 'right',
+          heightFraction: 0.8
         },
         {
           id: 'box1',
@@ -315,7 +260,8 @@ describe('RegionViewer', () => {
           label: 'Domain',
           start: 40,
           end: 60,
-          direction: 'none'
+          direction: 'none',
+          heightFraction: 0.5
         },
         {
           id: 'marker1',
@@ -326,8 +272,10 @@ describe('RegionViewer', () => {
           start: 70,
           end: 75,
           direction: 'none'
+          // No heightFraction - should use default
         }
-      ]
+      ],
+      primitives: []
     };
 
     viewer.setData(data);
@@ -335,7 +283,82 @@ describe('RegionViewer', () => {
     
     expect(retrievedData.annotations).toHaveLength(3);
     expect(retrievedData.annotations[0].type).toBe('arrow');
+    expect(retrievedData.annotations[0].heightFraction).toBe(0.8);
     expect(retrievedData.annotations[1].type).toBe('box');
+    expect(retrievedData.annotations[1].heightFraction).toBe(0.5);
     expect(retrievedData.annotations[2].type).toBe('marker');
+    expect(retrievedData.annotations[2].heightFraction).toBeUndefined();
+  });
+
+  test('should handle drawing primitives', () => {
+    const viewer = new RegionViewer({
+      container: '#test-container'
+    });
+
+    const data: RegionViewerData = {
+      tracks: [{ id: 'track1', label: 'Track with Primitives' }],
+      annotations: [],
+      primitives: [
+        {
+          id: 'line1',
+          trackId: 'track1',
+          type: 'horizontal-line',
+          class: 'baseline',
+          start: 10,
+          end: 90
+        },
+        {
+          id: 'line2',
+          trackId: 'track1',
+          type: 'horizontal-line',
+          class: 'full-width',
+          // No start/end - should span entire axis
+        }
+      ]
+    };
+
+    viewer.setData(data);
+    const retrievedData = viewer.getData();
+    
+    expect(retrievedData.primitives).toHaveLength(2);
+    expect(retrievedData.primitives![0].type).toBe('horizontal-line');
+    expect(retrievedData.primitives![0].id).toBe('line1');
+    expect(retrievedData.primitives![0].start).toBe(10);
+    expect(retrievedData.primitives![0].end).toBe(90);
+    expect(retrievedData.primitives![1].id).toBe('line2');
+    expect(retrievedData.primitives![1].start).toBeUndefined();
+    expect(retrievedData.primitives![1].end).toBeUndefined();
+  });
+
+  test('should add and remove primitives individually', () => {
+    const viewer = new RegionViewer({
+      container: '#test-container'
+    });
+
+    const initialData: RegionViewerData = {
+      tracks: [{ id: 'track1', label: 'Test Track' }],
+      annotations: [],
+      primitives: []
+    };
+
+    viewer.setData(initialData);
+
+    const primitive: DrawingPrimitive = {
+      id: 'prim1',
+      trackId: 'track1',
+      type: 'horizontal-line',
+      class: 'test-line',
+      start: 10,
+      end: 90
+    };
+
+    viewer.addPrimitive(primitive);
+    let data = viewer.getData();
+    expect(data.primitives).toHaveLength(1);
+    expect(data.primitives![0]).toEqual(primitive);
+
+    viewer.removePrimitive('prim1');
+    data = viewer.getData();
+    expect(data.primitives).toHaveLength(0);
   });
 });

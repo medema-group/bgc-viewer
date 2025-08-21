@@ -14,39 +14,92 @@ This is the development README. The README for end-users is here: [backend/READM
 
 ## Project Structure
 
-```text
-bgc-viewer/
-├── backend/             # Python Flask server that serves API and statically built frontend
-├── frontend/            # Vue.js web application that, together with the API, makes a stand-alone viewer
-├── viewer-components/   # Reusable TS/JS components for the frontend (WIP)
-```
+The projects consists of a number of modules, which are available in their respective folders as self-contained packages:
+
+- **backend**: Python Flask server that serves API and statically built frontend.
+- **frontend**: Vue.js web application that, together with the API, makes a stand-alone viewer.
+- **viewer-components**: Reusable TS/JS components for the frontend.
+
+The frontend contains a built copy of the viewer-components and the backend (Python package) contains a built copy of the frontend, so the resulting Python package will contain everything that is needed to run the application.
+
 
 ## Installation & usage
 
-For end-users, see this README: [backend/README.md](backend/README.md). For development, follow the steps below.
+For end-users, see this README: [backend/README.md](backend/README.md). For development, a number of different scenarios is possible.
 
 ### Prerequisites
 
 - Python 3.11+
 - [uv](https://github.com/astral-sh/uv) package manager
+- nodejs / npm
 
-### Installation
+### Build, install & run all modules
 
-1. Clone the repository:
+To build all modules (viewer-components, frontend, backend), execute the build script from the repository root.
 
-   ```bash
-   git clone https://github.com/medema-group/bgc-viewer.git
-   cd bgc-viewer
-   ```
+```bash
+./build.sh
+```
 
-2. Install backend with uv:
+You can then install and run the built Python package as follows (replace {VERSION} with built version)
 
-   ```bash
-   cd backend/
-   uv venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   uv pip install -e ".[dev]"
-   ```
+```bash
+pip install backend/dist/bgc_viewer-{VERSION}-py3-none-any.whl
+bgc-viewer
+```
+
+### Viewer-components development
+
+```bash
+cd viewer-components/
+
+# Install
+npm install
+
+# Run dev server
+npm run dev
+
+# Build
+npm run build
+```
+
+### Frontend development
+
+TODO: some copying of assets from the viewer-components is required. See [./build.sh](./build.sh) script for now.
+
+```bash
+cd frontend/
+
+# Install
+npm install
+
+# Run dev server
+npm run dev
+
+# Build
+npm run build
+```
+
+### Backend (Python package) development
+
+TODO: some copying of assets from the frontend is required. See [./build.sh](./build.sh) script for now.
+
+```bash
+cd backend/
+
+# Setup environment and install
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+uv pip install -e ".[dev]"
+
+# Set up configuration if required (see below)
+
+# Run dev server
+uv run python -m bgc_viewer.app
+
+# Build
+uv build
+```
 
 ## Configuration
 

@@ -49,16 +49,24 @@
       cursor: pointer;
     }
 
+    /* Ensure crisp 1px strokes for all stroked annotations */
+    .annotation {
+      shape-rendering: crispEdges;
+    }
+
     .annotation-gene {
       fill: #4CAF50;
     }
 
     .annotation-gene-alt {
       fill: #2196F3;
+      stroke: black;
+      stroke-width: 1px;
+      shape-rendering: crispEdges;
     }
 
     .annotation-domain {
-      fill: #2196F3;
+      fill: #21C683;
     }
 
     .annotation-regulatory {
@@ -75,6 +83,19 @@
 
     .annotation.hovered {
       fill: #FFA726 !important; /* Orange color for hover */
+    }
+
+    /* Primitive styling */
+    .baseline {
+      stroke: #ddd;
+      stroke-width: 1;
+      opacity: 0.6;
+    }
+
+    .reference-line {
+      stroke: #999;
+      stroke-width: 1.5;
+      stroke-dasharray: 5,5;
     }
 
     .event-log {
@@ -116,23 +137,33 @@
         { id: "regulatory", label: "Regulatory Elements & Sites" }
       ],
       annotations: [
-        // Gene track annotations
-        { id: "gene1", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneA", start: 10, end: 30, direction: "right" },
-        { id: "gene2", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "right" },
+        // Gene track annotations with different heights
+        { id: "gene1", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneA", start: 10, end: 30, direction: "right", heightFraction: 0.8 },
+        { id: "gene2", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "right", heightFraction: 0.6 },
         { id: "gene3", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneC", start: 60, end: 80, direction: "right" },
 
-        { id: "gene1", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneA", start: 10, end: 30, direction: "left" },
-        { id: "gene2", trackId: "genes2", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "left" },
+        { id: "gene1", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.9 },
+        { id: "gene2", trackId: "genes2", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "left", heightFraction: 0.4 },
         { id: "gene3", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneC", start: 60, end: 80, direction: "left" },
 
-        // Domain track annotations
-        { id: "dom1", trackId: "domains", type: "box", class: "annotation-domain", label: "domain1", start: 15, end: 25, direction: "none" },
-        { id: "dom2", trackId: "domains", type: "box", class: "annotation-domain", label: "domain2", start: 40, end: 50, direction: "none" },
-        { id: "dom3", trackId: "domains", type: "box", class: "annotation-domain", label: "domain3", start: 65, end: 75, direction: "none" },
+        // Domain track annotations with custom heights
+        { id: "dom1", trackId: "genes2", type: "box", class: "annotation-domain", label: "domain1", start: 15, end: 25, direction: "none", heightFraction: 0.3 },
+        { id: "dom2", trackId: "genes2", type: "box", class: "annotation-domain", label: "domain2", start: 40, end: 50, direction: "none", heightFraction: 0.5 },
+        { id: "dom3", trackId: "genes2", type: "box", class: "annotation-domain", label: "domain3", start: 65, end: 75, direction: "none", heightFraction: 0.7 },
 
-        // Regulatory track annotations
-        { id: "prom1", trackId: "regulatory", type: "marker", class: "annotation-regulatory", label: "promoter", start: 5, end: 12, direction: "none" },
-        { id: "term1", trackId: "regulatory", type: "marker", class: "annotation-terminator", label: "terminator", start: 82, end: 90, direction: "none" }
+        // Regulatory track annotations - mix of custom and default heights
+        { id: "prom1", trackId: "regulatory", type: "marker", class: "annotation-regulatory", label: "promoter", start: 5, end: 12, direction: "none", heightFraction: 0.8 },
+        { id: "term1", trackId: "regulatory", type: "marker", class: "annotation-terminator", label: "terminator", start: 82, end: 90, direction: "none" },
+        { id: "term2", trackId: "regulatory", type: "marker", class: "annotation-terminator", label: "terminator", start: 50, end: 50, direction: "none", heightFraction: 0.5 }
+      ],
+      primitives: [
+        // Full-width baseline lines for each track (no start/end specified)
+        { id: "baseline-genes", trackId: "genes", type: "horizontal-line", class: "baseline" },
+        { id: "baseline-genes2", trackId: "genes2", type: "horizontal-line", class: "baseline" },
+        { id: "baseline-domains", trackId: "domains", type: "horizontal-line", class: "baseline" },
+        
+        // Example of a partial line (with specific start/end)
+        { id: "highlight-region", trackId: "genes", type: "horizontal-line", class: "reference-line", start: 20, end: 70 }
       ]
     };
 
@@ -153,10 +184,10 @@
         height: 200,
         domain: [0, 100],
         onAnnotationClick: (annotation, track) => {
-          logEvent(`Clicked: ${annotation.label} on ${track.track} (${annotation.start}-${annotation.end})`);
+          logEvent(`Clicked: ${annotation.label} on ${track.label} (${annotation.start}-${annotation.end})`);
         },
         onAnnotationHover: (annotation, track) => {
-          logEvent(`Hovered: ${annotation.label} on ${track.track}`);
+          logEvent(`Hovered: ${annotation.label} on ${track.label}`);
         }
       });
 
