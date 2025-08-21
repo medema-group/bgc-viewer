@@ -1,8 +1,15 @@
 """
-My Flask App - A simple Flask server with API endpoints
+BGC Viewer - A viewer for biosynthetic gene clusters.
 """
 
-__version__ = "0.1.0"
+# Get version from package metadata
+try:
+    from importlib.metadata import version
+    __version__ = version("bgc-viewer")
+except ImportError:
+    # Fallback for development/uninstalled package
+    __version__ = "0.1.1-dev"
+
 __author__ = "Your Name"
 __email__ = "your.email@example.com"
 

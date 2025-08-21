@@ -12,6 +12,32 @@ echo "Building BGC Viewer version ${VERSION}..."
 cd "$(dirname "$0")"
 
 
+### ---------- Viewer Components ---------- ####
+
+# Build viewer components first
+echo "=== Building Viewer Components ==="
+cd viewer-components
+
+# Clean previous build
+rm -rf dist/
+
+# Install dependencies and build
+npm install
+npm run build
+
+# Verify build output
+if [ ! -f "dist/index.js" ]; then
+    echo "Error: Viewer components build failed - index.js not found in dist/"
+    exit 1
+fi
+
+echo "Viewer components build completed successfully!"
+echo "Output: viewer-components/dist/"
+ls -la dist/
+
+cd ..
+
+
 ### ---------- Frontend ---------- ####
 
 # Build frontend first
@@ -24,6 +50,21 @@ rm -rf build/ dist/
 # Install dependencies and build
 npm install
 npm run build
+
+# Copy viewer components to frontend static directory for development
+echo "Copying viewer components to frontend static directory..."
+mkdir -p static
+if [ -f "../viewer-components/dist/index.umd.js" ]; then
+    cp ../viewer-components/dist/index.umd.js static/regionviewer.umd.js
+    if [ -f "../viewer-components/dist/index.umd.js.map" ]; then
+        cp ../viewer-components/dist/index.umd.js.map static/regionviewer.umd.js.map
+    fi
+elif [ -f "../viewer-components/dist/index.js" ]; then
+    cp ../viewer-components/dist/index.js static/regionviewer.umd.js
+    if [ -f "../viewer-components/dist/index.js.map" ]; then
+        cp ../viewer-components/dist/index.js.map static/regionviewer.umd.js.map
+    fi
+fi
 
 # Verify build output
 if [ ! -f "build/index.html" ]; then
@@ -48,10 +89,29 @@ cd backend
 # Clean previous build
 rm -rf dist/ bgc_viewer.egg-info/
 
-# Copy README and LICENSE from root
-echo "Copying README and LICENSE..."
-cp ../README.md ./README.md
-cp ../LICENSE ./LICENSE
+# Copy viewer components build files to static directory
+echo "Copying viewer components..."
+if [ -d "../viewer-components/dist" ]; then
+    mkdir -p bgc_viewer/static
+    # Copy the UMD build as regionviewer.umd.js for backward compatibility
+    if [ -f "../viewer-components/dist/index.umd.js" ]; then
+        cp ../viewer-components/dist/index.umd.js bgc_viewer/static/regionviewer.umd.js
+        # Also copy the source map if it exists
+        if [ -f "../viewer-components/dist/index.umd.js.map" ]; then
+            cp ../viewer-components/dist/index.umd.js.map bgc_viewer/static/regionviewer.umd.js.map
+        fi
+    elif [ -f "../viewer-components/dist/index.js" ]; then
+        cp ../viewer-components/dist/index.js bgc_viewer/static/regionviewer.umd.js
+        # Also copy the source map if it exists
+        if [ -f "../viewer-components/dist/index.js.map" ]; then
+            cp ../viewer-components/dist/index.js.map bgc_viewer/static/regionviewer.umd.js.map
+        fi
+    fi
+    echo "Viewer components copied to bgc_viewer/static/"
+else
+    echo "Warning: Viewer components not built. Something went wrong."
+    exit 1
+fi
 
 # Copy frontend build files to static directory
 echo "Copying frontend assets..."
@@ -67,9 +127,6 @@ fi
 # Build Python package (now with uv for consistency)
 echo "Building Python package..."
 uv build
-
-# Clean up copied files
-rm -f README.md LICENSE
 
 # Verify build output
 if [ ! -f "dist/bgc_viewer-${VERSION}-py3-none-any.whl" ]; then

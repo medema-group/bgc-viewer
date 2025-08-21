@@ -7,6 +7,9 @@ from pathlib import Path
 from waitress import serve
 from dotenv import load_dotenv
 
+# Import version from package
+from . import __version__
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -484,6 +487,14 @@ def health_check():
     """Health check endpoint."""
     return jsonify({"status": "healthy", "message": "Server is running"})
 
+@app.route('/api/version')
+def get_version():
+    """API endpoint to get the application version."""
+    return jsonify({
+        "version": __version__,
+        "name": "BGC Viewer"
+    })
+
 @app.route('/api/debug/static-files')
 def debug_static_files():
     """Debug endpoint to check what static files are available."""
@@ -521,15 +532,17 @@ def load_custom_data():
 def main():
     """Main entry point for the application."""
 
+    print(f"Starting BGC Viewer version {__version__}")
+
     host = os.environ.get('BGCV_HOST', 'localhost')
     port = int(os.environ.get('BGCV_PORT', 5005))
     debug_mode = os.getenv('BGCV_DEBUG_MODE', 'False').lower() == 'true'
 
     if debug_mode:
-        print(f"Running in debug mode on {host}:{port}")
+        print(f"Running in debug mode on http://{host}:{port}")
         app.run(host=host, port=port, debug=True)
     else:
-        print(f"Running server on {host}:{port}")
+        print(f"Running server on http://{host}:{port}")
         serve(app, host=host, port=port, threads=4)
 
 if __name__ == '__main__':

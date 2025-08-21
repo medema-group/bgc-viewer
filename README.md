@@ -7,7 +7,9 @@
 | **License** | [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) |
 | **Fairness** | [![fair-software.eu](https://img.shields.io/badge/fair--software.eu-%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8B-yellow)](https://fair-software.eu) |
 
-A viewer for BGC data.
+A viewer for biosynthetic gene cluster data.
+
+This is the development README. The README for end-users is here: [backend/README.md](backend/README.md) (it's the readme of the Python package)
 
 
 ## Project Structure
@@ -16,22 +18,12 @@ A viewer for BGC data.
 bgc-viewer/
 ├── backend/             # Python Flask server that serves API and statically built frontend
 ├── frontend/            # Vue.js web application that, together with the API, makes a stand-alone viewer
-├── viewer-js/           # Reusable TS/JS components for the frontend (WIP)
+├── viewer-components/   # Reusable TS/JS components for the frontend (WIP)
 ```
 
-## Installation
+## Installation & usage
 
-Using Python 3.11 or higher, install and run the BGC Viewer as follows:
-
-```bash
-pip install bgc-viewer
-bgc-viewer
-```
-
-This will start the BGC Viewer server, to which you can connect with your web browser.
-
-
-## Development
+For end-users, see this README: [backend/README.md](backend/README.md). For development, follow the steps below.
 
 ### Prerequisites
 
@@ -47,15 +39,26 @@ This will start the BGC Viewer server, to which you can connect with your web br
    cd bgc-viewer
    ```
 
-2. Install with uv:
+2. Install backend with uv:
 
    ```bash
+   cd backend/
    uv venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    uv pip install -e ".[dev]"
    ```
 
-## Usage
+## Configuration
+
+Environment variables can be set to change the configuration of the viewer.
+A convenient way to change them is to put a file called `.env` in the directory from
+which you are running the application.
+
+```bash
+BGCV_HOST=localhost     # Server host (default: localhost)
+BGCV_PORT=5005          # Server port (default: 5005)
+BGCV_DEBUG_MODE=False   # Enable dev/debug mode (default: False)
+```
 
 ### Running the Server
 
@@ -64,17 +67,6 @@ uv run python -m bgc_viewer.app
 ```
 
 The server will start on `http://localhost:5005` by default.
-
-### API Endpoints
-
-- `GET /` - Main HTML page
-- `GET /api/data` - Get all custom data
-- `GET /api/users` - Get user list
-- `GET /api/users/<id>` - Get specific user
-- `GET /api/stats` - Get application statistics
-- `GET /api/health` - Health check endpoint
-
-## Development
 
 ### Code Formatting
 
@@ -99,37 +91,6 @@ uv run pytest
 uv run pytest --cov=bgc_viewer
 ```
 
-### Adding Custom Data
-
-1. Create a `data/custom_data.json` file with your data structure
-2. Modify the `load_custom_data()` function in `app.py` to read from your data source
-3. Update the API endpoints to serve your custom data
-
-## Customization
-
-### Adding New Endpoints
-
-1. Add new route functions to `app.py`
-2. Update the HTML template to include new endpoints
-3. Add corresponding JavaScript functions if needed
-
-### Styling
-
-Modify `static/css/style.css` to customize the appearance of the web interface.
-
-### Frontend Behavior
-
-Update `static/js/app.js` to add new interactive features.
-
-## Environment Variables
-
-Environment variables can be set to change the configuration of the viewer.
-A convenient way to change them is to put a file called `.env` in the directory from
-which you are running the application.
-
-- `BGCV_HOST` - Server host (default: localhost)
-- `BGCV_PORT` - Server port (default: 5005)
-- `BGCV_DEBUG_MODE` - Enable dev/debug mode (default: False)
 
 ## License
 

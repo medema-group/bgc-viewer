@@ -148,6 +148,13 @@
         </div>
       </section>
     </main>
+    
+    <footer class="app-footer">
+      <div class="version-info">
+        <span v-if="appVersion">{{ appName }} v{{ appVersion }}</span>
+        <span v-else>Loading version...</span>
+      </div>
+    </footer>
   </div>
 </template>
 
@@ -169,6 +176,10 @@ export default {
     const currentFile = ref('')
     const loadingFile = ref(false)
     const regionViewerRef = ref(null)
+    
+    // Version information
+    const appVersion = ref('')
+    const appName = ref('BGC Viewer')
     
     // Folder browser state
     const showFolderDialog = ref(false)
@@ -304,6 +315,7 @@ export default {
     onMounted(() => {
       loadAvailableFiles()
       browsePath('.') // Initialize folder browser
+      fetchVersion() // Fetch application version
     })
     
     const browsePath = async (path) => {
@@ -403,6 +415,17 @@ export default {
       }
     }
     
+    const fetchVersion = async () => {
+      try {
+        const response = await axios.get('/api/version')
+        appVersion.value = response.data.version
+        appName.value = response.data.name
+      } catch (error) {
+        console.warn('Failed to fetch version:', error)
+        // Keep default values if fetch fails
+      }
+    }
+    
     const formatFileSize = (bytes) => {
       if (bytes === 0) return '0 B'
       const k = 1024
@@ -419,6 +442,8 @@ export default {
       currentFile,
       loadingFile,
       regionViewerRef,
+      appVersion,
+      appName,
       showFolderDialog,
       currentBrowserPath,
       currentFolderPath,
@@ -825,5 +850,21 @@ export default {
 .region-section h2 {
   margin-top: 0;
   color: #495057;
+}
+
+.app-footer {
+  margin-top: 40px;
+  padding: 20px 0;
+  border-top: 1px solid #e0e0e0;
+  text-align: center;
+}
+
+.version-info {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.version-info span {
+  font-weight: 500;
 }
 </style>
