@@ -247,23 +247,64 @@ export default {
           const start = parseInt(locationMatch[1])
           const end = parseInt(locationMatch[2])
           const strand = locationMatch[3]
-
           const classes = [];
           classes.push(getFeatureClass(feature.type));
-          if (feature.type === 'CDS') {
-            classes.push(`gene-type-${feature.qualifiers?.gene_kind?.[0] || 'other'}`);
+
+          switch (feature.type) {
+            case "CDS":
+              if (feature.type === 'CDS') {
+                classes.push(`gene-type-${feature.qualifiers?.gene_kind?.[0] || 'other'}`);
+              }
+              trackData[feature.type].annotations.push({
+                id: `${feature.type}-${start}-${end}`,
+                trackId: feature.type,
+                type: 'arrow',
+                direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
+                classes: classes,
+                label: getFeatureLabel(feature),
+                start: start,
+                end: end
+              })
+              break;
+            case "protocluster":
+            case "proto_core":
+              const protocluster_number = feature.qualifiers?.protocluster_number?.[0] || 'unknown';
+              const track_id = `protocluster-${protocluster_number}`;
+              if (!trackData[track_id]) {
+                trackData[track_id] = {
+                  id: track_id,
+                  label: `Protocluster ${protocluster_number}`,
+                  annotations: []
+                }
+              }
+              trackData[track_id].annotations.push({
+                id: `${feature.type}-${protocluster_number}`,
+                trackId: track_id,
+                type: 'box',
+                heightFraction: 0.5,
+                direction: 'none',
+                classes: classes,
+                label: getFeatureLabel(feature),
+                start: start,
+                end: end
+              })
+              break;
+            default:
+              trackData[feature.type].annotations.push({
+                id: `${feature.type}-${start}-${end}`,
+                trackId: feature.type,
+                type: 'arrow',
+                direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
+                classes: classes,
+                label: getFeatureLabel(feature),
+                start: start,
+                end: end
+              })
+              break;
           }
 
-          trackData[feature.type].annotations.push({
-            id: `${feature.type}-${start}-${end}`,
-            trackId: feature.type,
-            type: feature.type === 'CDS' ? 'arrow' : 'box',
-            direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
-            classes: classes,
-            label: getFeatureLabel(feature),
-            start: start,
-            end: end
-          })
+
+
         }
       })
       
