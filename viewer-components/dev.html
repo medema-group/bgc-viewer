@@ -138,23 +138,23 @@
       ],
       annotations: [
         // Gene track annotations with different heights
-        { id: "gene1", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneA", start: 10, end: 30, direction: "right", heightFraction: 0.8 },
-        { id: "gene2", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "right", heightFraction: 0.6 },
-        { id: "gene3", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneC", start: 60, end: 80, direction: "right" },
+        { id: "gene1", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneA", start: 10, end: 30, direction: "right", heightFraction: 0.8 },
+        { id: "gene2", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, direction: "right", heightFraction: 0.6 },
+        { id: "gene3", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneC", start: 60, end: 80, direction: "right" },
 
-        { id: "gene1", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.9 },
-        { id: "gene2", trackId: "genes2", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "left", heightFraction: 0.4 },
-        { id: "gene3", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneC", start: 60, end: 80, direction: "left" },
+        { id: "gene1", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.9 },
+        { id: "gene2", trackId: "genes2", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, direction: "left", heightFraction: 0.4 },
+        { id: "gene3", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneC", start: 60, end: 80, direction: "left" },
 
         // Domain track annotations with custom heights
-        { id: "dom1", trackId: "genes2", type: "box", class: "annotation-domain", label: "domain1", start: 15, end: 25, direction: "none", heightFraction: 0.3 },
-        { id: "dom2", trackId: "genes2", type: "box", class: "annotation-domain", label: "domain2", start: 40, end: 50, direction: "none", heightFraction: 0.5 },
-        { id: "dom3", trackId: "genes2", type: "box", class: "annotation-domain", label: "domain3", start: 65, end: 75, direction: "none", heightFraction: 0.7 },
+        { id: "dom1", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain1", start: 15, end: 25, direction: "none", heightFraction: 0.3 },
+        { id: "dom2", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain2", start: 40, end: 50, direction: "none", heightFraction: 0.5 },
+        { id: "dom3", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain3", start: 65, end: 75, direction: "none", heightFraction: 0.7 },
 
         // Regulatory track annotations - mix of custom and default heights
-        { id: "prom1", trackId: "regulatory", type: "marker", class: "annotation-regulatory", label: "promoter", start: 5, end: 12, direction: "none", heightFraction: 0.8 },
-        { id: "term1", trackId: "regulatory", type: "marker", class: "annotation-terminator", label: "terminator", start: 82, end: 90, direction: "none" },
-        { id: "term2", trackId: "regulatory", type: "marker", class: "annotation-terminator", label: "terminator", start: 50, end: 50, direction: "none", heightFraction: 0.5 }
+        { id: "prom1", trackId: "regulatory", type: "marker", classes: ["annotation-regulatory"], label: "promoter", start: 5, end: 12, direction: "none", heightFraction: 0.8 },
+        { id: "term1", trackId: "regulatory", type: "marker", classes: ["annotation-terminator"], label: "terminator", start: 82, end: 90, direction: "none" },
+        { id: "term2", trackId: "regulatory", type: "marker", classes: ["annotation-terminator"], label: "terminator", start: 50, end: 50, direction: "none", heightFraction: 0.5 }
       ],
       primitives: [
         // Full-width baseline lines for each track (no start/end specified)

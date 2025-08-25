@@ -11,7 +11,7 @@ export type AnnotationData = {
   id: string;
   trackId: string;
   type: AnnotationType;
-  class: string;
+  classes: string[];
   label: string;
   start: number;
   end: number;
@@ -328,7 +328,7 @@ export class RegionViewer {
 
     // Apply common styling and event handlers
     element
-      .attr('class', `annotation ${annotation.class}`)
+      .attr('class', `annotation ${annotation.classes.join(' ')}`)
       .style('cursor', 'pointer')
       .style('pointer-events', 'all') // Ensure annotations can receive mouse events
       .on('mouseover', (event: any) => {
