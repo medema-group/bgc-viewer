@@ -247,13 +247,19 @@ export default {
           const start = parseInt(locationMatch[1])
           const end = parseInt(locationMatch[2])
           const strand = locationMatch[3]
-          
+
+          const classes = [];
+          classes.push(getFeatureClass(feature.type));
+          if (feature.type === 'CDS') {
+            classes.push(`gene-type-${feature.qualifiers?.gene_kind?.[0] || 'other'}`);
+          }
+
           trackData[feature.type].annotations.push({
             id: `${feature.type}-${start}-${end}`,
             trackId: feature.type,
             type: feature.type === 'CDS' ? 'arrow' : 'box',
             direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
-            class: getFeatureClass(feature.type),
+            classes: classes,
             label: getFeatureLabel(feature),
             start: start,
             end: end
@@ -274,14 +280,7 @@ export default {
     }
     
     const getFeatureClass = (type) => {
-      const classes = {
-        'CDS': 'feature-cds',
-        'PFAM_domain': 'feature-pfam', 
-        'region': 'feature-region',
-        'protocluster': 'feature-protocluster',
-        'cand_cluster': 'feature-cand-cluster'
-      }
-      return classes[type] || 'feature-default'
+      return `feature-${type.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
     }
     
     const getFeatureLabel = (feature) => {
@@ -523,11 +522,43 @@ export default {
   margin: 10px 0;
 }
 
+/* Gene type styling classes for the RegionViewer */
+:global(.gene-type-biosynthetic) {
+  fill: #810e15;
+  stroke: #610b10;
+}
+:global(.gene-type-biosynthetic-additional) {
+  fill: #f16d75;
+  stroke: #c62828;
+}
+:global(.gene-type-regulatory) {
+  fill: seagreen;
+  stroke: #2e7d32;
+}
+:global(.gene-type-transport) {
+  fill: cornflowerblue;
+  stroke: #1e88e5;
+}
+:global(.gene-type-other) {
+  fill: gray;
+  stroke: #555;
+}
+
+:global(.feature-resistance) {
+  fill: #bbb;
+  stroke: #888;
+}
+:global(.feature-tta-codon) {
+  fill: #444;
+  stroke: #222;
+}
+
+
 /* Feature styling classes for the RegionViewer */
-:global(.feature-cds) {
+/* :global(.feature-cds) {
   fill: #4CAF50;
   stroke: #388E3C;
-}
+} */
 
 :global(.feature-pfam) {
   fill: #2196F3;
