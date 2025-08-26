@@ -4,7 +4,7 @@ A TypeScript library providing D3.js-based visualization components for biosynth
 
 ## Features
 
-- **RegionViewer**: Interactive visualization of genomic regions with tracks and annotations
+- **TrackViewer**: Interactive visualization of genomic regions with tracks and annotations
 - **Multiple annotation types**: Arrows, boxes, and markers
 - **Zoom and pan**: Interactive navigation through genomic regions
 - **TypeScript support**: Full type definitions for better developer experience
@@ -21,10 +21,10 @@ npm install bgc-viewer-components
 ### Basic Example
 
 ```typescript
-import { RegionViewer } from 'bgc-viewer-components';
+import { TrackViewer } from 'bgc-viewer-components';
 
 // Create a viewer instance
-const viewer = new RegionViewer({
+const viewer = new TrackViewer({
   container: '#my-container',
   width: 800,
   height: 400,
@@ -65,7 +65,7 @@ viewer.setData({
 ### Configuration Options
 
 ```typescript
-interface RegionViewerConfig {
+interface TrackViewerConfig {
   container: string | HTMLElement;    // CSS selector or DOM element
   width?: number;                     // Width in pixels (default: 800)
   height?: number;                    // Height in pixels (default: 300)
@@ -138,7 +138,7 @@ Useful for point features or binding sites:
 #### Data Management
 ```typescript
 // Set complete dataset
-viewer.setData(data: RegionViewerData): void
+viewer.setData(data: TrackViewerData): void
 
 // Add individual tracks and annotations
 viewer.addTrack(track: TrackData, annotations?: AnnotationData[]): void
@@ -164,10 +164,10 @@ viewer.resetZoom(): void
 #### Data Retrieval
 ```typescript
 // Get current configuration
-const config = viewer.getConfig(): Required<RegionViewerConfig>
+const config = viewer.getConfig(): Required<TrackViewerConfig>
 
 // Get current data
-const data = viewer.getData(): RegionViewerData
+const data = viewer.getData(): TrackViewerData
 ```
 
 #### Cleanup
@@ -179,7 +179,7 @@ viewer.destroy(): void
 ### Event Handling
 
 ```typescript
-const viewer = new RegionViewer({
+const viewer = new TrackViewer({
   container: '#container',
   onAnnotationClick: (annotation, track) => {
     console.log(`Clicked ${annotation.label} in ${track.label}`);
@@ -257,7 +257,7 @@ export interface AnnotationData {
   direction: 'left' | 'right' | 'none';
 }
 
-export interface RegionViewerData {
+export interface TrackViewerData {
   tracks: TrackData[];
   annotations: AnnotationData[];
 }

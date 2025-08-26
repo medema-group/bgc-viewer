@@ -153,11 +153,11 @@ backend/bgc_viewer.egg-info/
 # Built frontend assets in backend
 backend/bgc_viewer/static/index.html
 backend/bgc_viewer/static/assets/
-backend/bgc_viewer/static/regionviewer.umd.js
-backend/bgc_viewer/static/regionviewer.umd.js.map
+backend/bgc_viewer/static/viewer-components.umd.js
+backend/bgc_viewer/static/viewer-components.umd.js.map
 
 # Frontend build artifacts
 frontend/build/
 frontend/dist/
-frontend/static/regionviewer.umd.js
-frontend/static/regionviewer.umd.js.map
+frontend/static/viewer-components.umd.js
+frontend/static/viewer-components.umd.js.map

@@ -55,14 +55,14 @@ npm run build
 echo "Copying viewer components to frontend static directory..."
 mkdir -p static
 if [ -f "../viewer-components/dist/index.umd.js" ]; then
-    cp ../viewer-components/dist/index.umd.js static/regionviewer.umd.js
+    cp ../viewer-components/dist/index.umd.js static/viewer-components.umd.js
     if [ -f "../viewer-components/dist/index.umd.js.map" ]; then
-        cp ../viewer-components/dist/index.umd.js.map static/regionviewer.umd.js.map
+        cp ../viewer-components/dist/index.umd.js.map static/viewer-components.umd.js.map
     fi
 elif [ -f "../viewer-components/dist/index.js" ]; then
-    cp ../viewer-components/dist/index.js static/regionviewer.umd.js
+    cp ../viewer-components/dist/index.js static/viewer-components.umd.js
     if [ -f "../viewer-components/dist/index.js.map" ]; then
-        cp ../viewer-components/dist/index.js.map static/regionviewer.umd.js.map
+        cp ../viewer-components/dist/index.js.map static/viewer-components.umd.js.map
     fi
 fi
 
@@ -93,18 +93,18 @@ rm -rf dist/ bgc_viewer.egg-info/
 echo "Copying viewer components..."
 if [ -d "../viewer-components/dist" ]; then
     mkdir -p bgc_viewer/static
-    # Copy the UMD build as regionviewer.umd.js for backward compatibility
+    # Copy the UMD build as viewer-components.umd.js for backward compatibility
     if [ -f "../viewer-components/dist/index.umd.js" ]; then
-        cp ../viewer-components/dist/index.umd.js bgc_viewer/static/regionviewer.umd.js
+        cp ../viewer-components/dist/index.umd.js bgc_viewer/static/viewer-components.umd.js
         # Also copy the source map if it exists
         if [ -f "../viewer-components/dist/index.umd.js.map" ]; then
-            cp ../viewer-components/dist/index.umd.js.map bgc_viewer/static/regionviewer.umd.js.map
+            cp ../viewer-components/dist/index.umd.js.map bgc_viewer/static/viewer-components.umd.js.map
         fi
     elif [ -f "../viewer-components/dist/index.js" ]; then
-        cp ../viewer-components/dist/index.js bgc_viewer/static/regionviewer.umd.js
+        cp ../viewer-components/dist/index.js bgc_viewer/static/viewer-components.umd.js
         # Also copy the source map if it exists
         if [ -f "../viewer-components/dist/index.js.map" ]; then
-            cp ../viewer-components/dist/index.js.map bgc_viewer/static/regionviewer.umd.js.map
+            cp ../viewer-components/dist/index.js.map bgc_viewer/static/viewer-components.umd.js.map
         fi
     fi
     echo "Viewer components copied to bgc_viewer/static/"

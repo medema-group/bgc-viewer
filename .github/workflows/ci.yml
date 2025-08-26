@@ -49,16 +49,16 @@ jobs:
     - name: Copy viewer-components and frontend assets to backend
       run: |
         mkdir -p backend/bgc_viewer/static
-        # Copy viewer components build as regionviewer.umd.js
+        # Copy viewer components build as viewer-components.umd.js
         if [ -f "viewer-components/dist/index.umd.js" ]; then
-          cp viewer-components/dist/index.umd.js backend/bgc_viewer/static/regionviewer.umd.js
+          cp viewer-components/dist/index.umd.js backend/bgc_viewer/static/viewer-components.umd.js
           if [ -f "viewer-components/dist/index.umd.js.map" ]; then
-            cp viewer-components/dist/index.umd.js.map backend/bgc_viewer/static/regionviewer.umd.js.map
+            cp viewer-components/dist/index.umd.js.map backend/bgc_viewer/static/viewer-components.umd.js.map
           fi
         elif [ -f "viewer-components/dist/index.js" ]; then
-          cp viewer-components/dist/index.js backend/bgc_viewer/static/regionviewer.umd.js
+          cp viewer-components/dist/index.js backend/bgc_viewer/static/viewer-components.umd.js
           if [ -f "viewer-components/dist/index.js.map" ]; then
-            cp viewer-components/dist/index.js.map backend/bgc_viewer/static/regionviewer.umd.js.map
+            cp viewer-components/dist/index.js.map backend/bgc_viewer/static/viewer-components.umd.js.map
           fi
         fi
         # Copy frontend build

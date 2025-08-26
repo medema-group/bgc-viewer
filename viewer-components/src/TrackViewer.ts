@@ -32,13 +32,13 @@ export type DrawingPrimitive = {
   y?: number; // Optional vertical position override (relative to track)
 }
 
-export type RegionViewerData = {
+export type TrackViewerData = {
   tracks: TrackData[];
   annotations: AnnotationData[];
   primitives?: DrawingPrimitive[];
 }
 
-export interface RegionViewerConfig {
+export interface TrackViewerConfig {
   container: string | HTMLElement;
   width?: number;
   height?: number;
@@ -56,8 +56,8 @@ export interface RegionViewerConfig {
 }
 
 
-export class RegionViewer {
-  private config: Required<RegionViewerConfig>;
+export class TrackViewer {
+  private config: Required<TrackViewerConfig>;
   private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
   private chart!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private clippedChart!: d3.Selection<SVGGElement, unknown, null, undefined>;
@@ -66,12 +66,12 @@ export class RegionViewer {
   private x!: d3.ScaleLinear<number, number>;
   private currentTransform: d3.ZoomTransform;
   private zoom!: d3.ZoomBehavior<any, unknown>;
-  private data: RegionViewerData = { tracks: [], annotations: [], primitives: [] };
+  private data: TrackViewerData = { tracks: [], annotations: [], primitives: [] };
   private trackGroups!: d3.Selection<SVGGElement, TrackData, SVGGElement, unknown>;
   private clipId!: string;
   private originalLeftMargin: number; // Store original left margin
 
-  constructor(config: RegionViewerConfig) {
+  constructor(config: TrackViewerConfig) {
     // Set default configuration
     this.config = {
       container: config.container,
@@ -597,7 +597,7 @@ export class RegionViewer {
   }
 
   // Public API methods
-  public setData(data: RegionViewerData): void {
+  public setData(data: TrackViewerData): void {
     this.data = {
       tracks: data.tracks,
       annotations: data.annotations,
@@ -694,11 +694,11 @@ export class RegionViewer {
     this.svg.remove();
   }
 
-  public getConfig(): Required<RegionViewerConfig> {
+  public getConfig(): Required<TrackViewerConfig> {
     return { ...this.config };
   }
 
-  public getData(): RegionViewerData {
+  public getData(): TrackViewerData {
     return {
       tracks: [...this.data.tracks],
       annotations: [...this.data.annotations],

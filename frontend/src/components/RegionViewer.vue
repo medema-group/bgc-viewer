@@ -208,7 +208,7 @@ export default {
         padding = (maxPos - minPos) * 0.1
       }
       
-      regionViewer = new window.BgcViewer.RegionViewer({
+      regionViewer = new window.BGCViewer.TrackViewer({
         container: viewerContainer.value,
         width: 800,
         height: 400,
@@ -217,7 +217,7 @@ export default {
           console.log('Clicked annotation:', annotation, 'on track:', track)
         },
         onAnnotationHover: (annotation, track, event) => {
-          // Hover is handled by the RegionViewer's built-in tooltip
+          // Hover is handled by the TrackViewer's built-in tooltip
         }
       })
     }
@@ -308,7 +308,7 @@ export default {
         }
       })
       
-      // Convert to RegionViewer format
+      // Convert to TrackViewer format
       const tracks = Object.values(trackData).map(track => ({
         id: track.id,
         label: track.label
