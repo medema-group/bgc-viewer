@@ -78,23 +78,56 @@ export default {
 </script>
 
 <style>
+/* Global font styling to match backend */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body, 
+html,
+#app {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.6;
+  color: #333;
+  background-color: #f4f4f4;
+}
+
 .container {
   max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
 }
 
+header {
+  text-align: center;
+  margin-bottom: 40px;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+header h1 {
+  color: #2c3e50;
+  margin-bottom: 10px;
+}
+
 .region-section {
-  background: #f8f9fa;
+  background: white;
   border: 1px solid #e9ecef;
   border-radius: 8px;
-  padding: 20px;
+  padding: 30px;
   margin-bottom: 30px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
 .region-section h2 {
   margin-top: 0;
-  color: #495057;
+  color: #2c3e50;
+  border-bottom: 2px solid #3498db;
+  padding-bottom: 10px;
 }
 
 .app-footer {
