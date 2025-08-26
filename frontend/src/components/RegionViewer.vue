@@ -8,14 +8,19 @@
         </option>
       </select>
       
-      <select v-if="selectedRecord" v-model="selectedRegion" @change="onRegionChange" class="region-select">
+      <select v-if="selectedRecord && regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
         <option value="">Select a region...</option>
         <option v-for="region in regions" :key="region.id" :value="region.id">
           Region {{ region.region_number }} - {{ region.product.join(', ') }}
         </option>
       </select>
       
-      <div v-if="selectedRecord && selectedRegion" class="feature-controls">
+      <!-- Show message when no regions are available -->
+      <div v-if="selectedRecord && regions.length === 0 && !loading" class="no-regions-message">
+        No regions found - showing all features for this record
+      </div>
+      
+      <div v-if="selectedRecord && (selectedRegion || (regions.length === 0 && availableTracks.length > 0))" class="feature-controls">
         <div class="multi-select-container">
           <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
             <div class="selected-display">
@@ -64,7 +69,7 @@
       </div>
     </div>
     
-    <div ref="viewerContainer" class="viewer-container" v-show="selectedRecord && selectedRegion"></div>
+    <div ref="viewerContainer" class="viewer-container" v-show="selectedRecord"></div>
     
     <div v-if="loading" class="loading">
       Loading region data...
@@ -136,10 +141,67 @@ export default {
         const response = await axios.get(`/api/records/${selectedRecord.value}/regions`)
         regions.value = response.data.regions
         
+        console.log('Loaded regions:', regions.value.length)
+        
+        // If no regions are available, load all features directly
+        if (!regions.value || regions.value.length === 0) {
+          console.log('No regions found, loading all features...')
+          await loadAllFeaturesForRecord()
+        } else {
+          console.log('Found', regions.value.length, 'regions')
+        }
+        
       } catch (err) {
         error.value = `Failed to load regions: ${err.message}`
       } finally {
         loading.value = false
+      }
+    }
+    
+    const loadAllFeaturesForRecord = async () => {
+      try {
+        console.log('Loading all features for record:', selectedRecord.value)
+        // Load all features for the selected record (no region filtering)
+        const response = await axios.get(`/api/records/${selectedRecord.value}/features`)
+        console.log('Features API response:', response.data)
+        currentFeatures = response.data.features
+        
+        if (!currentFeatures || currentFeatures.length === 0) {
+          console.warn('No features found for record:', selectedRecord.value)
+          error.value = 'No features found for this record'
+          return
+        }
+        
+        console.log('Found', currentFeatures.length, 'features')
+        
+        // Build all tracks from features
+        buildAllTracks()
+        console.log('Built tracks:', Object.keys(allTrackData))
+        
+        // Extract available tracks and select all by default
+        const tracks = Object.values(allTrackData).map(track => ({
+          id: track.id,
+          label: track.label,
+          annotationCount: track.annotations.length
+        }))
+        tracks.sort((a, b) => a.id.localeCompare(b.id))
+        availableTracks.value = tracks
+        // For all features mode, select all tracks by default (not just CDS/protocluster)
+        selectedTracks.value = tracks.map(t => t.id)
+
+        console.log('Available tracks:', availableTracks.value)
+        console.log('Selected tracks:', selectedTracks.value)
+
+        await nextTick() // Wait for DOM update
+        // Initialize viewer without region boundaries (use feature boundaries)
+        console.log('Initializing viewer...')
+        initializeViewer(null)
+        updateViewer()
+        console.log('Viewer initialized and updated')
+        
+      } catch (err) {
+        console.error('Error in loadAllFeaturesForRecord:', err)
+        error.value = `Failed to load all features: ${err.message}`
       }
     }
     
@@ -199,8 +261,10 @@ export default {
         minPos = regionBoundaries.start
         maxPos = regionBoundaries.end
         padding = (maxPos - minPos) * 0.1
+        console.log('Using region boundaries:', minPos, '-', maxPos)
       } else {
         // Fallback to calculating from features
+        console.log('Calculating boundaries from', currentFeatures.length, 'features')
         const positions = currentFeatures
           .filter(f => f.location)
           .map(f => {
@@ -211,11 +275,21 @@ export default {
           .filter(Boolean)
           .flat()
         
-        minPos = Math.min(...positions) || 0
-        maxPos = Math.max(...positions) || 1000
+        console.log('Extracted positions:', positions.slice(0, 10), positions.length > 10 ? `... (${positions.length} total)` : '')
+        
+        if (positions.length === 0) {
+          console.warn('No valid positions found, using default domain')
+          minPos = 0
+          maxPos = 1000
+        } else {
+          minPos = Math.min(...positions)
+          maxPos = Math.max(...positions)
+        }
         padding = (maxPos - minPos) * 0.1
+        console.log('Calculated domain:', minPos - padding, 'to', maxPos + padding)
       }
       
+      console.log('Creating TrackViewer...')
       regionViewer = new window.BGCViewer.TrackViewer({
         container: viewerContainer.value,
         // width is not specified, so it will be responsive
@@ -228,6 +302,7 @@ export default {
           // Hover is handled by the TrackViewer's built-in tooltip
         }
       })
+      console.log('TrackViewer created successfully')
     }
     
     const buildAllTracks = () => {
@@ -477,6 +552,18 @@ export default {
   font-size: 14px;
   margin-right: 10px;
   min-width: 250px;
+}
+
+.no-regions-message {
+  display: inline-block;
+  padding: 8px 12px;
+  background-color: #e8f4fd;
+  border: 1px solid #bee5eb;
+  border-radius: 4px;
+  color: #0c5460;
+  font-size: 14px;
+  margin-right: 10px;
+  font-style: italic;
 }
 
 .feature-controls {
