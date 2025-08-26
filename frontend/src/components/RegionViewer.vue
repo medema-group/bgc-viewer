@@ -169,9 +169,11 @@ export default {
           label: track.label,
           annotationCount: track.annotations.length
         }))
+        tracks.sort((a, b) => a.id.localeCompare(b.id))
         availableTracks.value = tracks
-        selectedTracks.value = tracks.map(t => t.id)
-        
+        // Select tracks that start with any of the specified values
+        selectedTracks.value = tracks.filter(t => ['CDS'].includes(t.id) || t.id.includes('protocluster')).map(t => t.id)
+
         await nextTick() // Wait for DOM update
         initializeViewer(response.data.region_boundaries)
         updateViewer()
