@@ -19,14 +19,14 @@
         <div class="multi-select-container">
           <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
             <div class="selected-display">
-              <span v-if="selectedFeatureTypes.length === availableFeatureTypes.length">
-                All types ({{ selectedFeatureTypes.length }})
+              <span v-if="selectedTracks.length === availableTracks.length">
+                All tracks ({{ selectedTracks.length }})
               </span>
-              <span v-else-if="selectedFeatureTypes.length === 0">
-                No types selected
+              <span v-else-if="selectedTracks.length === 0">
+                No tracks selected
               </span>
               <span v-else>
-                {{ selectedFeatureTypes.length }} types selected
+                {{ selectedTracks.length }} tracks selected
               </span>
               <span class="dropdown-arrow">▼</span>
             </div>
@@ -35,8 +35,8 @@
                 <label>
                   <input 
                     type="checkbox" 
-                    :checked="selectedFeatureTypes.length === availableFeatureTypes.length"
-                    :indeterminate="selectedFeatureTypes.length > 0 && selectedFeatureTypes.length < availableFeatureTypes.length"
+                    :checked="selectedTracks.length === availableTracks.length"
+                    :indeterminate="selectedTracks.length > 0 && selectedTracks.length < availableTracks.length"
                     @change="toggleSelectAll"
                   >
                   Select All
@@ -44,18 +44,18 @@
               </div>
               <div class="option-separator"></div>
               <div 
-                v-for="featureType in availableFeatureTypes" 
-                :key="featureType" 
+                v-for="track in availableTracks" 
+                :key="track.id" 
                 class="dropdown-option"
               >
                 <label>
                   <input 
                     type="checkbox" 
-                    :value="featureType"
-                    v-model="selectedFeatureTypes"
+                    :value="track.id"
+                    v-model="selectedTracks"
                     @change="updateViewer"
                   >
-                  {{ featureType }} ({{ getFeatureCount(featureType) }})
+                  {{ track.label }} ({{ track.annotationCount }})
                 </label>
               </div>
             </div>
@@ -91,13 +91,14 @@ export default {
     const loading = ref(false)
     const error = ref('')
     
-    // Feature type management
-    const availableFeatureTypes = ref([])
-    const selectedFeatureTypes = ref([])
+    // Track management
+    const availableTracks = ref([])
+    const selectedTracks = ref([])
     const dropdownOpen = ref(false)
     
     let regionViewer = null
     let currentFeatures = []
+    let allTrackData = {} // Store all generated tracks
     
     onMounted(async () => {
       try {
@@ -159,12 +160,17 @@ export default {
         const response = await axios.get(`/api/records/${selectedRecord.value}/regions/${selectedRegion.value}/features`)
         currentFeatures = response.data.features
         
-        // Extract unique feature types from the loaded features
-        const types = [...new Set(currentFeatures.map(f => f.type).filter(Boolean))].sort()
-        availableFeatureTypes.value = types
+        // Build all tracks from features
+        buildAllTracks()
         
-        // Select all types by default
-        selectedFeatureTypes.value = [...types]
+        // Extract available tracks and select all by default
+        const tracks = Object.values(allTrackData).map(track => ({
+          id: track.id,
+          label: track.label,
+          annotationCount: track.annotations.length
+        }))
+        availableTracks.value = tracks
+        selectedTracks.value = tracks.map(t => t.id)
         
         await nextTick() // Wait for DOM update
         initializeViewer(response.data.region_boundaries)
@@ -222,99 +228,135 @@ export default {
       })
     }
     
-    const updateViewer = () => {
-      if (!regionViewer || !currentFeatures.length) return
+    const buildAllTracks = () => {
+      // Reset track data
+      allTrackData = {}
       
-      // Filter features based on selected feature types
-      const filteredFeatures = currentFeatures.filter(feature => 
-        selectedFeatureTypes.value.includes(feature.type)
-      )
-      
-      // Group features by type into tracks
-      const trackData = {}
-      filteredFeatures.forEach(feature => {
-        if (!trackData[feature.type]) {
-          trackData[feature.type] = {
-            id: feature.type,
-            label: feature.type,
-            annotations: []
-          }
-        }
+      // Process all features to build all possible tracks
+      currentFeatures.forEach(feature => {
+        if (!feature.location) return
         
         // Parse location string like "[164:2414](+)"
         const locationMatch = feature.location?.match(/\[(\d+):(\d+)\]\(([+-])\)/)
-        if (locationMatch) {
-          const start = parseInt(locationMatch[1])
-          const end = parseInt(locationMatch[2])
-          const strand = locationMatch[3]
-          const classes = [];
-          classes.push(getFeatureClass(feature.type));
-
-          switch (feature.type) {
-            case "CDS":
-              if (feature.type === 'CDS') {
-                classes.push(`gene-type-${feature.qualifiers?.gene_kind?.[0] || 'other'}`);
+        if (!locationMatch) return
+        
+        const start = parseInt(locationMatch[1])
+        const end = parseInt(locationMatch[2])
+        const strand = locationMatch[3]
+        
+        const classes = []
+        classes.push(getFeatureClass(feature.type))
+        
+        let trackId, trackLabel, trackHeight
+        
+        switch (feature.type) {
+          case "CDS":
+            trackId = feature.type
+            trackLabel = feature.type
+            trackHeight = undefined
+            
+            if (feature.type === 'CDS') {
+              classes.push(`gene-type-${feature.qualifiers?.gene_kind?.[0] || 'other'}`)
+            }
+            
+            if (!allTrackData[trackId]) {
+              allTrackData[trackId] = {
+                id: trackId,
+                label: trackLabel,
+                height: trackHeight,
+                annotations: []
               }
-              trackData[feature.type].annotations.push({
-                id: `${feature.type}-${start}-${end}`,
-                trackId: feature.type,
-                type: 'arrow',
-                direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
-                classes: classes,
-                label: getFeatureLabel(feature),
-                start: start,
-                end: end
-              })
-              break;
-            case "protocluster":
-            case "proto_core":
-              const protocluster_number = feature.qualifiers?.protocluster_number?.[0] || 'unknown';
-              const track_id = `protocluster-${protocluster_number}`;
-              if (!trackData[track_id]) {
-                trackData[track_id] = {
-                  id: track_id,
-                  label: `Protocluster ${protocluster_number}`,
-                  annotations: []
-                }
+            }
+            
+            allTrackData[trackId].annotations.push({
+              id: `${feature.type}-${start}-${end}`,
+              trackId: trackId,
+              type: 'arrow',
+              direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
+              classes: classes,
+              label: getFeatureLabel(feature),
+              start: start,
+              end: end
+            })
+            break
+            
+          case "protocluster":
+          case "proto_core":
+            const protocluster_number = feature.qualifiers?.protocluster_number?.[0] || 'unknown'
+            trackId = `protocluster-${protocluster_number}`
+            trackLabel = `Protocluster ${protocluster_number}`
+            trackHeight = 16
+            
+            if (!allTrackData[trackId]) {
+              allTrackData[trackId] = {
+                id: trackId,
+                label: trackLabel,
+                height: trackHeight,
+                annotations: []
               }
-              trackData[track_id].annotations.push({
-                id: `${feature.type}-${protocluster_number}`,
-                trackId: track_id,
-                type: 'box',
-                heightFraction: 0.5,
-                direction: 'none',
-                classes: classes,
-                label: getFeatureLabel(feature),
-                start: start,
-                end: end
-              })
-              break;
-            default:
-              trackData[feature.type].annotations.push({
-                id: `${feature.type}-${start}-${end}`,
-                trackId: feature.type,
-                type: 'arrow',
-                direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
-                classes: classes,
-                label: getFeatureLabel(feature),
-                start: start,
-                end: end
-              })
-              break;
-          }
+            }
+            
+            allTrackData[trackId].annotations.push({
+              id: `${feature.type}-${protocluster_number}`,
+              trackId: trackId,
+              type: 'box',
+              heightFraction: 0.5,
+              direction: 'none',
+              classes: classes,
+              label: getFeatureLabel(feature),
+              start: start,
+              end: end
+            })
+            break
+            
+          default:
+            trackId = feature.type
+            trackLabel = feature.type
+            trackHeight = undefined
+            
+            if (!allTrackData[trackId]) {
+              allTrackData[trackId] = {
+                id: trackId,
+                label: trackLabel,
+                height: trackHeight,
+                annotations: []
+              }
+            }
+            
+            allTrackData[trackId].annotations.push({
+              id: `${feature.type}-${start}-${end}`,
+              trackId: trackId,
+              type: 'arrow',
+              direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
+              classes: classes,
+              label: getFeatureLabel(feature),
+              start: start,
+              end: end
+            })
+            break
+        }
+      })
+    }
 
-
-
+    const updateViewer = () => {
+      if (!regionViewer || !Object.keys(allTrackData).length) return
+      
+      // Filter tracks based on selected tracks, but maintain original order
+      const selectedTrackData = []
+      availableTracks.value.forEach(track => {
+        if (selectedTracks.value.includes(track.id) && allTrackData[track.id]) {
+          selectedTrackData.push(allTrackData[track.id])
         }
       })
       
-      // Convert to TrackViewer format
-      const tracks = Object.values(trackData).map(track => ({
+      // Convert to RegionViewer format
+      const tracks = selectedTrackData.map(track => ({
         id: track.id,
-        label: track.label
+        label: track.label,
+        height: track.height || undefined
       }))
       
-      const annotations = Object.values(trackData)
+      const annotations = selectedTrackData
         .flatMap(track => track.annotations)
       
       regionViewer.setData({ tracks, annotations })
@@ -343,15 +385,11 @@ export default {
     
     const toggleSelectAll = (event) => {
       if (event.target.checked) {
-        selectedFeatureTypes.value = [...availableFeatureTypes.value]
+        selectedTracks.value = [...availableTracks.value.map(t => t.id)]
       } else {
-        selectedFeatureTypes.value = []
+        selectedTracks.value = []
       }
       updateViewer()
-    }
-    
-    const getFeatureCount = (featureType) => {
-      return currentFeatures.filter(f => f.type === featureType).length
     }
     
     // Close dropdown when clicking outside
@@ -371,9 +409,10 @@ export default {
         selectedRecord.value = ''
         selectedRegion.value = ''
         regions.value = []
-        availableFeatureTypes.value = []
-        selectedFeatureTypes.value = []
+        availableTracks.value = []
+        selectedTracks.value = []
         dropdownOpen.value = false
+        allTrackData = {}
         if (regionViewer) {
           regionViewer.destroy()
           regionViewer = null
@@ -395,16 +434,15 @@ export default {
       regions,
       loading,
       error,
-      availableFeatureTypes,
-      selectedFeatureTypes,
+      availableTracks,
+      selectedTracks,
       dropdownOpen,
       onRecordChange,
       onRegionChange,
       updateViewer,
       refreshData,
       toggleDropdown,
-      toggleSelectAll,
-      getFeatureCount
+      toggleSelectAll
     }
   }
 }
