@@ -34,8 +34,8 @@ const viewer = new RegionViewer({
 // Add track data
 viewer.setData({
   tracks: [
-    { id: 'genes', label: 'Gene Track' },
-    { id: 'domains', label: 'Protein Domains' }
+    { id: 'genes', label: 'Gene Track', height: 40 }, // Custom height
+    { id: 'domains', label: 'Protein Domains' } // Uses default trackHeight from config
   ],
   annotations: [
     {
@@ -75,13 +75,30 @@ interface RegionViewerConfig {
     bottom: number;                  // Default: 20
     left: number;                    // Default: 60
   };
-  rowHeight?: number;                // Height of each track row (default: 30)
+  trackHeight?: number;              // Default height of each track row (default: 30)
   domain?: [number, number];         // Genomic coordinate range (default: [0, 100])
   zoomExtent?: [number, number];     // Zoom scale limits (default: [0.5, 20])
   onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
   onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
 }
 ```
+
+### Track Configuration
+
+Each track can have an individual height, which overrides the default `trackHeight` from the configuration:
+
+```typescript
+const data = {
+  tracks: [
+    { id: 'genes', label: 'Gene Track', height: 40 },        // Custom height: 40px
+    { id: 'domains', label: 'Protein Domains', height: 25 }, // Custom height: 25px  
+    { id: 'regulatory', label: 'Regulatory Elements' }        // Uses default trackHeight from config
+  ],
+  // ... annotations and primitives
+}
+```
+
+This feature is particularly useful when you want to emphasize certain tracks (like genes) or reduce space for simpler tracks (like regulatory elements).
 
 ### Annotation Types
 

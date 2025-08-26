@@ -38,7 +38,7 @@ describe('RegionViewer', () => {
     const config = viewer.getConfig();
     expect(config.width).toBe(800);
     expect(config.height).toBe(300);
-    expect(config.rowHeight).toBe(30);
+    expect(config.trackHeight).toBe(30);
   });
 
   test('should create RegionViewer instance with custom config', () => {
@@ -47,7 +47,7 @@ describe('RegionViewer', () => {
       container: '#test-container',
       width: 1000,
       height: 400,
-      rowHeight: 40,
+      trackHeight: 40,
       domain: [0, 200],
       onAnnotationClick
     });
@@ -55,7 +55,7 @@ describe('RegionViewer', () => {
     const config = viewer.getConfig();
     expect(config.width).toBe(1000);
     expect(config.height).toBe(400);
-    expect(config.rowHeight).toBe(40);
+    expect(config.trackHeight).toBe(40);
     expect(config.domain).toEqual([0, 200]);
     expect(config.onAnnotationClick).toBe(onAnnotationClick);
   });
@@ -360,5 +360,52 @@ describe('RegionViewer', () => {
     viewer.removePrimitive('prim1');
     data = viewer.getData();
     expect(data.primitives).toHaveLength(0);
+  });
+
+  test('should handle per-track heights', () => {
+    const viewer = new RegionViewer({
+      container: '#test-container',
+      trackHeight: 30 // Default height
+    });
+
+    const data: RegionViewerData = {
+      tracks: [
+        { id: 'track1', label: 'Normal Track' }, // Will use default height (30)
+        { id: 'track2', label: 'Tall Track', height: 50 }, // Custom height
+        { id: 'track3', label: 'Short Track', height: 20 } // Custom height
+      ],
+      annotations: [
+        {
+          id: 'anno1',
+          trackId: 'track1',
+          type: 'box',
+          classes: ['test'],
+          label: 'Test 1',
+          start: 10,
+          end: 30,
+          direction: 'none'
+        },
+        {
+          id: 'anno2',
+          trackId: 'track2',
+          type: 'box',
+          classes: ['test'],
+          label: 'Test 2',
+          start: 40,
+          end: 60,
+          direction: 'none'
+        }
+      ],
+      primitives: []
+    };
+
+    viewer.setData(data);
+    
+    // Verify the data was set correctly
+    const retrievedData = viewer.getData();
+    expect(retrievedData.tracks).toHaveLength(3);
+    expect(retrievedData.tracks[0].height).toBeUndefined(); // Should use default
+    expect(retrievedData.tracks[1].height).toBe(50);
+    expect(retrievedData.tracks[2].height).toBe(20);
   });
 });

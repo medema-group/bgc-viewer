@@ -3,6 +3,7 @@ import * as d3 from 'd3';
 export type TrackData = {
   id: string;
   label: string;
+  height?: number; // Optional per-track height, falls back to config.trackHeight
 }
 
 export type AnnotationType = 'arrow' | 'box' | 'marker';
@@ -47,7 +48,7 @@ export interface RegionViewerConfig {
     bottom: number;
     left: number;
   };
-  rowHeight?: number;
+  trackHeight?: number;
   domain?: [number, number];
   zoomExtent?: [number, number];
   onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
@@ -77,7 +78,7 @@ export class RegionViewer {
       width: config.width || 800,
       height: config.height || 300,
       margin: config.margin || { top: 20, right: 30, bottom: 20, left: 60 },
-      rowHeight: config.rowHeight || 30,
+      trackHeight: config.trackHeight || 30,
       domain: config.domain || [0, 100],
       zoomExtent: config.zoomExtent || [0.5, 20],
       onAnnotationClick: config.onAnnotationClick || (() => {}),
@@ -193,13 +194,30 @@ export class RegionViewer {
       });
   }
 
+  // Helper methods for track heights
+  private getTrackHeight(track: TrackData): number {
+    return track.height || this.config.trackHeight;
+  }
+
+  private getTotalTracksHeight(): number {
+    return this.data.tracks.reduce((total, track) => total + this.getTrackHeight(track), 0);
+  }
+
+  private getTrackYPosition(trackIndex: number): number {
+    let y = 0;
+    for (let i = 0; i < trackIndex; i++) {
+      y += this.getTrackHeight(this.data.tracks[i]);
+    }
+    return y;
+  }
+
   private updateHeight(): void {
-    const newHeight = this.data.tracks.length * this.config.rowHeight + this.config.margin.top + this.config.margin.bottom;
+    const newHeight = this.getTotalTracksHeight() + this.config.margin.top + this.config.margin.bottom;
     this.config.height = newHeight;
     this.svg.attr('height', newHeight);
 
     // Update x-axis position
-    const chartHeight = this.data.tracks.length * this.config.rowHeight;
+    const chartHeight = this.getTotalTracksHeight();
     this.xAxisGroup.attr('transform', `translate(0, ${chartHeight})`);
 
     // Update clipping path height
@@ -217,7 +235,7 @@ export class RegionViewer {
       .data(this.data.tracks, d => d.id)
       .join('g')
       .attr('class', 'track')
-      .attr('transform', (_, i) => `translate(0, ${i * this.config.rowHeight})`);
+      .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
 
     // Add track labels (these should be outside the clipped area)
     const labelGroups = this.chart
@@ -225,7 +243,7 @@ export class RegionViewer {
       .data(this.data.tracks, d => d.id)
       .join('g')
       .attr('class', 'track-label-group')
-      .attr('transform', (_, i) => `translate(0, ${i * this.config.rowHeight})`);
+      .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
 
     labelGroups
       .selectAll('.track-label')
@@ -233,7 +251,7 @@ export class RegionViewer {
       .join('text')
       .attr('class', 'track-label')
       .attr('x', -10)
-      .attr('y', this.config.rowHeight / 2)
+      .attr('y', (d) => this.getTrackHeight(d) / 2)
       .attr('dy', '0.35em')
       .attr('text-anchor', 'end')
       .style('font', '12px sans-serif')
@@ -302,14 +320,16 @@ export class RegionViewer {
     const x = xScale(annotation.start);
     const width = Math.max(1, xScale(annotation.end) - xScale(annotation.start));
     
+    const trackHeight = this.getTrackHeight(trackData);
+    
     // Calculate height based on heightFraction if provided, otherwise use default
-    const defaultHeight = this.config.rowHeight - 10;
+    const defaultHeight = trackHeight - 10;
     const height = annotation.heightFraction !== undefined 
-      ? this.config.rowHeight * annotation.heightFraction
+      ? trackHeight * annotation.heightFraction
       : defaultHeight;
     
     // Center the annotation vertically in the track
-    const y = (this.config.rowHeight - height) / 2;
+    const y = (trackHeight - height) / 2;
 
     let element: d3.Selection<any, unknown, null, undefined>;
 
@@ -348,9 +368,9 @@ export class RegionViewer {
     container: d3.Selection<SVGGElement, unknown, null, undefined>,
     primitive: DrawingPrimitive,
     xScale: d3.ScaleLinear<number, number>,
-    _trackData: TrackData
+    trackData: TrackData
   ): void {
-    const trackHeight = this.config.rowHeight;
+    const trackHeight = this.getTrackHeight(trackData);
     
     let element: d3.Selection<any, unknown, null, undefined>;
 
