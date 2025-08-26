@@ -108,7 +108,7 @@ export default {
         error.value = `Failed to load records: ${err.message}`
       }
       
-      // Add click outside listener
+      // Add event listeners
       document.addEventListener('click', handleClickOutside)
     })
     
@@ -218,7 +218,7 @@ export default {
       
       regionViewer = new window.BGCViewer.TrackViewer({
         container: viewerContainer.value,
-        width: 800,
+        // width is not specified, so it will be responsive
         height: 400,
         domain: [minPos - padding, maxPos + padding],
         onAnnotationClick: (annotation, track) => {
@@ -583,9 +583,11 @@ export default {
 }
 
 .viewer-container {
+  width: 100%;
   min-height: 400px;
   border: 1px solid #eee;
   border-radius: 4px;
+  overflow-x: auto; /* Allow horizontal scrolling if needed */
 }
 
 .loading {

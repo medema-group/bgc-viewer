@@ -70,14 +70,35 @@ export class TrackViewer {
   private trackGroups!: d3.Selection<SVGGElement, TrackData, SVGGElement, unknown>;
   private clipId!: string;
   private originalLeftMargin: number; // Store original left margin
+  private isResponsiveWidth: boolean; // Track if width should be responsive
+  private containerElement!: HTMLElement; // Store reference to container
+  private resizeHandler?: () => void; // Store resize handler for cleanup
 
   constructor(config: TrackViewerConfig) {
+    // Check if width was explicitly provided
+    this.isResponsiveWidth = config.width === undefined;
+    
+    // Get container element early to calculate responsive width
+    const containerElement = typeof config.container === 'string' 
+      ? document.querySelector(config.container)
+      : config.container;
+
+    if (!containerElement) {
+      throw new Error('Container element not found');
+    }
+    this.containerElement = containerElement as HTMLElement;
+
+    // Calculate responsive width if not explicitly set
+    const calculatedWidth = this.isResponsiveWidth 
+      ? this.calculateResponsiveWidth()
+      : (config.width || 800);
+
     // Set default configuration
     this.config = {
       container: config.container,
-      width: config.width || 800,
+      width: calculatedWidth,
       height: config.height || 300,
-      margin: config.margin || { top: 20, right: 30, bottom: 20, left: 60 },
+      margin: config.margin || { top: 20, right: 10, bottom: 20, left: 60 },
       trackHeight: config.trackHeight || 30,
       domain: config.domain || [0, 100],
       zoomExtent: config.zoomExtent || [0.5, 20],
@@ -90,6 +111,31 @@ export class TrackViewer {
 
     this.currentTransform = d3.zoomIdentity;
     this.initialize();
+    
+    // Set up automatic resize handling for responsive width
+    if (this.isResponsiveWidth) {
+      this.setupAutoResize();
+    }
+  }
+
+  private calculateResponsiveWidth(): number {
+    // Calculate width based on container, leaving some margin
+    const containerWidth = this.containerElement.clientWidth || 800;
+    return Math.max(600, containerWidth - 40); // 20px margin on each side, minimum 600px
+  }
+
+  private setupAutoResize(): void {
+    let resizeTimeout: NodeJS.Timeout;
+    
+    this.resizeHandler = () => {
+      // Throttle resize events to avoid excessive recalculation
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        this.resize();
+      }, 100);
+    };
+    
+    window.addEventListener('resize', this.resizeHandler);
   }
 
   private initialize(): void {
@@ -690,6 +736,11 @@ export class TrackViewer {
   }
 
   public destroy(): void {
+    // Remove resize listener if it was set up
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler);
+    }
+    
     this.tooltip.remove();
     this.svg.remove();
   }
@@ -704,5 +755,39 @@ export class TrackViewer {
       annotations: [...this.data.annotations],
       primitives: this.data.primitives ? [...this.data.primitives] : []
     };
+  }
+
+  public resize(): void {
+    // Only resize if this instance was created with responsive width
+    if (!this.isResponsiveWidth) {
+      return;
+    }
+
+    const newWidth = this.calculateResponsiveWidth();
+    
+    // Only update if the width has changed significantly
+    if (Math.abs(this.config.width - newWidth) > 10) {
+      this.config.width = newWidth;
+      
+      // Update SVG width
+      this.svg.attr('width', newWidth);
+      
+      // Update x scale range
+      this.x.range([0, newWidth - this.config.margin.left - this.config.margin.right]);
+      
+      // Update clipping path and background width
+      const chartWidth = newWidth - this.config.margin.left - this.config.margin.right;
+      this.svg.select('clipPath rect').attr('width', chartWidth);
+      this.clippedChart.select('.chart-background').attr('width', chartWidth);
+      
+      // Update zoom behavior with new dimensions
+      const chartHeight = this.config.height - this.config.margin.top - this.config.margin.bottom;
+      this.zoom
+        .translateExtent([[0, 0], [chartWidth, chartHeight]])
+        .extent([[0, 0], [chartWidth, chartHeight]]);
+      
+      // Redraw everything with new dimensions
+      this.drawTracks();
+    }
   }
 }

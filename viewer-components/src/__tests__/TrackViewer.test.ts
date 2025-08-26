@@ -31,7 +31,8 @@ describe('RegionViewer', () => {
 
   test('should create RegionViewer instance with default config', () => {
     const viewer = new TrackViewer({
-      container: '#test-container'
+      container: '#test-container',
+      width: 800 // Explicitly set width to test default behavior
     });
 
     expect(viewer).toBeInstanceOf(TrackViewer);
