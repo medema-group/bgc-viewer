@@ -92,6 +92,8 @@ rm -rf dist/ bgc_viewer.egg-info/
 # Copy frontend build files to static directory
 echo "Copying frontend assets..."
 if [ -d "../frontend/build" ]; then
+    # Clean and recreate static directory to avoid accumulating old files
+    rm -rf bgc_viewer/static
     mkdir -p bgc_viewer/static
     cp -r ../frontend/build/* bgc_viewer/static/
     echo "Frontend assets copied to bgc_viewer/static/"
