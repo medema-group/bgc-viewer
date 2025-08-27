@@ -756,32 +756,25 @@ export default {
 /* Gene type styling classes for the RegionViewer */
 :global(.gene-type-biosynthetic) {
   fill: #810e15;
-  stroke: #610b10;
 }
 :global(.gene-type-biosynthetic-additional) {
   fill: #f16d75;
-  stroke: #c62828;
 }
 :global(.gene-type-regulatory) {
   fill: seagreen;
-  stroke: #2e7d32;
 }
 :global(.gene-type-transport) {
   fill: cornflowerblue;
-  stroke: #1e88e5;
 }
 :global(.gene-type-other) {
   fill: gray;
-  stroke: #555;
 }
 
 :global(.feature-resistance) {
   fill: #bbb;
-  stroke: #888;
 }
 :global(.feature-tta-codon) {
   fill: #444;
-  stroke: #222;
 }
 
 
