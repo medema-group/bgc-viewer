@@ -137,17 +137,17 @@
         { id: "regulatory", label: "Regulatory Elements & Sites" } // Uses default height (30)
       ],
       annotations: [
-        // Gene track annotations with different heights
+        // Gene track annotations with different heights and custom colors
         { id: "gene1", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneA", start: 10, end: 30, direction: "right", heightFraction: 0.8 },
-        { id: "gene2", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, direction: "right", heightFraction: 0.6 },
-        { id: "gene3", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneC", start: 60, end: 80, direction: "right", heightFraction: 1.0 },
+        { id: "gene2", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, direction: "right", heightFraction: 0.6, fill: "#4ecdc4" },
+        { id: "gene3", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneC", start: 60, end: 80, direction: "right", heightFraction: 1.0, fill: "#45b7d1" },
 
-        { id: "gene1", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.9 },
+        { id: "gene1", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.9, fill: "#f9ca24", stroke: "red" },
         { id: "gene2", trackId: "genes2", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, direction: "left", heightFraction: 0.4 },
-        { id: "gene3", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneC", start: 60, end: 80, direction: "left", heightFraction: 1.0 },
+        { id: "gene3", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneC", start: 60, end: 80, direction: "left", heightFraction: 1.0, fill: "#6c5ce7" },
 
-        // Domain track annotations with custom heights
-        { id: "dom1", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain1", start: 15, end: 25, direction: "none", heightFraction: 0.3 },
+        // Domain track annotations with custom heights and colors
+        { id: "dom1", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain1", start: 15, end: 25, direction: "none", heightFraction: 0.3, fill: "#a29bfe" },
         { id: "dom2", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain2", start: 40, end: 50, direction: "none", heightFraction: 0.5 },
         { id: "dom3", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain3", start: 65, end: 75, direction: "none", heightFraction: 0.7 },
 

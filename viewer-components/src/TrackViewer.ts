@@ -18,6 +18,8 @@ export type AnnotationData = {
   end: number;
   heightFraction?: number;
   direction: 'left' | 'right' | 'none';
+  fill?: string;
+  stroke?: string;
 }
 
 export type DrawingPrimitiveType = 'horizontal-line' | 'tbd';
@@ -396,7 +398,17 @@ export class TrackViewer {
     element
       .attr('class', `annotation ${annotation.classes.join(' ')}`)
       .style('cursor', 'pointer')
-      .style('pointer-events', 'all') // Ensure annotations can receive mouse events
+      .style('pointer-events', 'all'); // Ensure annotations can receive mouse events
+
+    // Apply custom fill and stroke if specified
+    if (annotation.fill) {
+      element.style('fill', annotation.fill);
+    }
+    if (annotation.stroke) {
+      element.style('stroke', annotation.stroke);
+    }
+
+    element
       .on('mouseover', (event: any) => {
         element.classed('hovered', true);
         this.showTooltip(event, annotation, trackData);
