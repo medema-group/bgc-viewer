@@ -104,13 +104,36 @@ export default {
     let regionViewer = null
     let currentFeatures = []
     let allTrackData = {} // Store all generated tracks
-    
+
+    const pfam_colormap = {}
+
     onMounted(async () => {
       try {
         const response = await axios.get('/api/records')
         records.value = response.data
       } catch (err) {
         error.value = `Failed to load records: ${err.message}`
+      }
+      
+      // Load PFAM color mapping
+      try {
+        const colorResponse = await axios.get('/domain-colors.csv')
+        const csvText = colorResponse.data
+        const lines = csvText.split('\n')
+        
+        // Skip header line and process each color mapping
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim()
+          if (line) {
+            const [id, color] = line.split(',')
+            if (id && color) {
+              pfam_colormap[id] = color
+            }
+          }
+        }
+        console.log('Loaded PFAM colors for', Object.keys(pfam_colormap).length, 'domains')
+      } catch (err) {
+        console.warn('Failed to load PFAM color mapping:', err.message)
       }
       
       // Add event listeners
@@ -225,7 +248,7 @@ export default {
         // Build all tracks from features
         buildAllTracks()
         
-        // Extract available tracks and select all by default
+        // Extract available tracks
         const tracks = Object.values(allTrackData).map(track => ({
           id: track.id,
           label: track.label,
@@ -233,8 +256,9 @@ export default {
         }))
         tracks.sort((a, b) => a.id.localeCompare(b.id))
         availableTracks.value = tracks
-        // Select tracks that start with any of the specified values
-        selectedTracks.value = tracks.filter(t => ['CDS'].includes(t.id) || t.id.includes('protocluster')).map(t => t.id)
+        selectedTracks.value = tracks.filter(t => ['CDS'].includes(t.id) ||
+                                                  t.id.includes('protocluster') ||
+                                                  t.id.includes('PFAM_domain')).map(t => t.id)
 
         await nextTick() // Wait for DOM update
         initializeViewer(response.data.region_boundaries)
@@ -327,6 +351,43 @@ export default {
         let trackId, trackLabel, trackHeight
         
         switch (feature.type) {
+          case "PFAM_domain":
+            trackId = feature.type
+            trackLabel = feature.type
+            trackHeight = undefined
+            
+            if (!allTrackData[trackId]) {
+              allTrackData[trackId] = {
+                id: trackId,
+                label: trackLabel,
+                height: trackHeight,
+                annotations: []
+              }
+            }
+            
+            // Get PFAM ID from qualifiers to look up color
+            const pfamId = feature.qualifiers?.db_xref?.[0]?.replace('PFAM:', '') || 
+                           feature.qualifiers?.inference?.[0]?.match(/PFAM:([^,\s]+)/)?.[1] ||
+                           feature.qualifiers?.note?.[0]?.match(/PF\d+/)?.[0]
+            const [pfamAccession, pfamVersion] = pfamId ? pfamId.split('.') : [null, null];
+            const domainColor = pfamAccession && pfam_colormap[pfamAccession] ? pfam_colormap[pfamAccession] : null
+            
+            const annotation = {
+              id: `${feature.type}-${start}-${end}`,
+              trackId: trackId,
+              type: 'box',
+              direction: 'none',
+              classes: classes,
+              label: getFeatureLabel(feature),
+              start: start,
+              end: end,
+              fill: domainColor,
+              stroke: domainColor
+            }
+            
+            allTrackData[trackId].annotations.push(annotation)
+            break
+            
           case "CDS":
             trackId = feature.type
             trackLabel = feature.type
@@ -403,8 +464,8 @@ export default {
             allTrackData[trackId].annotations.push({
               id: `${feature.type}-${start}-${end}`,
               trackId: trackId,
-              type: 'arrow',
-              direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
+              type: 'box',
+              direction: 'none',
               classes: classes,
               label: getFeatureLabel(feature),
               start: start,
