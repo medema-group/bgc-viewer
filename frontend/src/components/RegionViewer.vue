@@ -293,7 +293,7 @@ export default {
           .filter(f => f.location)
           .map(f => {
             // Parse location string like "[164:2414](+)" or "[257:2393](+)"
-            const match = f.location.match(/\[(\d+):(\d+)\]/)
+            const match = f.location.match(/\[<?(\d+):>?(\d+)\]/)  
             return match ? [parseInt(match[1]), parseInt(match[2])] : null
           })
           .filter(Boolean)
@@ -338,7 +338,7 @@ export default {
         if (!feature.location) return
         
         // Parse location string like "[164:2414](+)"
-        const locationMatch = feature.location?.match(/\[(\d+):(\d+)\]\(([+-])\)/)
+        const locationMatch = feature.location?.match(/\[<?(\d+):>?(\d+)\]\(([+-])\)/)
         if (!locationMatch) return
         
         const start = parseInt(locationMatch[1])
