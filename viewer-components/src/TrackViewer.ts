@@ -20,6 +20,7 @@ export type AnnotationData = {
   direction: 'left' | 'right' | 'none';
   fill?: string;
   stroke?: string;
+  corner_radius?: number;
 }
 
 export type DrawingPrimitiveType = 'horizontal-line' | 'tbd';
@@ -390,7 +391,7 @@ export class TrackViewer {
         break;
       case 'box':
       default:
-        element = this.renderBox(container, x, y, width, height);
+        element = this.renderBox(container, x, y, width, height, annotation.corner_radius || 0);
         break;
     }
 
@@ -496,7 +497,8 @@ export class TrackViewer {
     x: number,
     y: number,
     width: number,
-    height: number
+    height: number,
+    corner_radius: number = 0
   ): d3.Selection<SVGRectElement, unknown, null, undefined> {
     return container
       .append('rect')
@@ -504,8 +506,8 @@ export class TrackViewer {
       .attr('y', y)
       .attr('width', width)
       .attr('height', height)
-      .attr('rx', 2) // Slightly rounded corners
-      .attr('ry', 2);
+      .attr('rx', corner_radius)
+      .attr('ry', corner_radius);
   }
 
   private renderArrow(
