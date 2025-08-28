@@ -75,8 +75,7 @@ describe('RegionViewer', () => {
         classes: ['test-blue', 'test-feature'],
         label: 'Gene1',
         start: 10,
-        end: 30,
-        direction: 'none'
+        end: 30
       }],
       primitives: []
     };
@@ -102,8 +101,7 @@ describe('RegionViewer', () => {
         classes: ['test-blue', 'test-feature'],
         label: 'Initial',
         start: 5,
-        end: 15,
-        direction: 'none'
+        end: 15
       }]
     };
 
@@ -148,7 +146,6 @@ describe('RegionViewer', () => {
           label: 'Gene1',
           start: 5,
           end: 15,
-          direction: 'none'
         },
         {
           id: 'gene2',
@@ -158,7 +155,6 @@ describe('RegionViewer', () => {
           label: 'Gene2',
           start: 20,
           end: 40,
-          direction: 'none'
         }
       ]
     };
@@ -261,18 +257,16 @@ describe('RegionViewer', () => {
           label: 'Domain',
           start: 40,
           end: 60,
-          direction: 'none',
           heightFraction: 0.5
         },
         {
           id: 'marker1',
           trackId: 'track1',
-          type: 'marker',
+          type: 'circle',
           classes: ['annotation-regulatory'],
           label: 'Site',
           start: 70,
           end: 75,
-          direction: 'none'
           // No heightFraction - should use default
         }
       ],
@@ -287,7 +281,7 @@ describe('RegionViewer', () => {
     expect(retrievedData.annotations[0].heightFraction).toBe(0.8);
     expect(retrievedData.annotations[1].type).toBe('box');
     expect(retrievedData.annotations[1].heightFraction).toBe(0.5);
-    expect(retrievedData.annotations[2].type).toBe('marker');
+    expect(retrievedData.annotations[2].type).toBe('circle');
     expect(retrievedData.annotations[2].heightFraction).toBeUndefined();
   });
 
@@ -384,7 +378,6 @@ describe('RegionViewer', () => {
           label: 'Test 1',
           start: 10,
           end: 30,
-          direction: 'none'
         },
         {
           id: 'anno2',
@@ -394,7 +387,6 @@ describe('RegionViewer', () => {
           label: 'Test 2',
           start: 40,
           end: 60,
-          direction: 'none'
         }
       ],
       primitives: []

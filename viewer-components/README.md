@@ -108,7 +108,7 @@ Perfect for representing genes with directionality:
 ```typescript
 {
   type: 'arrow',
-  direction: 'right' | 'left' | 'none',
+  direction: 'right' | 'left',
   // ... other properties
 }
 ```
@@ -123,12 +123,12 @@ Ideal for domains, regions, or features without directionality:
 }
 ```
 
-#### Marker Annotations
+#### Point annotations
 Useful for point features or binding sites:
 
 ```typescript
 {
-  type: 'marker',
+  type: 'circle' | 'triangle' | 'pin',
   // ... other properties
 }
 ```

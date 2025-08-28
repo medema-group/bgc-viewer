@@ -376,7 +376,6 @@ export default {
               id: `${feature.type}-${start}-${end}`,
               trackId: trackId,
               type: 'box',
-              direction: 'none',
               classes: classes,
               label: getFeatureLabel(feature),
               start: start,

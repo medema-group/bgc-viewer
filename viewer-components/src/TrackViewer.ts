@@ -6,7 +6,7 @@ export type TrackData = {
   height?: number; // Optional per-track height, falls back to config.trackHeight
 }
 
-export type AnnotationType = 'arrow' | 'box' | 'marker';
+export type AnnotationType = 'arrow' | 'box' | 'circle' | 'triangle' | 'pin';
 
 export type AnnotationData = {
   id: string;
@@ -16,14 +16,16 @@ export type AnnotationData = {
   label: string;
   start: number;
   end: number;
-  heightFraction?: number;
-  direction: 'left' | 'right' | 'none';
+  fy?: number; // Fractional y position of the annotation, default is 0.5
+               // (anchor is center for boxes/arrows or focal position for markers)
+  heightFraction?: number; // Fraction of track height
+  direction?: 'left' | 'right';
   fill?: string;
   stroke?: string;
   corner_radius?: number;
 }
 
-export type DrawingPrimitiveType = 'horizontal-line' | 'tbd';
+export type DrawingPrimitiveType = 'horizontal-line' | 'background';
 
 export type DrawingPrimitive = {
   id: string;
@@ -32,7 +34,9 @@ export type DrawingPrimitive = {
   class: string;
   start?: number;
   end?: number;
-  y?: number; // Optional vertical position override (relative to track)
+  fy?: number; // Fractional vertical position (0 to 1)
+  stroke?: string;
+  fill?: string;
 }
 
 export type TrackViewerData = {
@@ -372,13 +376,14 @@ export class TrackViewer {
     const trackHeight = this.getTrackHeight(trackData);
     
     // Calculate height based on heightFraction if provided, otherwise use default
-    const defaultHeight = trackHeight - 10;
     const height = annotation.heightFraction !== undefined 
       ? trackHeight * annotation.heightFraction
-      : defaultHeight;
+      : trackHeight / 2;
     
     // Center the annotation vertically in the track
-    const y = (trackHeight - height) / 2;
+    //const cy = (trackHeight - height) / 2;
+    const y = trackHeight - (annotation.fy !== undefined ? annotation.fy * trackHeight : trackHeight / 2); // Use custom fy or center of track
+
 
     let element: d3.Selection<any, unknown, null, undefined>;
 
@@ -386,8 +391,14 @@ export class TrackViewer {
       case 'arrow':
         element = this.renderArrow(container, x, y, width, height, annotation.direction);
         break;
-      case 'marker':
-        element = this.renderMarker(container, x, y, height);
+      case 'circle':
+        element = this.renderCircle(container, x, y, height);
+        break;
+      case 'triangle':
+        element = this.renderTriangle(container, x, y, height);
+        break;
+      case 'pin':
+        element = this.renderPin(container, x, y, height);
         break;
       case 'box':
       default:
@@ -437,6 +448,9 @@ export class TrackViewer {
       case 'horizontal-line':
         element = this.renderHorizontalLine(container, primitive, xScale, trackHeight);
         break;
+      case 'background':
+        element = this.renderBackground(container, primitive, xScale, trackHeight);
+        break;
       default:
         // Unknown primitive type, skip
         return;
@@ -475,8 +489,8 @@ export class TrackViewer {
       x1 = range[0]; // Left edge of chart
       x2 = range[1]; // Right edge of chart
     }
-    
-    const y = primitive.y !== undefined ? primitive.y : trackHeight / 2; // Use custom y or center of track
+
+    const y = trackHeight - (primitive.fy !== undefined ? primitive.fy * trackHeight : trackHeight / 2); // Use custom fy or center of track
 
     // Round to nearest pixel to avoid anti-aliasing blur
     const roundedY = Math.round(y) + 0.5; // Add 0.5 for crisp 1px lines
@@ -487,9 +501,49 @@ export class TrackViewer {
       .attr('x2', x2)
       .attr('y1', roundedY)
       .attr('y2', roundedY)
-      .style('stroke', 'currentColor')
+      .style('stroke', primitive.stroke || 'currentColor')
       .style('stroke-width', 1)
       .style('shape-rendering', 'crispEdges'); // Ensure crisp rendering
+  }
+
+  private renderBackground(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    primitive: DrawingPrimitive,
+    xScale: d3.ScaleLinear<number, number>,
+    trackHeight: number
+  ): d3.Selection<SVGRectElement, unknown, null, undefined> {
+    // If start is undefined, use the left edge of the chart
+    // If end is undefined, use the right edge of the chart
+    const range = xScale.range();
+    
+    let x1: number, x2: number;
+    
+    if (primitive.start !== undefined && primitive.end !== undefined) {
+      // Both start and end defined - use them
+      x1 = xScale(primitive.start);
+      x2 = xScale(primitive.end);
+    } else if (primitive.start !== undefined && primitive.end === undefined) {
+      // Only start defined - from start to end of visible range
+      x1 = xScale(primitive.start);
+      x2 = range[1]; // Right edge of chart
+    } else if (primitive.start === undefined && primitive.end !== undefined) {
+      // Only end defined - from start of visible range to end
+      x1 = range[0]; // Left edge of chart
+      x2 = xScale(primitive.end);
+    } else {
+      // Neither start nor end defined - span entire visible range
+      x1 = range[0]; // Left edge of chart
+      x2 = range[1]; // Right edge of chart
+    }
+
+    return container
+      .append('rect')
+      .attr('x', x1)
+      .attr('y', 0)
+      .attr('width', x2 - x1)
+      .attr('height', trackHeight)
+      .attr('class', `primitive ${primitive.class}`)
+      .style('fill', primitive.fill || 'none');
   }
 
   private renderBox(
@@ -503,7 +557,7 @@ export class TrackViewer {
     return container
       .append('rect')
       .attr('x', x)
-      .attr('y', y)
+      .attr('y', y - height / 2)
       .attr('width', width)
       .attr('height', height)
       .attr('rx', corner_radius)
@@ -516,43 +570,45 @@ export class TrackViewer {
     y: number,
     width: number,
     height: number,
-    direction: 'left' | 'right' | 'none'
+    direction: 'left' | 'right' | undefined
   ): d3.Selection<SVGPathElement, unknown, null, undefined> {
     const arrowHeadWidth = Math.min(width * 0.2, height * 0.5, 8); // Limit arrow head size
-    const bodyWidth = width - (direction !== 'none' ? arrowHeadWidth : 0);
-    
+    const bodyWidth = width - arrowHeadWidth;
+
     let pathData: string;
-    
+
+    const y1 = y - height / 2;
+    const y2 = y + height / 2;
     if (direction === 'right') {
       // Arrow pointing right: rectangular body + triangular head
       pathData = `
-        M ${x} ${y}
-        L ${x + bodyWidth} ${y}
-        L ${x + width} ${y + height * 0.5}
-        L ${x + bodyWidth} ${y + height}
-        L ${x} ${y + height}
+        M ${x} ${y1}
+        L ${x + bodyWidth} ${y1}
+        L ${x + width} ${y}
+        L ${x + bodyWidth} ${y2}
+        L ${x} ${y2}
         Z
       `;
     } else if (direction === 'left') {
       // Arrow pointing left: triangular head + rectangular body
       pathData = `
-        M ${x} ${y + height * 0.5}
-        L ${x + arrowHeadWidth} ${y}
-        L ${x + width} ${y}
-        L ${x + width} ${y + height}
-        L ${x + arrowHeadWidth} ${y + height}
+        M ${x} ${y}
+        L ${x + arrowHeadWidth} ${y1}
+        L ${x + width} ${y1}
+        L ${x + width} ${y2}
+        L ${x + arrowHeadWidth} ${y2}
         Z
       `;
     } else {
       // No direction specified, render as elongated hexagon
       const indent = Math.min(width * 0.1, height * 0.3, 4);
       pathData = `
-        M ${x + indent} ${y}
-        L ${x + width - indent} ${y}
-        L ${x + width} ${y + height * 0.5}
-        L ${x + width - indent} ${y + height}
-        L ${x + indent} ${y + height}
-        L ${x} ${y + height * 0.5}
+        M ${x + indent} ${y1}
+        L ${x + width - indent} ${y1}
+        L ${x + width} ${y}
+        L ${x + width - indent} ${y2}
+        L ${x + indent} ${y2}
+        L ${x} ${y}
         Z
       `;
     }
@@ -562,21 +618,66 @@ export class TrackViewer {
       .attr('d', pathData);
   }
 
-  private renderMarker(
+  private renderCircle(
     container: d3.Selection<SVGGElement, unknown, null, undefined>,
     x: number,
     y: number,
     height: number
   ): d3.Selection<SVGCircleElement, unknown, null, undefined> {
-    // Render marker as a circle
-    const radius = height / 2;
-    
+
     return container
       .append('circle')
       .attr('cx', x)
-      .attr('cy', y + radius) // Center vertically in the track
-      .attr('r', radius)
+      .attr('cy', y)
+      .attr('r', height / 2)
       .attr('class', 'annotation-marker');
+  }
+
+  private renderTriangle(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    x: number,
+    y: number,
+    height: number = 0.5
+  ): d3.Selection<SVGPolygonElement, unknown, null, undefined> {
+    const baseWidth = height * 0.8;
+    const points = [
+      [x - baseWidth / 2, y + height],
+      [x, y],
+      [x + baseWidth / 2, y + height]
+    ].map(p => p.join(',')).join(' ');
+
+    return container
+      .append('polygon')
+      .attr('points', points)
+      .attr('class', 'annotation-triangle');
+  }
+
+  private renderPin(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    x: number,
+    y: number,
+    height: number
+  ): d3.Selection<SVGGElement, unknown, null, undefined> {
+    // Render a pin as a group containing a line and a circle
+    const group = container
+      .append('g')
+      .attr('class', 'annotation-pin');
+
+    group.append('line')
+      .attr('x1', x)
+      .attr('y1', y)
+      .attr('x2', x)
+      .attr('y2', y - height)
+      .attr('stroke', 'black')
+      .attr('class', 'annotation-pin-line');
+
+    group.append('circle')
+      .attr('cx', x)
+      .attr('cy', y - height)
+      .attr('r', 3)
+      .attr('class', 'annotation-pin-head');
+
+    return group;
   }
 
   private showTooltip(event: MouseEvent, annotation: AnnotationData, trackData: TrackData): void {
