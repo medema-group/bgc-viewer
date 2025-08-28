@@ -42,7 +42,7 @@ describe('RegionViewer', () => {
     expect(config.trackHeight).toBe(30);
   });
 
-  test('should create RegionViewer instance with custom config', () => {
+  test('should create TrackViewer instance with custom config', () => {
     const onAnnotationClick = jest.fn();
     const viewer = new TrackViewer({
       container: '#test-container',
