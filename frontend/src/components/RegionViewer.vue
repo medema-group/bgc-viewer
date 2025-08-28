@@ -258,7 +258,8 @@ export default {
         availableTracks.value = tracks
         selectedTracks.value = tracks.filter(t => ['CDS'].includes(t.id) ||
                                                   t.id.includes('protocluster') ||
-                                                  t.id.includes('PFAM_domain')).map(t => t.id)
+                                                  t.id.includes('PFAM_domain') ||
+                                                  t.id.includes('cand_cluster')).map(t => t.id)
 
         await nextTick() // Wait for DOM update
         initializeViewer(response.data.region_boundaries)
@@ -351,6 +352,34 @@ export default {
         let trackId, trackLabel, trackHeight
         
         switch (feature.type) {
+          case "cand_cluster":
+            const cluster_index = feature.qualifiers?.candidate_cluster_number?.[0] || 'unknown'
+            trackId = `cand_cluster-${cluster_index}`
+            trackLabel = `Candidate Cluster ${cluster_index}`
+            trackHeight = 16
+            
+            if (!allTrackData[trackId]) {
+              allTrackData[trackId] = {
+                id: trackId,
+                label: trackLabel,
+                height: trackHeight,
+                annotations: []
+              }
+            }
+            
+            allTrackData[trackId].annotations.push({
+              id: `${feature.type}-${cluster_index}`,
+              trackId: trackId,
+              type: 'box',
+              heightFraction: 0.5,
+              direction: 'none',
+              classes: classes,
+              label: getFeatureLabel(feature),
+              start: start,
+              end: end
+            })
+            break
+
           case "PFAM_domain":
             trackId = feature.type
             trackLabel = feature.type
