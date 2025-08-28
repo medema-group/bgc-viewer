@@ -1,10 +1,10 @@
 import { TrackViewer, TrackViewerData, TrackData, AnnotationData, DrawingPrimitive } from '../TrackViewer';
 
 /**
- * RegionViewer tests
+ * TrackViewer tests
  */
 
-describe('RegionViewer', () => {
+describe('TrackViewer', () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
@@ -29,7 +29,7 @@ describe('RegionViewer', () => {
     tooltips.forEach(tooltip => tooltip.remove());
   });
 
-  test('should create RegionViewer instance with default config', () => {
+  test('should create TrackViewer instance with default config', () => {
     const viewer = new TrackViewer({
       container: '#test-container',
       width: 800 // Explicitly set width to test default behavior
