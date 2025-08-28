@@ -142,7 +142,7 @@
         { id: "gene2", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, heightFraction: 0.6, fill: "#4ecdc4" },
         { id: "gene3", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneC", start: 60, end: 80, direction: "right", heightFraction: 1.0, fill: "#45b7d1", corner_radius: 5 },
 
-        { id: "gene1", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.7, fill: "#f9ca24", stroke: "red" },
+        { id: "gene1", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.5, fy: 0.25, fill: "#f9ca24", stroke: "red" },
         { id: "gene2", trackId: "genes2", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, direction: "left", heightFraction: 0.4 },
         { id: "gene3", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneC", start: 60, end: 80, direction: "left", heightFraction: 1.0, fill: "#6c5ce7" },
 
@@ -152,7 +152,7 @@
         { id: "dom3", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain3", start: 65, end: 75, heightFraction: 0.7 },
 
         // Regulatory track annotations - mix of custom and default heights
-        { id: "prom1", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "promoter", start: 5, end: 12, heightFraction: 0.8 },
+        { id: "prom1", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "promoter", start: 5, end: 12, heightFraction: 0.8, stroke: 'green' },
         { id: "term1", trackId: "regulatory", type: "circle", classes: ["annotation-terminator"], label: "terminator", start: 82, end: 90},
         { id: "term2", trackId: "regulatory", type: "circle", classes: ["annotation-terminator"], label: "terminator", start: 50, end: 50, fy: 0.75, heightFraction: 0.5 },
         { id: "term2", trackId: "regulatory", type: "triangle", classes: [], label: "terminator", start: 55, end: 55},
