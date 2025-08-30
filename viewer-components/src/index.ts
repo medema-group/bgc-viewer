@@ -1,10 +1,10 @@
-export { RegionViewer } from './RegionViewer';
+export { TrackViewer } from './TrackViewer';
 export type { 
-  RegionViewerConfig, 
+  TrackViewerConfig, 
   TrackData, 
   AnnotationData, 
   AnnotationType, 
-  RegionViewerData,
+  TrackViewerData,
   DrawingPrimitive,
   DrawingPrimitiveType
-} from './RegionViewer';
+} from './TrackViewer';

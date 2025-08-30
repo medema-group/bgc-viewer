@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>RegionViewer Development</title>
+  <title>TrackViewer Development</title>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="dist/index.umd.js"></script>
   <style>
@@ -111,8 +111,8 @@
   </style>
 </head>
 <body>
-  <h1>RegionViewer Demo</h1>
-  <p>This demo shows the RegionViewer class in action with gene tracks.</p>
+  <h1>TrackViewer Demo</h1>
+  <p>This demo shows the TrackViewer class in action with gene tracks.</p>
   
   <div class="controls">
     <button onclick="viewer.resetZoom()">Reset Zoom</button>
@@ -128,40 +128,50 @@
   </div>
 
   <script>
-    // Sample gene track data using new format
+    // Sample gene track data using new format with per-track heights
     const sampleData = {
       tracks: [
-        { id: "genes", label: "Primary Gene Clusters" },
-        { id: "genes2", label: "Secondary Genes" },
-        { id: "domains", label: "Protein Domains" },
-        { id: "regulatory", label: "Regulatory Elements & Sites" }
+        { id: "genes", label: "Primary Gene Clusters", height: 40 }, // Taller track for genes
+        { id: "genes2", label: "Secondary Genes", height: 35 }, // Uses default height (30)
+        { id: "regulatory", label: "Regulatory Elements & Sites", height: 50 }, 
+        { id: "domains", label: "Protein Domains", height: 25 }, // Shorter track for domains
       ],
       annotations: [
-        // Gene track annotations with different heights
-        { id: "gene1", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneA", start: 10, end: 30, direction: "right", heightFraction: 0.8 },
-        { id: "gene2", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "right", heightFraction: 0.6 },
-        { id: "gene3", trackId: "genes", type: "arrow", class: "annotation-gene", label: "geneC", start: 60, end: 80, direction: "right" },
+        // Gene track annotations with different heights and custom colors
+        { id: "gene1", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneA", start: 10, end: 30, direction: "right", heightFraction: 0.8 },
+        { id: "gene2", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, heightFraction: 0.6, fill: "#4ecdc4" },
+        { id: "gene3", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneC", start: 60, end: 80, direction: "right", heightFraction: 1.0, fill: "#45b7d1", corner_radius: 5 },
 
-        { id: "gene1", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.9 },
-        { id: "gene2", trackId: "genes2", type: "arrow", class: "annotation-gene", label: "geneB", start: 35, end: 55, direction: "left", heightFraction: 0.4 },
-        { id: "gene3", trackId: "genes2", type: "arrow", class: "annotation-gene-alt", label: "geneC", start: 60, end: 80, direction: "left" },
+        { id: "gene1", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.5, fy: 0.25, fill: "#f9ca24", stroke: "red" },
+        { id: "gene2", trackId: "genes2", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, direction: "left", heightFraction: 0.4 },
+        { id: "gene3", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneC", start: 60, end: 80, direction: "left", heightFraction: 1.0, fill: "#6c5ce7" },
 
-        // Domain track annotations with custom heights
-        { id: "dom1", trackId: "genes2", type: "box", class: "annotation-domain", label: "domain1", start: 15, end: 25, direction: "none", heightFraction: 0.3 },
-        { id: "dom2", trackId: "genes2", type: "box", class: "annotation-domain", label: "domain2", start: 40, end: 50, direction: "none", heightFraction: 0.5 },
-        { id: "dom3", trackId: "genes2", type: "box", class: "annotation-domain", label: "domain3", start: 65, end: 75, direction: "none", heightFraction: 0.7 },
+        // Domain track annotations with custom heights and colors
+        { id: "dom1", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain1", start: 15, end: 25, heightFraction: 0.3, fill: "#a29bfe" },
+        { id: "dom2", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain2", start: 40, end: 50, heightFraction: 0.5, corner_radius: 5 },
+        { id: "dom3", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain3", start: 65, end: 75, heightFraction: 0.7 },
 
         // Regulatory track annotations - mix of custom and default heights
-        { id: "prom1", trackId: "regulatory", type: "marker", class: "annotation-regulatory", label: "promoter", start: 5, end: 12, direction: "none", heightFraction: 0.8 },
-        { id: "term1", trackId: "regulatory", type: "marker", class: "annotation-terminator", label: "terminator", start: 82, end: 90, direction: "none" },
-        { id: "term2", trackId: "regulatory", type: "marker", class: "annotation-terminator", label: "terminator", start: 50, end: 50, direction: "none", heightFraction: 0.5 }
+        { id: "prom1", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "promoter", start: 5, end: 12, heightFraction: 0.8, stroke: 'green' },
+        { id: "term1", trackId: "regulatory", type: "circle", classes: ["annotation-terminator"], label: "terminator", start: 82, end: 90},
+        { id: "term2", trackId: "regulatory", type: "circle", classes: ["annotation-terminator"], label: "terminator", start: 50, end: 50, fy: 0.75, heightFraction: 0.5 },
+        { id: "term2", trackId: "regulatory", type: "triangle", classes: [], label: "terminator", start: 55, end: 55},
+        { id: "term2", trackId: "regulatory", type: "triangle", classes: [], label: "terminator", start: 65, end: 65, fy: 0.4, heightFraction: 0.35},
+        { id: "term2", trackId: "regulatory", type: "pin", classes: [], label: "terminator", start: 60, end: 60, heightFraction: 0.4 },
+        { id: "term2", trackId: "regulatory", type: "pin", classes: [], label: "terminator", start: 59, end: 59 }
       ],
       primitives: [
+        // Background
+        { id: "line3", trackId: "regulatory", type: "background", class: "baseline", fy: 1, fill: 'lightgrey' },
+
         // Full-width baseline lines for each track (no start/end specified)
         { id: "baseline-genes", trackId: "genes", type: "horizontal-line", class: "baseline" },
         { id: "baseline-genes2", trackId: "genes2", type: "horizontal-line", class: "baseline" },
         { id: "baseline-domains", trackId: "domains", type: "horizontal-line", class: "baseline" },
-        
+        { id: "line1", trackId: "regulatory", type: "horizontal-line", class: "baseline", fy: 0, stroke: 'blue' },
+        { id: "line2", trackId: "regulatory", type: "horizontal-line", class: "baseline", fy: 0.5, stroke: 'grey' },
+        { id: "line3", trackId: "regulatory", type: "horizontal-line", class: "baseline", fy: 1, stroke: 'red' },
+
         // Example of a partial line (with specific start/end)
         { id: "highlight-region", trackId: "genes", type: "horizontal-line", class: "reference-line", start: 20, end: 70 }
       ]
@@ -175,12 +185,11 @@
       log.scrollTop = log.scrollHeight;
     }
 
-    // Wait for the BgcViewer module to be loaded
+    // Wait for the BGCViewer module to be loaded
     window.addEventListener('DOMContentLoaded', function() {
-      // Create viewer instance using the built RegionViewer
-      window.viewer = new BgcViewer.RegionViewer({
+      // Create viewer instance using the built TrackViewer
+      window.viewer = new BGCViewer.TrackViewer({
         container: '#viewer-container',
-        width: 800,
         height: 200,
         domain: [0, 100],
         onAnnotationClick: (annotation, track) => {
@@ -208,8 +217,7 @@
             label: `item${trackCounter}A`, 
             start: Math.random() * 50, 
             end: Math.random() * 30 + 50, 
-            direction: "none"
-          },
+                     },
           { 
             id: `t${trackCounter}b`, 
             trackId: trackId, 
@@ -218,8 +226,7 @@
             label: `item${trackCounter}B`, 
             start: Math.random() * 20 + 70, 
             end: Math.random() * 10 + 90, 
-            direction: "none"
-          }
+                     }
         ];
         viewer.addTrack(newTrack, newAnnotations);
         trackCounter++;
@@ -231,7 +238,7 @@
         logEvent('Updated domain to 0-200');
       };
 
-      logEvent('RegionViewer initialized');
+      logEvent('TrackViewer initialized');
     });
   </script>
 </body>

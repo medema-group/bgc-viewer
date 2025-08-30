@@ -26,7 +26,7 @@ const config = {
     {
       file: 'dist/index.umd.js',
       format: 'umd',
-      name: 'BgcViewer',
+      name: 'BGCViewer',
       globals: {
         'd3': 'd3'
       },

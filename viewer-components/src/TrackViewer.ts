@@ -3,23 +3,29 @@ import * as d3 from 'd3';
 export type TrackData = {
   id: string;
   label: string;
+  height?: number; // Optional per-track height, falls back to config.trackHeight
 }
 
-export type AnnotationType = 'arrow' | 'box' | 'marker';
+export type AnnotationType = 'arrow' | 'box' | 'circle' | 'triangle' | 'pin';
 
 export type AnnotationData = {
   id: string;
   trackId: string;
   type: AnnotationType;
-  class: string;
+  classes: string[];
   label: string;
   start: number;
   end: number;
-  heightFraction?: number;
-  direction: 'left' | 'right' | 'none';
+  fy?: number; // Fractional y position of the annotation, default is 0.5
+               // (anchor is center for boxes/arrows or focal position for markers)
+  heightFraction?: number; // Fraction of track height
+  direction?: 'left' | 'right';
+  fill?: string;
+  stroke?: string;
+  corner_radius?: number;
 }
 
-export type DrawingPrimitiveType = 'horizontal-line' | 'tbd';
+export type DrawingPrimitiveType = 'horizontal-line' | 'background';
 
 export type DrawingPrimitive = {
   id: string;
@@ -28,16 +34,18 @@ export type DrawingPrimitive = {
   class: string;
   start?: number;
   end?: number;
-  y?: number; // Optional vertical position override (relative to track)
+  fy?: number; // Fractional vertical position (0 to 1)
+  stroke?: string;
+  fill?: string;
 }
 
-export type RegionViewerData = {
+export type TrackViewerData = {
   tracks: TrackData[];
   annotations: AnnotationData[];
   primitives?: DrawingPrimitive[];
 }
 
-export interface RegionViewerConfig {
+export interface TrackViewerConfig {
   container: string | HTMLElement;
   width?: number;
   height?: number;
@@ -47,7 +55,7 @@ export interface RegionViewerConfig {
     bottom: number;
     left: number;
   };
-  rowHeight?: number;
+  trackHeight?: number;
   domain?: [number, number];
   zoomExtent?: [number, number];
   onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
@@ -55,8 +63,8 @@ export interface RegionViewerConfig {
 }
 
 
-export class RegionViewer {
-  private config: Required<RegionViewerConfig>;
+export class TrackViewer {
+  private config: Required<TrackViewerConfig>;
   private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
   private chart!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private clippedChart!: d3.Selection<SVGGElement, unknown, null, undefined>;
@@ -65,19 +73,40 @@ export class RegionViewer {
   private x!: d3.ScaleLinear<number, number>;
   private currentTransform: d3.ZoomTransform;
   private zoom!: d3.ZoomBehavior<any, unknown>;
-  private data: RegionViewerData = { tracks: [], annotations: [], primitives: [] };
+  private data: TrackViewerData = { tracks: [], annotations: [], primitives: [] };
   private trackGroups!: d3.Selection<SVGGElement, TrackData, SVGGElement, unknown>;
   private clipId!: string;
   private originalLeftMargin: number; // Store original left margin
+  private isResponsiveWidth: boolean; // Track if width should be responsive
+  private containerElement!: HTMLElement; // Store reference to container
+  private resizeHandler?: () => void; // Store resize handler for cleanup
 
-  constructor(config: RegionViewerConfig) {
+  constructor(config: TrackViewerConfig) {
+    // Check if width was explicitly provided
+    this.isResponsiveWidth = config.width === undefined;
+    
+    // Get container element early to calculate responsive width
+    const containerElement = typeof config.container === 'string' 
+      ? document.querySelector(config.container)
+      : config.container;
+
+    if (!containerElement) {
+      throw new Error('Container element not found');
+    }
+    this.containerElement = containerElement as HTMLElement;
+
+    // Calculate responsive width if not explicitly set
+    const calculatedWidth = this.isResponsiveWidth 
+      ? this.calculateResponsiveWidth()
+      : (config.width || 800);
+
     // Set default configuration
     this.config = {
       container: config.container,
-      width: config.width || 800,
+      width: calculatedWidth,
       height: config.height || 300,
-      margin: config.margin || { top: 20, right: 30, bottom: 20, left: 60 },
-      rowHeight: config.rowHeight || 30,
+      margin: config.margin || { top: 20, right: 10, bottom: 20, left: 60 },
+      trackHeight: config.trackHeight || 30,
       domain: config.domain || [0, 100],
       zoomExtent: config.zoomExtent || [0.5, 20],
       onAnnotationClick: config.onAnnotationClick || (() => {}),
@@ -89,6 +118,31 @@ export class RegionViewer {
 
     this.currentTransform = d3.zoomIdentity;
     this.initialize();
+    
+    // Set up automatic resize handling for responsive width
+    if (this.isResponsiveWidth) {
+      this.setupAutoResize();
+    }
+  }
+
+  private calculateResponsiveWidth(): number {
+    // Calculate width based on container, leaving some margin
+    const containerWidth = this.containerElement.clientWidth || 800;
+    return Math.max(600, containerWidth - 40); // 20px margin on each side, minimum 600px
+  }
+
+  private setupAutoResize(): void {
+    let resizeTimeout: NodeJS.Timeout;
+    
+    this.resizeHandler = () => {
+      // Throttle resize events to avoid excessive recalculation
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        this.resize();
+      }, 100);
+    };
+    
+    window.addEventListener('resize', this.resizeHandler);
   }
 
   private initialize(): void {
@@ -193,13 +247,30 @@ export class RegionViewer {
       });
   }
 
+  // Helper methods for track heights
+  private getTrackHeight(track: TrackData): number {
+    return track.height || this.config.trackHeight;
+  }
+
+  private getTotalTracksHeight(): number {
+    return this.data.tracks.reduce((total, track) => total + this.getTrackHeight(track), 0);
+  }
+
+  private getTrackYPosition(trackIndex: number): number {
+    let y = 0;
+    for (let i = 0; i < trackIndex; i++) {
+      y += this.getTrackHeight(this.data.tracks[i]);
+    }
+    return y;
+  }
+
   private updateHeight(): void {
-    const newHeight = this.data.tracks.length * this.config.rowHeight + this.config.margin.top + this.config.margin.bottom;
+    const newHeight = this.getTotalTracksHeight() + this.config.margin.top + this.config.margin.bottom;
     this.config.height = newHeight;
     this.svg.attr('height', newHeight);
 
     // Update x-axis position
-    const chartHeight = this.data.tracks.length * this.config.rowHeight;
+    const chartHeight = this.getTotalTracksHeight();
     this.xAxisGroup.attr('transform', `translate(0, ${chartHeight})`);
 
     // Update clipping path height
@@ -217,7 +288,7 @@ export class RegionViewer {
       .data(this.data.tracks, d => d.id)
       .join('g')
       .attr('class', 'track')
-      .attr('transform', (_, i) => `translate(0, ${i * this.config.rowHeight})`);
+      .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
 
     // Add track labels (these should be outside the clipped area)
     const labelGroups = this.chart
@@ -225,7 +296,7 @@ export class RegionViewer {
       .data(this.data.tracks, d => d.id)
       .join('g')
       .attr('class', 'track-label-group')
-      .attr('transform', (_, i) => `translate(0, ${i * this.config.rowHeight})`);
+      .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
 
     labelGroups
       .selectAll('.track-label')
@@ -233,7 +304,7 @@ export class RegionViewer {
       .join('text')
       .attr('class', 'track-label')
       .attr('x', -10)
-      .attr('y', this.config.rowHeight / 2)
+      .attr('y', (d) => this.getTrackHeight(d) / 2)
       .attr('dy', '0.35em')
       .attr('text-anchor', 'end')
       .style('font', '12px sans-serif')
@@ -302,14 +373,17 @@ export class RegionViewer {
     const x = xScale(annotation.start);
     const width = Math.max(1, xScale(annotation.end) - xScale(annotation.start));
     
+    const trackHeight = this.getTrackHeight(trackData);
+    
     // Calculate height based on heightFraction if provided, otherwise use default
-    const defaultHeight = this.config.rowHeight - 10;
     const height = annotation.heightFraction !== undefined 
-      ? this.config.rowHeight * annotation.heightFraction
-      : defaultHeight;
+      ? trackHeight * annotation.heightFraction
+      : trackHeight / 2;
     
     // Center the annotation vertically in the track
-    const y = (this.config.rowHeight - height) / 2;
+    //const cy = (trackHeight - height) / 2;
+    const y = trackHeight - (annotation.fy !== undefined ? annotation.fy * trackHeight : trackHeight / 2); // Use custom fy or center of track
+
 
     let element: d3.Selection<any, unknown, null, undefined>;
 
@@ -317,20 +391,36 @@ export class RegionViewer {
       case 'arrow':
         element = this.renderArrow(container, x, y, width, height, annotation.direction);
         break;
-      case 'marker':
-        element = this.renderMarker(container, x, y, height);
+      case 'circle':
+        element = this.renderCircle(container, x, y, height);
+        break;
+      case 'triangle':
+        element = this.renderTriangle(container, x, y, height);
+        break;
+      case 'pin':
+        element = this.renderPin(container, x, y, height);
         break;
       case 'box':
       default:
-        element = this.renderBox(container, x, y, width, height);
+        element = this.renderBox(container, x, y, width, height, annotation.corner_radius || 0);
         break;
     }
 
     // Apply common styling and event handlers
     element
-      .attr('class', `annotation ${annotation.class}`)
+      .attr('class', `annotation ${annotation.classes.join(' ')}`)
       .style('cursor', 'pointer')
-      .style('pointer-events', 'all') // Ensure annotations can receive mouse events
+      .style('pointer-events', 'all'); // Ensure annotations can receive mouse events
+
+    // Apply custom fill and stroke if specified
+    if (annotation.fill) {
+      element.style('fill', annotation.fill);
+    }
+    if (annotation.stroke) {
+      element.style('stroke', annotation.stroke);
+    }
+
+    element
       .on('mouseover', (event: any) => {
         element.classed('hovered', true);
         this.showTooltip(event, annotation, trackData);
@@ -348,15 +438,18 @@ export class RegionViewer {
     container: d3.Selection<SVGGElement, unknown, null, undefined>,
     primitive: DrawingPrimitive,
     xScale: d3.ScaleLinear<number, number>,
-    _trackData: TrackData
+    trackData: TrackData
   ): void {
-    const trackHeight = this.config.rowHeight;
+    const trackHeight = this.getTrackHeight(trackData);
     
     let element: d3.Selection<any, unknown, null, undefined>;
 
     switch (primitive.type) {
       case 'horizontal-line':
         element = this.renderHorizontalLine(container, primitive, xScale, trackHeight);
+        break;
+      case 'background':
+        element = this.renderBackground(container, primitive, xScale, trackHeight);
         break;
       default:
         // Unknown primitive type, skip
@@ -396,8 +489,8 @@ export class RegionViewer {
       x1 = range[0]; // Left edge of chart
       x2 = range[1]; // Right edge of chart
     }
-    
-    const y = primitive.y !== undefined ? primitive.y : trackHeight / 2; // Use custom y or center of track
+
+    const y = trackHeight - (primitive.fy !== undefined ? primitive.fy * trackHeight : trackHeight / 2); // Use custom fy or center of track
 
     // Round to nearest pixel to avoid anti-aliasing blur
     const roundedY = Math.round(y) + 0.5; // Add 0.5 for crisp 1px lines
@@ -408,9 +501,49 @@ export class RegionViewer {
       .attr('x2', x2)
       .attr('y1', roundedY)
       .attr('y2', roundedY)
-      .style('stroke', 'currentColor')
+      .style('stroke', primitive.stroke || 'currentColor')
       .style('stroke-width', 1)
       .style('shape-rendering', 'crispEdges'); // Ensure crisp rendering
+  }
+
+  private renderBackground(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    primitive: DrawingPrimitive,
+    xScale: d3.ScaleLinear<number, number>,
+    trackHeight: number
+  ): d3.Selection<SVGRectElement, unknown, null, undefined> {
+    // If start is undefined, use the left edge of the chart
+    // If end is undefined, use the right edge of the chart
+    const range = xScale.range();
+    
+    let x1: number, x2: number;
+    
+    if (primitive.start !== undefined && primitive.end !== undefined) {
+      // Both start and end defined - use them
+      x1 = xScale(primitive.start);
+      x2 = xScale(primitive.end);
+    } else if (primitive.start !== undefined && primitive.end === undefined) {
+      // Only start defined - from start to end of visible range
+      x1 = xScale(primitive.start);
+      x2 = range[1]; // Right edge of chart
+    } else if (primitive.start === undefined && primitive.end !== undefined) {
+      // Only end defined - from start of visible range to end
+      x1 = range[0]; // Left edge of chart
+      x2 = xScale(primitive.end);
+    } else {
+      // Neither start nor end defined - span entire visible range
+      x1 = range[0]; // Left edge of chart
+      x2 = range[1]; // Right edge of chart
+    }
+
+    return container
+      .append('rect')
+      .attr('x', x1)
+      .attr('y', 0)
+      .attr('width', x2 - x1)
+      .attr('height', trackHeight)
+      .attr('class', `primitive ${primitive.class}`)
+      .style('fill', primitive.fill || 'none');
   }
 
   private renderBox(
@@ -418,16 +551,17 @@ export class RegionViewer {
     x: number,
     y: number,
     width: number,
-    height: number
+    height: number,
+    corner_radius: number = 0
   ): d3.Selection<SVGRectElement, unknown, null, undefined> {
     return container
       .append('rect')
       .attr('x', x)
-      .attr('y', y)
+      .attr('y', y - height / 2)
       .attr('width', width)
       .attr('height', height)
-      .attr('rx', 2) // Slightly rounded corners
-      .attr('ry', 2);
+      .attr('rx', corner_radius)
+      .attr('ry', corner_radius);
   }
 
   private renderArrow(
@@ -436,43 +570,45 @@ export class RegionViewer {
     y: number,
     width: number,
     height: number,
-    direction: 'left' | 'right' | 'none'
+    direction: 'left' | 'right' | undefined
   ): d3.Selection<SVGPathElement, unknown, null, undefined> {
     const arrowHeadWidth = Math.min(width * 0.2, height * 0.5, 8); // Limit arrow head size
-    const bodyWidth = width - (direction !== 'none' ? arrowHeadWidth : 0);
-    
+    const bodyWidth = width - arrowHeadWidth;
+
     let pathData: string;
-    
+
+    const y1 = y - height / 2;
+    const y2 = y + height / 2;
     if (direction === 'right') {
       // Arrow pointing right: rectangular body + triangular head
       pathData = `
-        M ${x} ${y}
-        L ${x + bodyWidth} ${y}
-        L ${x + width} ${y + height * 0.5}
-        L ${x + bodyWidth} ${y + height}
-        L ${x} ${y + height}
+        M ${x} ${y1}
+        L ${x + bodyWidth} ${y1}
+        L ${x + width} ${y}
+        L ${x + bodyWidth} ${y2}
+        L ${x} ${y2}
         Z
       `;
     } else if (direction === 'left') {
       // Arrow pointing left: triangular head + rectangular body
       pathData = `
-        M ${x} ${y + height * 0.5}
-        L ${x + arrowHeadWidth} ${y}
-        L ${x + width} ${y}
-        L ${x + width} ${y + height}
-        L ${x + arrowHeadWidth} ${y + height}
+        M ${x} ${y}
+        L ${x + arrowHeadWidth} ${y1}
+        L ${x + width} ${y1}
+        L ${x + width} ${y2}
+        L ${x + arrowHeadWidth} ${y2}
         Z
       `;
     } else {
       // No direction specified, render as elongated hexagon
       const indent = Math.min(width * 0.1, height * 0.3, 4);
       pathData = `
-        M ${x + indent} ${y}
-        L ${x + width - indent} ${y}
-        L ${x + width} ${y + height * 0.5}
-        L ${x + width - indent} ${y + height}
-        L ${x + indent} ${y + height}
-        L ${x} ${y + height * 0.5}
+        M ${x + indent} ${y1}
+        L ${x + width - indent} ${y1}
+        L ${x + width} ${y}
+        L ${x + width - indent} ${y2}
+        L ${x + indent} ${y2}
+        L ${x} ${y}
         Z
       `;
     }
@@ -482,21 +618,66 @@ export class RegionViewer {
       .attr('d', pathData);
   }
 
-  private renderMarker(
+  private renderCircle(
     container: d3.Selection<SVGGElement, unknown, null, undefined>,
     x: number,
     y: number,
     height: number
   ): d3.Selection<SVGCircleElement, unknown, null, undefined> {
-    // Render marker as a circle
-    const radius = height / 2;
-    
+
     return container
       .append('circle')
       .attr('cx', x)
-      .attr('cy', y + radius) // Center vertically in the track
-      .attr('r', radius)
+      .attr('cy', y)
+      .attr('r', height / 2)
       .attr('class', 'annotation-marker');
+  }
+
+  private renderTriangle(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    x: number,
+    y: number,
+    height: number = 0.5
+  ): d3.Selection<SVGPolygonElement, unknown, null, undefined> {
+    const baseWidth = height * 0.8;
+    const points = [
+      [x - baseWidth / 2, y + height],
+      [x, y],
+      [x + baseWidth / 2, y + height]
+    ].map(p => p.join(',')).join(' ');
+
+    return container
+      .append('polygon')
+      .attr('points', points)
+      .attr('class', 'annotation-triangle');
+  }
+
+  private renderPin(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    x: number,
+    y: number,
+    height: number
+  ): d3.Selection<SVGGElement, unknown, null, undefined> {
+    // Render a pin as a group containing a line and a circle
+    const group = container
+      .append('g')
+      .attr('class', 'annotation-pin');
+
+    group.append('line')
+      .attr('x1', x)
+      .attr('y1', y)
+      .attr('x2', x)
+      .attr('y2', y - height)
+      .attr('stroke', 'black')
+      .attr('class', 'annotation-pin-line');
+
+    group.append('circle')
+      .attr('cx', x)
+      .attr('cy', y - height)
+      .attr('r', 3)
+      .attr('class', 'annotation-pin-head');
+
+    return group;
   }
 
   private showTooltip(event: MouseEvent, annotation: AnnotationData, trackData: TrackData): void {
@@ -577,7 +758,7 @@ export class RegionViewer {
   }
 
   // Public API methods
-  public setData(data: RegionViewerData): void {
+  public setData(data: TrackViewerData): void {
     this.data = {
       tracks: data.tracks,
       annotations: data.annotations,
@@ -670,19 +851,58 @@ export class RegionViewer {
   }
 
   public destroy(): void {
+    // Remove resize listener if it was set up
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler);
+    }
+    
     this.tooltip.remove();
     this.svg.remove();
   }
 
-  public getConfig(): Required<RegionViewerConfig> {
+  public getConfig(): Required<TrackViewerConfig> {
     return { ...this.config };
   }
 
-  public getData(): RegionViewerData {
+  public getData(): TrackViewerData {
     return {
       tracks: [...this.data.tracks],
       annotations: [...this.data.annotations],
       primitives: this.data.primitives ? [...this.data.primitives] : []
     };
+  }
+
+  public resize(): void {
+    // Only resize if this instance was created with responsive width
+    if (!this.isResponsiveWidth) {
+      return;
+    }
+
+    const newWidth = this.calculateResponsiveWidth();
+    
+    // Only update if the width has changed significantly
+    if (Math.abs(this.config.width - newWidth) > 10) {
+      this.config.width = newWidth;
+      
+      // Update SVG width
+      this.svg.attr('width', newWidth);
+      
+      // Update x scale range
+      this.x.range([0, newWidth - this.config.margin.left - this.config.margin.right]);
+      
+      // Update clipping path and background width
+      const chartWidth = newWidth - this.config.margin.left - this.config.margin.right;
+      this.svg.select('clipPath rect').attr('width', chartWidth);
+      this.clippedChart.select('.chart-background').attr('width', chartWidth);
+      
+      // Update zoom behavior with new dimensions
+      const chartHeight = this.config.height - this.config.margin.top - this.config.margin.bottom;
+      this.zoom
+        .translateExtent([[0, 0], [chartWidth, chartHeight]])
+        .extent([[0, 0], [chartWidth, chartHeight]]);
+      
+      // Redraw everything with new dimensions
+      this.drawTracks();
+    }
   }
 }

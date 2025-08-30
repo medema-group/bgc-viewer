@@ -4,7 +4,7 @@ A TypeScript library providing D3.js-based visualization components for biosynth
 
 ## Features
 
-- **RegionViewer**: Interactive visualization of genomic regions with tracks and annotations
+- **TrackViewer**: Interactive visualization of genomic regions with tracks and annotations
 - **Multiple annotation types**: Arrows, boxes, and markers
 - **Zoom and pan**: Interactive navigation through genomic regions
 - **TypeScript support**: Full type definitions for better developer experience
@@ -21,10 +21,10 @@ npm install bgc-viewer-components
 ### Basic Example
 
 ```typescript
-import { RegionViewer } from 'bgc-viewer-components';
+import { TrackViewer } from 'bgc-viewer-components';
 
 // Create a viewer instance
-const viewer = new RegionViewer({
+const viewer = new TrackViewer({
   container: '#my-container',
   width: 800,
   height: 400,
@@ -34,15 +34,15 @@ const viewer = new RegionViewer({
 // Add track data
 viewer.setData({
   tracks: [
-    { id: 'genes', label: 'Gene Track' },
-    { id: 'domains', label: 'Protein Domains' }
+    { id: 'genes', label: 'Gene Track', height: 40 }, // Custom height
+    { id: 'domains', label: 'Protein Domains' } // Uses default trackHeight from config
   ],
   annotations: [
     {
       id: 'gene1',
       trackId: 'genes',
       type: 'arrow',
-      class: 'gene',
+      classes: ['gene'],
       label: 'Gene A',
       start: 1000,
       end: 3000,
@@ -52,7 +52,7 @@ viewer.setData({
       id: 'domain1',
       trackId: 'domains',
       type: 'box',
-      class: 'domain',
+      classes: ['domain'],
       label: 'PKS Domain',
       start: 1200,
       end: 1800,
@@ -65,7 +65,7 @@ viewer.setData({
 ### Configuration Options
 
 ```typescript
-interface RegionViewerConfig {
+interface TrackViewerConfig {
   container: string | HTMLElement;    // CSS selector or DOM element
   width?: number;                     // Width in pixels (default: 800)
   height?: number;                    // Height in pixels (default: 300)
@@ -75,13 +75,30 @@ interface RegionViewerConfig {
     bottom: number;                  // Default: 20
     left: number;                    // Default: 60
   };
-  rowHeight?: number;                // Height of each track row (default: 30)
+  trackHeight?: number;              // Default height of each track row (default: 30)
   domain?: [number, number];         // Genomic coordinate range (default: [0, 100])
   zoomExtent?: [number, number];     // Zoom scale limits (default: [0.5, 20])
   onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
   onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
 }
 ```
+
+### Track Configuration
+
+Each track can have an individual height, which overrides the default `trackHeight` from the configuration:
+
+```typescript
+const data = {
+  tracks: [
+    { id: 'genes', label: 'Gene Track', height: 40 },        // Custom height: 40px
+    { id: 'domains', label: 'Protein Domains', height: 25 }, // Custom height: 25px  
+    { id: 'regulatory', label: 'Regulatory Elements' }        // Uses default trackHeight from config
+  ],
+  // ... annotations and primitives
+}
+```
+
+This feature is particularly useful when you want to emphasize certain tracks (like genes) or reduce space for simpler tracks (like regulatory elements).
 
 ### Annotation Types
 
@@ -91,7 +108,7 @@ Perfect for representing genes with directionality:
 ```typescript
 {
   type: 'arrow',
-  direction: 'right' | 'left' | 'none',
+  direction: 'right' | 'left',
   // ... other properties
 }
 ```
@@ -106,12 +123,12 @@ Ideal for domains, regions, or features without directionality:
 }
 ```
 
-#### Marker Annotations
+#### Point annotations
 Useful for point features or binding sites:
 
 ```typescript
 {
-  type: 'marker',
+  type: 'circle' | 'triangle' | 'pin',
   // ... other properties
 }
 ```
@@ -121,7 +138,7 @@ Useful for point features or binding sites:
 #### Data Management
 ```typescript
 // Set complete dataset
-viewer.setData(data: RegionViewerData): void
+viewer.setData(data: TrackViewerData): void
 
 // Add individual tracks and annotations
 viewer.addTrack(track: TrackData, annotations?: AnnotationData[]): void
@@ -147,10 +164,10 @@ viewer.resetZoom(): void
 #### Data Retrieval
 ```typescript
 // Get current configuration
-const config = viewer.getConfig(): Required<RegionViewerConfig>
+const config = viewer.getConfig(): Required<TrackViewerConfig>
 
 // Get current data
-const data = viewer.getData(): RegionViewerData
+const data = viewer.getData(): TrackViewerData
 ```
 
 #### Cleanup
@@ -162,7 +179,7 @@ viewer.destroy(): void
 ### Event Handling
 
 ```typescript
-const viewer = new RegionViewer({
+const viewer = new TrackViewer({
   container: '#container',
   onAnnotationClick: (annotation, track) => {
     console.log(`Clicked ${annotation.label} in ${track.label}`);
@@ -240,7 +257,7 @@ export interface AnnotationData {
   direction: 'left' | 'right' | 'none';
 }
 
-export interface RegionViewerData {
+export interface TrackViewerData {
   tracks: TrackData[];
   annotations: AnnotationData[];
 }
