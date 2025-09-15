@@ -1,0 +1,265 @@
+/* Color definitions for secondary metabolite types */
+
+/* PKS - Polyketide Synthase */
+rect.PKS {
+    fill: sandybrown;
+    stroke: purple;
+}
+
+/* RiPP - Ribosomally synthesized and post-translationally modified peptides */
+rect.RiPP {
+    fill: royalblue;
+    stroke: white;
+}
+
+/* Other */
+rect.other {
+    fill: midnightblue;
+    stroke: lightsteelblue;
+}
+
+/* Pigment compounds */
+rect.arylpolyene {
+    fill: peru;
+    stroke: white;
+}
+
+rect.melanin {
+    fill: peru;
+    stroke: white;
+}
+
+/* Hydrocarbon compounds */
+rect.resorcinol {
+    fill: purple;
+    stroke: white;
+}
+
+rect.ladderane {
+    fill: purple;
+    stroke: white;
+}
+
+rect.PUFA {
+    fill: purple;
+    stroke: white;
+}
+
+rect.terpene {
+    fill: purple;
+    stroke: white;
+}
+
+rect.furan {
+    fill: purple;
+    stroke: white;
+}
+
+rect.PBDE {
+    fill: purple;
+    stroke: white;
+}
+
+rect.betalactone {
+    fill: purple;
+    stroke: white;
+}
+
+rect.pyrrolidine {
+    fill: purple;
+    stroke: white;
+}
+
+/* NRPS - Non-ribosomal peptide synthetase */
+rect.NRPS {
+    fill: seagreen;
+    stroke: white;
+}
+
+/* Lantibiotics */
+rect.lanthipeptide-class-i {
+    fill: #ffff77;
+    stroke: blue;
+}
+
+rect.lanthipeptide-class-ii {
+    fill: #ffff77;
+    stroke: blue;
+}
+
+rect.lanthipeptide-class-iii {
+    fill: #ffff77;
+    stroke: blue;
+}
+
+rect.lanthipeptide-class-iv {
+    fill: #ffff77;
+    stroke: blue;
+}
+
+rect.lanthipeptide-class-v {
+    fill: #ffff77;
+    stroke: blue;
+}
+
+rect.lipolanthine {
+    fill: #ffff77;
+    stroke: blue;
+}
+
+/* Thiolated RiPPs */
+rect.azole-containing-RiPP {
+    fill: gold;
+    stroke: black;
+}
+
+rect.thioamitides {
+    fill: gold;
+    stroke: black;
+}
+
+/* Beta-lactam */
+rect.blactam {
+    fill: aliceblue;
+    stroke: black;
+}
+
+/* Aminocyclitol and aminocoumarin */
+rect.amglyccycl {
+    fill: yellowgreen;
+    stroke: black;
+}
+
+rect.aminocoumarin {
+    fill: yellowgreen;
+    stroke: black;
+}
+
+/* Metallophores */
+rect.NI-siderophore {
+    fill: crimson;
+    stroke: white;
+}
+
+rect.NRP-metallophore {
+    fill: crimson;
+    stroke: white;
+}
+
+rect.methanobactin {
+    fill: crimson;
+    stroke: white;
+}
+
+rect.opine-like-metallophore {
+    fill: crimson;
+    stroke: white;
+}
+
+rect.aminopolycarboxylic-acid {
+    fill: crimson;
+    stroke: white;
+}
+
+rect.hydroxytropolone {
+    fill: crimson;
+    stroke: white;
+}
+
+/* Osmolytes */
+rect.ectoine {
+    fill: yellowgreen;
+    stroke: firebrick;
+}
+
+rect.NAGGN {
+    fill: yellowgreen;
+    stroke: firebrick;
+}
+
+/* Butyrolactone */
+rect.butyrolactone {
+    fill: mediumpurple;
+    stroke: white;
+}
+
+/* Indole */
+rect.indole {
+    fill: peachpuff;
+    stroke: black;
+}
+
+/* Nucleosides */
+rect.deazapurine {
+    fill: antiquewhite;
+    stroke: black;
+}
+
+/* Phosphoglycolipid */
+rect.phosphoglycolipid {
+    fill: yellowgreen;
+    stroke: black;
+}
+
+/* Oligosaccharide */
+rect.oligosaccharide {
+    fill: burlywood;
+    stroke: black;
+}
+
+/* Homoserine lactone */
+rect.hserlactone {
+    fill: tan;
+    stroke: black;
+}
+
+/* Acyl amino acids */
+rect.acyl_amino_acids {
+    fill: tan;
+    stroke: black;
+}
+
+/* Tropodithietic acid */
+rect.tropodithietic-acid {
+    fill: tan;
+    stroke: black;
+}
+
+/* Phenazine */
+rect.phenazine {
+    fill: plum;
+    stroke: black;
+}
+
+/* Phosphonate */
+rect.phosphonate {
+    fill: mediumaquamarine;
+    stroke: black;
+}
+
+/* Unknown types */
+rect.unknown {
+    fill: #f2f2f2;
+    stroke: black;
+}
+
+rect.saccharide {
+    fill: #f2f2f2;
+    stroke: black;
+}
+
+rect.fatty_acid {
+    fill: #f2f2f2;
+    stroke: black;
+}
+
+rect.halogenated {
+    fill: #f2f2f2;
+    stroke: black;
+}
+
+/* Hybrid - should remain at the bottom to override all the above */
+rect.hybrid {
+    fill: lightsteelblue;
+    stroke: midnightblue;
+}

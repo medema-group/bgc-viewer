@@ -84,6 +84,7 @@
 <script>
 import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
+import './cluster-styling.css'
 
 export default {
   name: 'RegionViewerComponent',
@@ -330,6 +331,32 @@ export default {
       console.log('TrackViewer created successfully')
     }
     
+    const makeSureTrackExists = (trackId, trackLabel, trackHeight) => {
+      if (!allTrackData[trackId]) {
+        allTrackData[trackId] = {
+          id: trackId,
+          label: trackLabel,
+          height: trackHeight,
+          annotations: []
+        }
+      }
+    }
+
+    const parseGeneLocation = (location) => {
+      // Parse location string like "[164:2414](+)" or "[164:2414]"
+      if (!location) return null
+      const match = location.match(/\[<?(\d+):>?(\d+)\](?:\(([+-])\))?/)
+      if (!match) return null
+
+      const strand = match[3] || null
+      return {
+        start: parseInt(match[1]),
+        end: parseInt(match[2]),
+        strand: strand,
+        direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none'
+      }
+    }
+
     const buildAllTracks = () => {
       // Reset track data
       allTrackData = {}
@@ -337,62 +364,39 @@ export default {
       // Process all features to build all possible tracks
       currentFeatures.forEach(feature => {
         if (!feature.location) return
-        
-        // Parse location string like "[164:2414](+)"
-        const locationMatch = feature.location?.match(/\[<?(\d+):>?(\d+)\]\(([+-])\)/)
-        if (!locationMatch) return
-        
-        const start = parseInt(locationMatch[1])
-        const end = parseInt(locationMatch[2])
-        const strand = locationMatch[3]
-        
+        const location = parseGeneLocation(feature.location)
+        if (!location) {
+          console.warn('Failed to parse location for feature:', feature.type, feature.location)
+          return
+        }
+
         const classes = []
         classes.push(getFeatureClass(feature.type))
         
-        let trackId, trackLabel, trackHeight
-        
+        let trackId, trackLabel
         switch (feature.type) {
           case "cand_cluster":
             const cluster_index = feature.qualifiers?.candidate_cluster_number?.[0] || 'unknown'
             trackId = `cand_cluster-${cluster_index}`
             trackLabel = `Candidate Cluster ${cluster_index}`
-            trackHeight = 16
-            
-            if (!allTrackData[trackId]) {
-              allTrackData[trackId] = {
-                id: trackId,
-                label: trackLabel,
-                height: trackHeight,
-                annotations: []
-              }
-            }
+            makeSureTrackExists(trackId, trackLabel, 16)
             
             allTrackData[trackId].annotations.push({
               id: `${feature.type}-${cluster_index}`,
               trackId: trackId,
               type: 'box',
               heightFraction: 0.5,
-              direction: 'none',
               classes: classes,
               label: getFeatureLabel(feature),
-              start: start,
-              end: end
+              start: location.start,
+              end: location.end
             })
             break
 
           case "PFAM_domain":
             trackId = feature.type
             trackLabel = feature.type
-            trackHeight = undefined
-            
-            if (!allTrackData[trackId]) {
-              allTrackData[trackId] = {
-                id: trackId,
-                label: trackLabel,
-                height: trackHeight,
-                annotations: []
-              }
-            }
+            makeSureTrackExists(trackId, trackLabel)
             
             // Get PFAM ID from qualifiers to look up color
             const pfamId = feature.qualifiers?.db_xref?.[0]?.replace('PFAM:', '') || 
@@ -402,13 +406,13 @@ export default {
             const domainColor = pfamAccession && pfam_colormap[pfamAccession] ? pfam_colormap[pfamAccession] : null
             
             const annotation = {
-              id: `${feature.type}-${start}-${end}`,
+              id: `${feature.type}-${location.start}-${location.end}`,
               trackId: trackId,
               type: 'box',
               classes: classes,
               label: getFeatureLabel(feature),
-              start: start,
-              end: end,
+              start: location.start,
+              end: location.end,
               fill: domainColor,
               stroke: domainColor
             }
@@ -419,85 +423,72 @@ export default {
           case "CDS":
             trackId = feature.type
             trackLabel = feature.type
-            trackHeight = undefined
-            
-            if (feature.type === 'CDS') {
-              classes.push(`gene-type-${feature.qualifiers?.gene_kind?.[0] || 'other'}`)
-            }
-            
-            if (!allTrackData[trackId]) {
-              allTrackData[trackId] = {
-                id: trackId,
-                label: trackLabel,
-                height: trackHeight,
-                annotations: []
-              }
-            }
-            
+            classes.push(`gene-type-${feature.qualifiers?.gene_kind?.[0] || 'other'}`)
+            makeSureTrackExists(trackId, trackLabel)
+
             allTrackData[trackId].annotations.push({
-              id: `${feature.type}-${start}-${end}`,
+              id: `${feature.type}-${location.start}-${location.end}`,
               trackId: trackId,
               type: 'arrow',
-              direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
               classes: classes,
               label: getFeatureLabel(feature),
-              start: start,
-              end: end
+              start: location.start,
+              end: location.end,
+              direction: location.direction,
+              stroke: 'black'
             })
             break
             
           case "protocluster":
-          case "proto_core":
             const protocluster_number = feature.qualifiers?.protocluster_number?.[0] || 'unknown'
+            const protocluster_category = feature.qualifiers?.category?.[0] || 'unknown'
+            const core_location = parseGeneLocation(feature.qualifiers?.core_location?.[0] || null)
             trackId = `protocluster-${protocluster_number}`
             trackLabel = `Protocluster ${protocluster_number}`
-            trackHeight = 16
+            makeSureTrackExists(trackId, trackLabel, 16)
+            classes.push(protocluster_category)
             
-            if (!allTrackData[trackId]) {
-              allTrackData[trackId] = {
-                id: trackId,
-                label: trackLabel,
-                height: trackHeight,
-                annotations: []
-              }
-            }
-            
+            // Entire range
             allTrackData[trackId].annotations.push({
               id: `${feature.type}-${protocluster_number}`,
               trackId: trackId,
               type: 'box',
               heightFraction: 0.5,
-              direction: 'none',
               classes: classes,
               label: getFeatureLabel(feature),
-              start: start,
-              end: end
+              start: location.start,
+              end: location.end,
+              stroke: 'none',
+              opacity: 0.5
             })
+            // Core
+            if (core_location) {
+              allTrackData[trackId].annotations.push({
+                id: `${feature.type}-${protocluster_number}-core`,
+                trackId: trackId,
+                type: 'box',
+                heightFraction: 0.5,
+                classes: [...classes, 'proto-core'],
+                label: getFeatureLabel(feature),
+                start: core_location.start,
+                end: core_location.end
+              })
+            }
             break
             
           default:
             trackId = feature.type
             trackLabel = feature.type
-            trackHeight = undefined
-            
-            if (!allTrackData[trackId]) {
-              allTrackData[trackId] = {
-                id: trackId,
-                label: trackLabel,
-                height: trackHeight,
-                annotations: []
-              }
-            }
+            makeSureTrackExists(trackId, trackLabel)
             
             allTrackData[trackId].annotations.push({
-              id: `${feature.type}-${start}-${end}`,
+              id: `${feature.type}-${location.start}-${location.end}`,
               trackId: trackId,
               type: 'box',
-              direction: 'none',
               classes: classes,
               label: getFeatureLabel(feature),
-              start: start,
-              end: end
+              start: location.start,
+              end: location.end
             })
             break
         }
@@ -820,11 +811,6 @@ export default {
 :global(.feature-region) {
   fill: #FF9800;
   stroke: #F57C00;
-}
-
-:global(.feature-protocluster) {
-  fill: #9C27B0;
-  stroke: #7B1FA2;
 }
 
 :global(.feature-cand-cluster) {
