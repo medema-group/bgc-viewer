@@ -442,13 +442,25 @@ export default {
           case "protocluster":
             const protocluster_number = feature.qualifiers?.protocluster_number?.[0] || 'unknown'
             const protocluster_category = feature.qualifiers?.category?.[0] || 'unknown'
-            const core_location = parseGeneLocation(feature.qualifiers?.core_location?.[0] || null)
-            trackId = `protocluster-${protocluster_number}`
-            trackLabel = `Protocluster ${protocluster_number}`
-            makeSureTrackExists(trackId, trackLabel, 16)
             classes.push(protocluster_category)
-            
-            // Entire range
+            const core_location = parseGeneLocation(feature.qualifiers?.core_location?.[0] || null)
+            trackId = `protocluster-track-${protocluster_number}`
+            trackLabel = `Protocluster track ${protocluster_number}`
+
+            // See if there is any room on existing tracks. This is the case when none of the annotations
+            // on the track overlap with the current annotation.
+            for (let key of Object.keys(allTrackData)) {
+              if (!key.startsWith('protocluster-track-')) continue
+              const track = allTrackData[key]
+              const overlaps = track.annotations.some(ann => !(location.end < ann.start || location.start > ann.end))
+              if (!overlaps) {
+                trackId = key
+                break // Exit the loop once we find a suitable track
+              }
+            }
+            makeSureTrackExists(trackId, trackLabel, 16)
+
+            // Protocluster
             allTrackData[trackId].annotations.push({
               id: `${feature.type}-${protocluster_number}`,
               trackId: trackId,
@@ -461,13 +473,13 @@ export default {
               stroke: 'none',
               opacity: 0.5
             })
-            // Core
+            // Protocluster core
             if (core_location) {
               allTrackData[trackId].annotations.push({
                 id: `${feature.type}-${protocluster_number}-core`,
                 trackId: trackId,
                 type: 'box',
-                heightFraction: 0.5,
+                heightFraction: 0.6,
                 classes: [...classes, 'proto-core'],
                 label: getFeatureLabel(feature),
                 start: core_location.start,
