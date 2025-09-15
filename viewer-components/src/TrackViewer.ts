@@ -22,6 +22,7 @@ export type AnnotationData = {
   direction?: 'left' | 'right';
   fill?: string;
   stroke?: string;
+  opacity?: number;
   corner_radius?: number;
 }
 
@@ -37,6 +38,7 @@ export type DrawingPrimitive = {
   fy?: number; // Fractional vertical position (0 to 1)
   stroke?: string;
   fill?: string;
+  opacity?: number;
 }
 
 export type TrackViewerData = {
@@ -419,6 +421,9 @@ export class TrackViewer {
     if (annotation.stroke) {
       element.style('stroke', annotation.stroke);
     }
+    if (annotation.opacity !== undefined) {
+      element.style('opacity', annotation.opacity);
+    }
 
     element
       .on('mouseover', (event: any) => {
@@ -458,6 +463,23 @@ export class TrackViewer {
 
     // Apply styling (no event handlers for primitives)
     element.attr('class', `primitive ${primitive.class}`);
+    
+    // Apply custom styling if specified
+    if (primitive.stroke) {
+      element.style('stroke', primitive.stroke);
+    } else if (primitive.type === 'horizontal-line') {
+      // Default stroke for lines if not specified
+      element.style('stroke', 'currentColor');
+    }
+    if (primitive.fill) {
+      element.style('fill', primitive.fill);
+    } else if (primitive.type === 'background') {
+      // Default fill for backgrounds if not specified
+      element.style('fill', 'none');
+    }
+    if (primitive.opacity !== undefined) {
+      element.style('opacity', primitive.opacity);
+    }
   }
 
   private renderHorizontalLine(
@@ -501,7 +523,6 @@ export class TrackViewer {
       .attr('x2', x2)
       .attr('y1', roundedY)
       .attr('y2', roundedY)
-      .style('stroke', primitive.stroke || 'currentColor')
       .style('stroke-width', 1)
       .style('shape-rendering', 'crispEdges'); // Ensure crisp rendering
   }
@@ -541,9 +562,7 @@ export class TrackViewer {
       .attr('x', x1)
       .attr('y', 0)
       .attr('width', x2 - x1)
-      .attr('height', trackHeight)
-      .attr('class', `primitive ${primitive.class}`)
-      .style('fill', primitive.fill || 'none');
+      .attr('height', trackHeight);
   }
 
   private renderBox(

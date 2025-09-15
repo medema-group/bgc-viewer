@@ -44,6 +44,13 @@
       margin-bottom: 20px;
     }
 
+    #query-container {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin-bottom: 20px;
+    }
+
     /* Annotation styling */
     .annotation {
       cursor: pointer;
@@ -111,7 +118,27 @@
   </style>
 </head>
 <body>
-  <h1>TrackViewer Demo</h1>
+    <h1>BGC Viewer Components Development</h1>
+  
+  <!-- QueryBuilder Demo -->
+  <section>
+    <h2>Query Builder Demo</h2>
+    <div id="query-container">
+      <div id="query-builder"></div>
+      <div style="margin-top: 10px;">
+        <button onclick="clearQuery()">Clear Query</button>
+        <button onclick="setDemoQuery()">Set Demo Query</button>
+      </div>
+    </div>
+    <div id="query-output">
+      <h3>Current Query Expression:</h3>
+      <pre id="query-json">{}</pre>
+    </div>
+  </section>
+
+  <!-- TrackViewer Demo -->
+  <section>
+    <h2>Track Viewer Demo</h2>
   <p>This demo shows the TrackViewer class in action with gene tracks.</p>
   
   <div class="controls">
@@ -128,6 +155,110 @@
   </div>
 
   <script>
+    const { TrackViewer, QueryBuilder } = window.BGCViewer;
+    
+    // Initialize QueryBuilder first
+    const queryProperties = [
+      {
+        name: 'gene_name',
+        label: 'Gene Name',
+        type: 'string',
+        description: 'Name or identifier of the gene',
+        values: ['geneA', 'geneB', 'geneC', 'ABC_transporter', 'kinase_1', 'regulatory_protein']
+      },
+      {
+        name: 'length',
+        label: 'Gene Length',
+        type: 'number',
+        description: 'Length of the gene in base pairs'
+      },
+      {
+        name: 'strand',
+        label: 'Strand',
+        type: 'string',
+        description: 'DNA strand orientation',
+        values: ['+', '-', 'forward', 'reverse']
+      },
+      {
+        name: 'function',
+        label: 'Gene Function',
+        type: 'string',
+        description: 'Predicted or known gene function',
+        values: ['transport', 'regulation', 'metabolism', 'biosynthesis', 'resistance', 'unknown']
+      },
+      {
+        name: 'start',
+        label: 'Start Position',
+        type: 'number',
+        description: 'Start coordinate on the sequence'
+      },
+      {
+        name: 'end',
+        label: 'End Position', 
+        type: 'number',
+        description: 'End coordinate on the sequence'
+      },
+      {
+        name: 'domains',
+        label: 'Protein Domains',
+        type: 'array',
+        description: 'List of protein domains found in this gene',
+        values: ['PFAM00001', 'PFAM00002', 'kinase', 'transporter', 'helix_turn_helix']
+      },
+      {
+        name: 'essential',
+        label: 'Essential Gene',
+        type: 'boolean',
+        description: 'Whether this gene is essential for survival'
+      }
+    ];
+
+    const queryBuilder = new QueryBuilder({
+      container: '#query-builder',
+      properties: queryProperties,
+      onQueryChange: (expression) => {
+        document.getElementById('query-json').textContent = JSON.stringify(expression, null, 2);
+        
+        // Apply filter to TrackViewer if viewer exists
+        if (window.viewer && expression.clauses.length > 0) {
+          console.log('Would filter viewer with:', expression);
+          logEvent(`Query updated: ${expression.clauses.length} clause(s)`);
+        }
+      },
+      onError: (error) => {
+        console.error('Query error:', error);
+        logEvent(`Query error: ${error}`);
+      }
+    });
+
+    // Global query functions
+    window.clearQuery = function() {
+      queryBuilder.clear();
+      logEvent('Query cleared');
+    };
+
+    window.setDemoQuery = function() {
+      const demoExpression = {
+        clauses: [
+          {
+            id: 'demo1',
+            property: 'gene_name',
+            operator: 'contains',
+            value: 'ABC'
+          },
+          {
+            id: 'demo2', 
+            property: 'length',
+            operator: 'gt',
+            value: 1000
+          }
+        ],
+        logicalOperators: ['AND']
+      };
+      queryBuilder.setExpression(demoExpression);
+      logEvent('Demo query set');
+    };
+    
     // Sample gene track data using new format with per-track heights
     const sampleData = {
       tracks: [
@@ -140,7 +271,7 @@
         // Gene track annotations with different heights and custom colors
         { id: "gene1", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneA", start: 10, end: 30, direction: "right", heightFraction: 0.8 },
         { id: "gene2", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, heightFraction: 0.6, fill: "#4ecdc4" },
-        { id: "gene3", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneC", start: 60, end: 80, direction: "right", heightFraction: 1.0, fill: "#45b7d1", corner_radius: 5 },
+        { id: "gene3", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneC", start: 60, end: 80, direction: "right", heightFraction: 1.3, fill: "#45b7d1", opacity: 0.5, corner_radius: 5 },
 
         { id: "gene1", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.5, fy: 0.25, fill: "#f9ca24", stroke: "red" },
         { id: "gene2", trackId: "genes2", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, direction: "left", heightFraction: 0.4 },
@@ -153,7 +284,7 @@
 
         // Regulatory track annotations - mix of custom and default heights
         { id: "prom1", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "promoter", start: 5, end: 12, heightFraction: 0.8, stroke: 'green' },
-        { id: "term1", trackId: "regulatory", type: "circle", classes: ["annotation-terminator"], label: "terminator", start: 82, end: 90},
+        { id: "term1", trackId: "regulatory", type: "circle", classes: ["annotation-terminator"], label: "terminator", start: 82, end: 90, opacity: 0.5 },
         { id: "term2", trackId: "regulatory", type: "circle", classes: ["annotation-terminator"], label: "terminator", start: 50, end: 50, fy: 0.75, heightFraction: 0.5 },
         { id: "term2", trackId: "regulatory", type: "triangle", classes: [], label: "terminator", start: 55, end: 55},
         { id: "term2", trackId: "regulatory", type: "triangle", classes: [], label: "terminator", start: 65, end: 65, fy: 0.4, heightFraction: 0.35},
