@@ -14,6 +14,8 @@ export type AnnotationData = {
   type: AnnotationType;
   classes: string[];
   label: string;
+  labelPosition?: 'above' | 'center';
+  showLabel?: 'hover' | 'always' | 'never';
   start: number;
   end: number;
   fy?: number; // Fractional y position of the annotation, default is 0.5
@@ -24,6 +26,7 @@ export type AnnotationData = {
   stroke?: string;
   opacity?: number;
   corner_radius?: number;
+  tooltip?: string; // Optional custom tooltip content
 }
 
 export type DrawingPrimitiveType = 'horizontal-line' | 'background';
@@ -82,6 +85,7 @@ export class TrackViewer {
   private isResponsiveWidth: boolean; // Track if width should be responsive
   private containerElement!: HTMLElement; // Store reference to container
   private resizeHandler?: () => void; // Store resize handler for cleanup
+  private static readonly LABEL_PADDING = 24; // Padding for labels that extend above tracks
 
   constructor(config: TrackViewerConfig) {
     // Check if width was explicitly provided
@@ -192,7 +196,7 @@ export class TrackViewer {
       .attr('id', this.clipId)
       .append('rect')
       .attr('x', 0)
-      .attr('y', 0)
+      .attr('y', -TrackViewer.LABEL_PADDING) // Add padding above for labels
       .attr('width', chartWidth)
       .attr('height', '100%'); // Will be updated when height changes
 
@@ -238,6 +242,7 @@ export class TrackViewer {
       .attr('class', 'chart-background')
       .attr('width', chartWidth)
       .attr('height', chartHeight)
+      .attr('y', -TrackViewer.LABEL_PADDING) // Start above to match clipPath
       .style('fill', 'transparent')
       .style('pointer-events', 'all')
       .style('cursor', 'grab')
@@ -277,11 +282,11 @@ export class TrackViewer {
 
     // Update clipping path height
     this.svg.select('clipPath rect')
-      .attr('height', chartHeight);
+      .attr('height', chartHeight + TrackViewer.LABEL_PADDING); // Add padding for labels
 
     // Update chart background height
     this.clippedChart.select('.chart-background')
-      .attr('height', chartHeight);
+      .attr('height', chartHeight + TrackViewer.LABEL_PADDING); // Add padding for labels
   }
 
   private createTrackGroups(): void {
@@ -411,6 +416,7 @@ export class TrackViewer {
     // Apply common styling and event handlers
     element
       .attr('class', `annotation ${annotation.classes.join(' ')}`)
+      .attr('data-annotation-id', annotation.id) // Add data attribute for label handling
       .style('cursor', 'pointer')
       .style('pointer-events', 'all'); // Ensure annotations can receive mouse events
 
@@ -428,15 +434,33 @@ export class TrackViewer {
     element
       .on('mouseover', (event: any) => {
         element.classed('hovered', true);
-        this.showTooltip(event, annotation, trackData);
+        // Show hover labels if needed
+        container.selectAll(`.annotation-label[data-annotation-id="${annotation.id}"]`)
+          .style('display', 'block');
+        // Only show tooltip if tooltip content is provided
+        if (annotation.tooltip !== undefined) {
+          this.showTooltip(event, annotation, trackData);
+        }
+        this.config.onAnnotationHover(annotation, trackData, event);
       })
       .on('mouseout', () => {
         element.classed('hovered', false);
+        // Hide hover labels if needed
+        container.selectAll(`.annotation-label[data-annotation-id="${annotation.id}"]`)
+          .style('display', function() {
+            const labelElement = d3.select(this);
+            const showLabel = labelElement.attr('data-show-label');
+            return showLabel === 'hover' ? 'none' : null;
+          });
+        // Always try to hide tooltip on mouseout
         this.hideTooltip();
       })
       .on('click', () => {
         this.config.onAnnotationClick(annotation, trackData);
       });
+
+    // Add label if specified
+    this.renderAnnotationLabel(container, annotation, x, y, width, height);
   }
 
   private renderPrimitive(
@@ -699,14 +723,80 @@ export class TrackViewer {
     return group;
   }
 
+  private renderAnnotationLabel(
+    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    annotation: AnnotationData,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ): void {
+    // Check if label should be shown (default to 'hover')
+    const showLabel = annotation.showLabel || 'hover';
+    if (showLabel === 'never' || !annotation.label) {
+      return;
+    }
+
+    // Calculate label position (default to 'above')
+    const labelPosition = annotation.labelPosition || 'above';
+    let labelX: number;
+    let labelY: number;
+    let textAnchor: string = 'middle';
+
+    if (annotation.type === 'circle' || annotation.type === 'triangle' || annotation.type === 'pin') {
+      // For point annotations, position relative to the point
+      labelX = x;
+      if (labelPosition === 'above') {
+        labelY = y - height / 2 - 2; // Above the shape
+      } else {
+        labelY = y; // Center of the shape
+      }
+    } else {
+      // For box and arrow annotations, position relative to the shape
+      labelX = x + width / 2; // Center horizontally
+      if (labelPosition === 'above') {
+        labelY = y - height / 2 - 6; // Above the shape
+      } else {
+        labelY = y; // Center of the shape
+      }
+    }
+
+    // Create label element
+    const labelElement = container
+      .append('text')
+      .attr('x', labelX)
+      .attr('y', labelY)
+      .attr('dy', '0.35em') // Vertically center text
+      .attr('text-anchor', textAnchor)
+      .attr('class', `annotation-label ${annotation.classes.join(' ')}`)
+      .attr('data-annotation-id', annotation.id)
+      .attr('data-show-label', showLabel)
+      .style('font-size', '10px')
+      .style('font-family', 'sans-serif')
+      .style('fill', 'black') // Default text color
+      .style('stroke', 'white') // White outline for better readability
+      .style('stroke-width', '0.5px')
+      .style('paint-order', 'stroke fill') // Ensure stroke renders behind fill
+      .style('pointer-events', 'none') // Labels shouldn't interfere with mouse events
+      .text(annotation.label);
+
+    // Handle show/hide behavior
+    if (showLabel === 'hover') {
+      labelElement.style('display', 'none');
+    }
+  }
+
   private showTooltip(event: MouseEvent, annotation: AnnotationData, trackData: TrackData): void {
+    // Use custom tooltip content if provided, otherwise use default format
+    const tooltipContent = annotation.tooltip !== undefined 
+      ? annotation.tooltip
+      : `<strong>${annotation.label}</strong><br/>Start: ${annotation.start}<br/>End: ${annotation.end}<br/>Track: ${trackData.label}`;
+
     this.tooltip
       .style('display', 'block')
       .style('left', `${event.pageX + 10}px`)
       .style('top', `${event.pageY - 10}px`)
-      .html(`<strong>${annotation.label}</strong><br/>Start: ${annotation.start}<br/>End: ${annotation.end}<br/>Track: ${trackData.label}`);
-
-    this.config.onAnnotationHover(annotation, trackData, event);
+      .html(tooltipContent);
   }
 
   private hideTooltip(): void {
