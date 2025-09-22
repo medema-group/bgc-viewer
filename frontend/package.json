@@ -1,6 +1,6 @@
 {
   "name": "bgc-viewer-frontend",
-  "version": "1.0.0",
+  "version": "0.1.4",
   "description": "Frontend assets for BGC Viewer",
   "scripts": {
     "dev": "vite",

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bgc-viewer"
-version = "0.1.1"
+version = "0.1.4"
 description = "A Flask server for Biosynthetic Gene Cluster analysis"
 authors = [
     {name = "Petek Kok"},
@@ -55,7 +55,7 @@ line-length = 88
 target-version = ['py311']
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "0.1.4"
 ignore_missing_imports = true
 warn_unused_configs = true
 # Disable strict typing for first version
