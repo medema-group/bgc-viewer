@@ -44,13 +44,6 @@
       margin-bottom: 20px;
     }
 
-    #query-container {
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      padding: 10px;
-      margin-bottom: 20px;
-    }
-
     /* Annotation styling */
     .annotation {
       cursor: pointer;
@@ -118,24 +111,8 @@
   </style>
 </head>
 <body>
-    <h1>BGC Viewer Components Development</h1>
+  <h1>BGC Viewer Components Development</h1>
   
-  <!-- QueryBuilder Demo -->
-  <section>
-    <h2>Query Builder Demo</h2>
-    <div id="query-container">
-      <div id="query-builder"></div>
-      <div style="margin-top: 10px;">
-        <button onclick="clearQuery()">Clear Query</button>
-        <button onclick="setDemoQuery()">Set Demo Query</button>
-      </div>
-    </div>
-    <div id="query-output">
-      <h3>Current Query Expression:</h3>
-      <pre id="query-json">{}</pre>
-    </div>
-  </section>
-
   <!-- TrackViewer Demo -->
   <section>
     <h2>Track Viewer Demo</h2>
@@ -155,109 +132,7 @@
   </div>
 
   <script>
-    const { TrackViewer, QueryBuilder } = window.BGCViewer;
-    
-    // Initialize QueryBuilder first
-    const queryProperties = [
-      {
-        name: 'gene_name',
-        label: 'Gene Name',
-        type: 'string',
-        description: 'Name or identifier of the gene',
-        values: ['geneA', 'geneB', 'geneC', 'ABC_transporter', 'kinase_1', 'regulatory_protein']
-      },
-      {
-        name: 'length',
-        label: 'Gene Length',
-        type: 'number',
-        description: 'Length of the gene in base pairs'
-      },
-      {
-        name: 'strand',
-        label: 'Strand',
-        type: 'string',
-        description: 'DNA strand orientation',
-        values: ['+', '-', 'forward', 'reverse']
-      },
-      {
-        name: 'function',
-        label: 'Gene Function',
-        type: 'string',
-        description: 'Predicted or known gene function',
-        values: ['transport', 'regulation', 'metabolism', 'biosynthesis', 'resistance', 'unknown']
-      },
-      {
-        name: 'start',
-        label: 'Start Position',
-        type: 'number',
-        description: 'Start coordinate on the sequence'
-      },
-      {
-        name: 'end',
-        label: 'End Position', 
-        type: 'number',
-        description: 'End coordinate on the sequence'
-      },
-      {
-        name: 'domains',
-        label: 'Protein Domains',
-        type: 'array',
-        description: 'List of protein domains found in this gene',
-        values: ['PFAM00001', 'PFAM00002', 'kinase', 'transporter', 'helix_turn_helix']
-      },
-      {
-        name: 'essential',
-        label: 'Essential Gene',
-        type: 'boolean',
-        description: 'Whether this gene is essential for survival'
-      }
-    ];
-
-    const queryBuilder = new QueryBuilder({
-      container: '#query-builder',
-      properties: queryProperties,
-      onQueryChange: (expression) => {
-        document.getElementById('query-json').textContent = JSON.stringify(expression, null, 2);
-        
-        // Apply filter to TrackViewer if viewer exists
-        if (window.viewer && expression.clauses.length > 0) {
-          console.log('Would filter viewer with:', expression);
-          logEvent(`Query updated: ${expression.clauses.length} clause(s)`);
-        }
-      },
-      onError: (error) => {
-        console.error('Query error:', error);
-        logEvent(`Query error: ${error}`);
-      }
-    });
-
-    // Global query functions
-    window.clearQuery = function() {
-      queryBuilder.clear();
-      logEvent('Query cleared');
-    };
-
-    window.setDemoQuery = function() {
-      const demoExpression = {
-        clauses: [
-          {
-            id: 'demo1',
-            property: 'gene_name',
-            operator: 'contains',
-            value: 'ABC'
-          },
-          {
-            id: 'demo2', 
-            property: 'length',
-            operator: 'gt',
-            value: 1000
-          }
-        ],
-        logicalOperators: ['AND']
-      };
-      queryBuilder.setExpression(demoExpression);
-      logEvent('Demo query set');
-    };
+    const { TrackViewer } = window.BGCViewer;
     
     // Sample gene track data using new format with per-track heights
     const sampleData = {
