@@ -85,6 +85,7 @@
 import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
 import './cluster-styling.css'
+import './cand-cluster-styling.css'
 
 export default {
   name: 'RegionViewerComponent',
@@ -357,6 +358,16 @@ export default {
       }
     }
 
+    // Converts a string to a readable label
+    const stringToLabel = (str) => {
+      return str.toLowerCase().replace('_', ' ')
+    }
+
+    // Converts a string to a CSS class-friendly format
+    const stringToClass = (str) => {
+      return str.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    }
+
     const buildAllTracks = () => {
       // Reset track data
       allTrackData = {}
@@ -383,15 +394,16 @@ export default {
             const cluster_kind = feature.qualifiers?.kind?.[0] || 'unknown'
             trackId = `cand_cluster-${cluster_index}`
             trackLabel = `Candidate Cluster ${cluster_index}`
-            makeSureTrackExists(trackId, trackLabel, 16)
+            classes.push(`candidate-${stringToClass(cluster_kind)}`)
+            makeSureTrackExists(trackId, trackLabel)
 
             allTrackData[trackId].annotations.push({
               id: `${feature.type}-${cluster_index}`,
               trackId: trackId,
               type: 'box',
-              heightFraction: 0.5,
+              heightFraction: 0.4,
               classes: classes,
-              label: `CC ${cluster_index}: ${cluster_kind}`,
+              label: `CC ${cluster_index}: ${stringToLabel(cluster_kind)}`,
               labelPosition: 'center',
               showLabel: 'always',
               start: location.start,
@@ -818,10 +830,6 @@ export default {
 
 
 /* Feature styling classes for the RegionViewer */
-/* :global(.feature-cds) {
-  fill: #4CAF50;
-  stroke: #388E3C;
-} */
 
 :global(.feature-pfam) {
   fill: #2196F3;
@@ -831,11 +839,6 @@ export default {
 :global(.feature-region) {
   fill: #FF9800;
   stroke: #F57C00;
-}
-
-:global(.feature-cand-cluster) {
-  fill: #F44336;
-  stroke: #D32F2F;
 }
 
 :global(.feature-default) {

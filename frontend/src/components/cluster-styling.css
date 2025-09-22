@@ -1,265 +1,265 @@
 /* Color definitions for secondary metabolite types */
 
 /* PKS - Polyketide Synthase */
-rect.PKS {
+.PKS rect {
     fill: sandybrown;
     stroke: purple;
 }
 
 /* RiPP - Ribosomally synthesized and post-translationally modified peptides */
-rect.RiPP {
+.RiPP rect {
     fill: royalblue;
     stroke: white;
 }
 
 /* Other */
-rect.other {
+.other rect {
     fill: midnightblue;
     stroke: lightsteelblue;
 }
 
 /* Pigment compounds */
-rect.arylpolyene {
+.arylpolyene rect {
     fill: peru;
     stroke: white;
 }
 
-rect.melanin {
+.melanin rect {
     fill: peru;
     stroke: white;
 }
 
 /* Hydrocarbon compounds */
-rect.resorcinol {
+.resorcinol rect {
     fill: purple;
     stroke: white;
 }
 
-rect.ladderane {
+.ladderane rect {
     fill: purple;
     stroke: white;
 }
 
-rect.PUFA {
+.PUFA rect {
     fill: purple;
     stroke: white;
 }
 
-rect.terpene {
+.terpene rect {
     fill: purple;
     stroke: white;
 }
 
-rect.furan {
+.furan rect {
     fill: purple;
     stroke: white;
 }
 
-rect.PBDE {
+.PBDE rect {
     fill: purple;
     stroke: white;
 }
 
-rect.betalactone {
+.betalactone rect {
     fill: purple;
     stroke: white;
 }
 
-rect.pyrrolidine {
+.pyrrolidine rect {
     fill: purple;
     stroke: white;
 }
 
 /* NRPS - Non-ribosomal peptide synthetase */
-rect.NRPS {
+.NRPS rect {
     fill: seagreen;
     stroke: white;
 }
 
 /* Lantibiotics */
-rect.lanthipeptide-class-i {
+.lanthipeptide-class-i rect {
     fill: #ffff77;
     stroke: blue;
 }
 
-rect.lanthipeptide-class-ii {
+.lanthipeptide-class-ii rect {
     fill: #ffff77;
     stroke: blue;
 }
 
-rect.lanthipeptide-class-iii {
+.lanthipeptide-class-iii rect {
     fill: #ffff77;
     stroke: blue;
 }
 
-rect.lanthipeptide-class-iv {
+.lanthipeptide-class-iv rect {
     fill: #ffff77;
     stroke: blue;
 }
 
-rect.lanthipeptide-class-v {
+.lanthipeptide-class-v rect {
     fill: #ffff77;
     stroke: blue;
 }
 
-rect.lipolanthine {
+.lipolanthine rect {
     fill: #ffff77;
     stroke: blue;
 }
 
 /* Thiolated RiPPs */
-rect.azole-containing-RiPP {
+.azole-containing-RiPP rect {
     fill: gold;
     stroke: black;
 }
 
-rect.thioamitides {
+.thioamitides rect {
     fill: gold;
     stroke: black;
 }
 
 /* Beta-lactam */
-rect.blactam {
+.blactam rect {
     fill: aliceblue;
     stroke: black;
 }
 
 /* Aminocyclitol and aminocoumarin */
-rect.amglyccycl {
+.amglyccycl rect {
     fill: yellowgreen;
     stroke: black;
 }
 
-rect.aminocoumarin {
+.aminocoumarin rect {
     fill: yellowgreen;
     stroke: black;
 }
 
 /* Metallophores */
-rect.NI-siderophore {
+.NI-siderophore rect {
     fill: crimson;
     stroke: white;
 }
 
-rect.NRP-metallophore {
+.NRP-metallophore rect {
     fill: crimson;
     stroke: white;
 }
 
-rect.methanobactin {
+.methanobactin rect {
     fill: crimson;
     stroke: white;
 }
 
-rect.opine-like-metallophore {
+.opine-like-metallophore rect {
     fill: crimson;
     stroke: white;
 }
 
-rect.aminopolycarboxylic-acid {
+.aminopolycarboxylic-acid rect {
     fill: crimson;
     stroke: white;
 }
 
-rect.hydroxytropolone {
+.hydroxytropolone rect {
     fill: crimson;
     stroke: white;
 }
 
 /* Osmolytes */
-rect.ectoine {
+.ectoine rect {
     fill: yellowgreen;
     stroke: firebrick;
 }
 
-rect.NAGGN {
+.NAGGN rect {
     fill: yellowgreen;
     stroke: firebrick;
 }
 
 /* Butyrolactone */
-rect.butyrolactone {
+.butyrolactone rect {
     fill: mediumpurple;
     stroke: white;
 }
 
 /* Indole */
-rect.indole {
+.indole rect {
     fill: peachpuff;
     stroke: black;
 }
 
 /* Nucleosides */
-rect.deazapurine {
+.deazapurine rect {
     fill: antiquewhite;
     stroke: black;
 }
 
 /* Phosphoglycolipid */
-rect.phosphoglycolipid {
+.phosphoglycolipid rect {
     fill: yellowgreen;
     stroke: black;
 }
 
 /* Oligosaccharide */
-rect.oligosaccharide {
+.oligosaccharide rect {
     fill: burlywood;
     stroke: black;
 }
 
 /* Homoserine lactone */
-rect.hserlactone {
+.hserlactone rect {
     fill: tan;
     stroke: black;
 }
 
 /* Acyl amino acids */
-rect.acyl_amino_acids {
+.acyl_amino_acids rect {
     fill: tan;
     stroke: black;
 }
 
 /* Tropodithietic acid */
-rect.tropodithietic-acid {
+.tropodithietic-acid rect {
     fill: tan;
     stroke: black;
 }
 
 /* Phenazine */
-rect.phenazine {
+.phenazine rect {
     fill: plum;
     stroke: black;
 }
 
 /* Phosphonate */
-rect.phosphonate {
+.phosphonate rect {
     fill: mediumaquamarine;
     stroke: black;
 }
 
 /* Unknown types */
-rect.unknown {
+.unknown rect {
     fill: #f2f2f2;
     stroke: black;
 }
 
-rect.saccharide {
+.saccharide rect {
     fill: #f2f2f2;
     stroke: black;
 }
 
-rect.fatty_acid {
+.fatty_acid rect {
     fill: #f2f2f2;
     stroke: black;
 }
 
-rect.halogenated {
+.halogenated rect {
     fill: #f2f2f2;
     stroke: black;
 }
 
 /* Hybrid - should remain at the bottom to override all the above */
-rect.hybrid {
+.hybrid rect {
     fill: lightsteelblue;
     stroke: midnightblue;
 }
