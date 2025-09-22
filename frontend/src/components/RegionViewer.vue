@@ -460,7 +460,9 @@ export default {
           case "protocluster":
             const protocluster_number = feature.qualifiers?.protocluster_number?.[0] || 'unknown'
             const protocluster_category = feature.qualifiers?.category?.[0] || 'unknown'
+            const protocluster_product = feature.qualifiers?.product?.[0] || 'unknown'
             classes.push(protocluster_category)
+            classes.push(protocluster_product)
             const core_location = parseGeneLocation(feature.qualifiers?.core_location?.[0] || null)
             trackId = `protocluster-track-${protocluster_number}`
             trackLabel = `Protocluster track ${protocluster_number}`
