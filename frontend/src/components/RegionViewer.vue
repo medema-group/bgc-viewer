@@ -376,20 +376,26 @@ export default {
         let trackId, trackLabel
         switch (feature.type) {
           case "cand_cluster":
+            // Only include the candidate clusters that have multiple protocluster children
+            if ((feature.qualifiers?.protoclusters?.length || 1) < 2) break
+
             const cluster_index = feature.qualifiers?.candidate_cluster_number?.[0] || 'unknown'
+            const cluster_kind = feature.qualifiers?.kind?.[0] || 'unknown'
             trackId = `cand_cluster-${cluster_index}`
             trackLabel = `Candidate Cluster ${cluster_index}`
             makeSureTrackExists(trackId, trackLabel, 16)
-            
+
             allTrackData[trackId].annotations.push({
               id: `${feature.type}-${cluster_index}`,
               trackId: trackId,
               type: 'box',
               heightFraction: 0.5,
               classes: classes,
-              label: getFeatureLabel(feature),
+              label: `CC ${cluster_index}: ${cluster_kind}`,
+              labelPosition: 'center',
+              showLabel: 'always',
               start: location.start,
-              end: location.end
+              end: location.end,
             })
             break
 
@@ -458,16 +464,17 @@ export default {
                 break // Exit the loop once we find a suitable track
               }
             }
-            makeSureTrackExists(trackId, trackLabel, 16)
+            makeSureTrackExists(trackId, trackLabel)
 
             // Protocluster
             allTrackData[trackId].annotations.push({
               id: `${feature.type}-${protocluster_number}`,
               trackId: trackId,
               type: 'box',
-              heightFraction: 0.5,
+              heightFraction: 0.3,
               classes: classes,
               label: getFeatureLabel(feature),
+              showLabel: 'always',
               start: location.start,
               end: location.end,
               stroke: 'none',
@@ -479,11 +486,12 @@ export default {
                 id: `${feature.type}-${protocluster_number}-core`,
                 trackId: trackId,
                 type: 'box',
-                heightFraction: 0.6,
+                heightFraction: 0.35,
                 classes: [...classes, 'proto-core'],
-                label: getFeatureLabel(feature),
+                label: '',
                 start: core_location.start,
-                end: core_location.end
+                end: core_location.end,
+                stroke: 'black'
               })
             }
             break
