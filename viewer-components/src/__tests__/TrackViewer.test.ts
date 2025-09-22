@@ -1,10 +1,10 @@
-import { RegionViewer, RegionViewerData, TrackData, AnnotationData, DrawingPrimitive } from '../RegionViewer';
+import { TrackViewer, TrackViewerData, TrackData, AnnotationData, DrawingPrimitive } from '../TrackViewer';
 
 /**
- * RegionViewer tests
+ * TrackViewer tests
  */
 
-describe('RegionViewer', () => {
+describe('TrackViewer', () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
@@ -29,25 +29,26 @@ describe('RegionViewer', () => {
     tooltips.forEach(tooltip => tooltip.remove());
   });
 
-  test('should create RegionViewer instance with default config', () => {
-    const viewer = new RegionViewer({
-      container: '#test-container'
+  test('should create TrackViewer instance with default config', () => {
+    const viewer = new TrackViewer({
+      container: '#test-container',
+      width: 800 // Explicitly set width to test default behavior
     });
 
-    expect(viewer).toBeInstanceOf(RegionViewer);
+    expect(viewer).toBeInstanceOf(TrackViewer);
     const config = viewer.getConfig();
     expect(config.width).toBe(800);
     expect(config.height).toBe(300);
-    expect(config.rowHeight).toBe(30);
+    expect(config.trackHeight).toBe(30);
   });
 
-  test('should create RegionViewer instance with custom config', () => {
+  test('should create TrackViewer instance with custom config', () => {
     const onAnnotationClick = jest.fn();
-    const viewer = new RegionViewer({
+    const viewer = new TrackViewer({
       container: '#test-container',
       width: 1000,
       height: 400,
-      rowHeight: 40,
+      trackHeight: 40,
       domain: [0, 200],
       onAnnotationClick
     });
@@ -55,27 +56,26 @@ describe('RegionViewer', () => {
     const config = viewer.getConfig();
     expect(config.width).toBe(1000);
     expect(config.height).toBe(400);
-    expect(config.rowHeight).toBe(40);
+    expect(config.trackHeight).toBe(40);
     expect(config.domain).toEqual([0, 200]);
     expect(config.onAnnotationClick).toBe(onAnnotationClick);
   });
 
   test('should set and get data correctly using new format', () => {
-    const viewer = new RegionViewer({
+    const viewer = new TrackViewer({
       container: '#test-container'
     });
 
-    const testData: RegionViewerData = {
+    const testData: TrackViewerData = {
       tracks: [{ id: 'track1', label: 'Test Track' }],
       annotations: [{
         id: 'gene1',
         trackId: 'track1',
         type: 'box',
-        class: 'test-blue',
+        classes: ['test-blue', 'test-feature'],
         label: 'Gene1',
         start: 10,
-        end: 30,
-        direction: 'none'
+        end: 30
       }],
       primitives: []
     };
@@ -88,21 +88,20 @@ describe('RegionViewer', () => {
   });
 
   test('should add track correctly', () => {
-    const viewer = new RegionViewer({
+    const viewer = new TrackViewer({
       container: '#test-container'
     });
 
-    const initialData: RegionViewerData = {
+    const initialData: TrackViewerData = {
       tracks: [{ id: 'track1', label: 'Initial Track' }],
       annotations: [{
         id: 'initial1',
         trackId: 'track1',
         type: 'box',
-        class: 'test-blue',
+        classes: ['test-blue', 'test-feature'],
         label: 'Initial',
         start: 5,
-        end: 15,
-        direction: 'none'
+        end: 15
       }]
     };
 
@@ -111,7 +110,7 @@ describe('RegionViewer', () => {
       id: 'new1',
       trackId: 'track2',
       type: 'arrow',
-      class: 'test-green',
+      classes: ['test-green'],
       label: 'New Gene',
       start: 20,
       end: 40,
@@ -129,11 +128,11 @@ describe('RegionViewer', () => {
   });
 
   test('should remove track correctly', () => {
-    const viewer = new RegionViewer({
+    const viewer = new TrackViewer({
       container: '#test-container'
     });
 
-    const data: RegionViewerData = {
+    const data: TrackViewerData = {
       tracks: [
         { id: 'track1', label: 'Track 1' },
         { id: 'track2', label: 'Track 2' }
@@ -143,21 +142,19 @@ describe('RegionViewer', () => {
           id: 'gene1',
           trackId: 'track1',
           type: 'box',
-          class: 'test-blue',
+          classes: ['test-blue'],
           label: 'Gene1',
           start: 5,
           end: 15,
-          direction: 'none'
         },
         {
           id: 'gene2',
           trackId: 'track2',
           type: 'box',
-          class: 'test-green',
+          classes: ['test-green'],
           label: 'Gene2',
           start: 20,
           end: 40,
-          direction: 'none'
         }
       ]
     };
@@ -173,7 +170,7 @@ describe('RegionViewer', () => {
   });
 
   test('should update domain correctly', () => {
-    const viewer = new RegionViewer({
+    const viewer = new TrackViewer({
       container: '#test-container',
       domain: [0, 100]
     });
@@ -186,26 +183,26 @@ describe('RegionViewer', () => {
 
   test('should throw error for invalid container', () => {
     expect(() => {
-      new RegionViewer({
+      new TrackViewer({
         container: '#nonexistent-container'
       });
     }).toThrow('Container element not found');
   });
 
   test('should accept HTMLElement as container', () => {
-    const viewer = new RegionViewer({
+    const viewer = new TrackViewer({
       container: container
     });
 
-    expect(viewer).toBeInstanceOf(RegionViewer);
+    expect(viewer).toBeInstanceOf(TrackViewer);
   });
 
   test('should add and remove individual annotations', () => {
-    const viewer = new RegionViewer({
+    const viewer = new TrackViewer({
       container: '#test-container'
     });
 
-    const initialData: RegionViewerData = {
+    const initialData: TrackViewerData = {
       tracks: [{ id: 'track1', label: 'Test Track' }],
       annotations: []
     };
@@ -216,7 +213,7 @@ describe('RegionViewer', () => {
       id: 'anno1',
       trackId: 'track1',
       type: 'arrow',
-      class: 'test-red',
+      classes: ['test-red'],
       label: 'Test Gene',
       start: 10,
       end: 30,
@@ -234,18 +231,18 @@ describe('RegionViewer', () => {
   });
 
   test('should handle different annotation types and classes', () => {
-    const viewer = new RegionViewer({
+    const viewer = new TrackViewer({
       container: '#test-container'
     });
 
-    const data: RegionViewerData = {
+    const data: TrackViewerData = {
       tracks: [{ id: 'track1', label: 'Mixed Track' }],
       annotations: [
         {
           id: 'arrow1',
           trackId: 'track1',
           type: 'arrow',
-          class: 'annotation-gene',
+          classes: ['annotation-gene'],
           label: 'Gene',
           start: 10,
           end: 30,
@@ -256,22 +253,20 @@ describe('RegionViewer', () => {
           id: 'box1',
           trackId: 'track1',
           type: 'box',
-          class: 'annotation-domain',
+          classes: ['annotation-domain'],
           label: 'Domain',
           start: 40,
           end: 60,
-          direction: 'none',
           heightFraction: 0.5
         },
         {
           id: 'marker1',
           trackId: 'track1',
-          type: 'marker',
-          class: 'annotation-regulatory',
+          type: 'circle',
+          classes: ['annotation-regulatory'],
           label: 'Site',
           start: 70,
           end: 75,
-          direction: 'none'
           // No heightFraction - should use default
         }
       ],
@@ -286,16 +281,16 @@ describe('RegionViewer', () => {
     expect(retrievedData.annotations[0].heightFraction).toBe(0.8);
     expect(retrievedData.annotations[1].type).toBe('box');
     expect(retrievedData.annotations[1].heightFraction).toBe(0.5);
-    expect(retrievedData.annotations[2].type).toBe('marker');
+    expect(retrievedData.annotations[2].type).toBe('circle');
     expect(retrievedData.annotations[2].heightFraction).toBeUndefined();
   });
 
   test('should handle drawing primitives', () => {
-    const viewer = new RegionViewer({
+    const viewer = new TrackViewer({
       container: '#test-container'
     });
 
-    const data: RegionViewerData = {
+    const data: TrackViewerData = {
       tracks: [{ id: 'track1', label: 'Track with Primitives' }],
       annotations: [],
       primitives: [
@@ -331,11 +326,11 @@ describe('RegionViewer', () => {
   });
 
   test('should add and remove primitives individually', () => {
-    const viewer = new RegionViewer({
+    const viewer = new TrackViewer({
       container: '#test-container'
     });
 
-    const initialData: RegionViewerData = {
+    const initialData: TrackViewerData = {
       tracks: [{ id: 'track1', label: 'Test Track' }],
       annotations: [],
       primitives: []
@@ -360,5 +355,50 @@ describe('RegionViewer', () => {
     viewer.removePrimitive('prim1');
     data = viewer.getData();
     expect(data.primitives).toHaveLength(0);
+  });
+
+  test('should handle per-track heights', () => {
+    const viewer = new TrackViewer({
+      container: '#test-container',
+      trackHeight: 30 // Default height
+    });
+
+    const data: TrackViewerData = {
+      tracks: [
+        { id: 'track1', label: 'Normal Track' }, // Will use default height (30)
+        { id: 'track2', label: 'Tall Track', height: 50 }, // Custom height
+        { id: 'track3', label: 'Short Track', height: 20 } // Custom height
+      ],
+      annotations: [
+        {
+          id: 'anno1',
+          trackId: 'track1',
+          type: 'box',
+          classes: ['test'],
+          label: 'Test 1',
+          start: 10,
+          end: 30,
+        },
+        {
+          id: 'anno2',
+          trackId: 'track2',
+          type: 'box',
+          classes: ['test'],
+          label: 'Test 2',
+          start: 40,
+          end: 60,
+        }
+      ],
+      primitives: []
+    };
+
+    viewer.setData(data);
+    
+    // Verify the data was set correctly
+    const retrievedData = viewer.getData();
+    expect(retrievedData.tracks).toHaveLength(3);
+    expect(retrievedData.tracks[0].height).toBeUndefined(); // Should use default
+    expect(retrievedData.tracks[1].height).toBe(50);
+    expect(retrievedData.tracks[2].height).toBe(20);
   });
 });

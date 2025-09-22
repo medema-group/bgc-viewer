@@ -79,6 +79,15 @@ except Exception as e:
     ANTISMASH_DATA = None
     CURRENT_FILE = None
 
+def match_location(location):
+    """Match location string to extract start and end coordinates."""
+    location_match = re.match(r"\[<?(\d+):>?(\d+)\]", location)
+    if location_match:
+        start = int(location_match.group(1))
+        end = int(location_match.group(2))
+        return start, end
+    return None
+
 @app.route('/')
 def index():
     """Serve the main Vue.js SPA."""
@@ -327,9 +336,7 @@ def get_record_regions(record_id):
     for feature in record.get("features", []):
         if feature.get("type") == "region":
             # Parse location to get start/end coordinates
-            location_match = re.match(r'\[(\d+):(\d+)\]', feature.get("location", ""))
-            start = int(location_match.group(1)) if location_match else 0
-            end = int(location_match.group(2)) if location_match else 0
+            start, end = match_location(feature.get("location", "")) or (0, 0)
             
             region_info = {
                 "id": f"region_{feature.get('qualifiers', {}).get('region_number', ['unknown'])[0]}",
@@ -370,12 +377,9 @@ def get_region_features(record_id, region_id):
     
     # Parse region boundaries
     region_location = region_feature.get("location", "")
-    region_match = re.match(r'\[(\d+):(\d+)\]', region_location)
-    if not region_match:
+    region_start, region_end = match_location(region_location) or (None, None)
+    if region_start is None or region_end is None:
         return jsonify({"error": "Invalid region location format"}), 400
-    
-    region_start = int(region_match.group(1))
-    region_end = int(region_match.group(2))
     
     # Get optional query parameters
     feature_type = request.args.get('type')
@@ -389,13 +393,10 @@ def get_region_features(record_id, region_id):
             
         # Parse feature location
         feature_location = feature.get("location", "")
-        feature_match = re.match(r'\[(\d+):(\d+)\]', feature_location)
-        if not feature_match:
+        feature_start, feature_end = match_location(feature_location) or (None, None)
+        if feature_start is None or feature_end is None:
             continue
-            
-        feature_start = int(feature_match.group(1))
-        feature_end = int(feature_match.group(2))
-        
+
         # Check if feature overlaps with region (allow partial overlaps)
         if not (feature_end < region_start or feature_start > region_end):
             # Apply type filter if specified

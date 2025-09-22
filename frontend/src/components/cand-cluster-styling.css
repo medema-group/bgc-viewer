@@ -1,0 +1,12 @@
+.candidate-chemical-hybrid path { fill: #282268; }
+.candidate-chemical-hybrid rect { fill: #282268; }
+.candidate-chemical-hybrid text { fill: lightgrey !important; }
+.candidate-interleaved path { fill: #4b4596; }
+.candidate-interleaved rect { fill: #4b4596; }
+.candidate-interleaved text { fill: lightgrey !important; }
+.candidate-neighbouring path { fill: #8680cc; }
+.candidate-neighbouring rect { fill: #8680cc; }
+.candidate-neighbouring text { fill: #ddd !important; }
+.candidate-single path { fill: #c6c1f5; }
+.candidate-single rect { fill: #c6c1f5; }
+.candidate-single text { fill: black !important; }

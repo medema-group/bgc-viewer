@@ -8,25 +8,30 @@
         </option>
       </select>
       
-      <select v-if="selectedRecord" v-model="selectedRegion" @change="onRegionChange" class="region-select">
+      <select v-if="selectedRecord && regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
         <option value="">Select a region...</option>
         <option v-for="region in regions" :key="region.id" :value="region.id">
           Region {{ region.region_number }} - {{ region.product.join(', ') }}
         </option>
       </select>
       
-      <div v-if="selectedRecord && selectedRegion" class="feature-controls">
+      <!-- Show message when no regions are available -->
+      <div v-if="selectedRecord && regions.length === 0 && !loading" class="no-regions-message">
+        No regions found - showing all features for this record
+      </div>
+      
+      <div v-if="selectedRecord && (selectedRegion || (regions.length === 0 && availableTracks.length > 0))" class="feature-controls">
         <div class="multi-select-container">
           <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
             <div class="selected-display">
-              <span v-if="selectedFeatureTypes.length === availableFeatureTypes.length">
-                All types ({{ selectedFeatureTypes.length }})
+              <span v-if="selectedTracks.length === availableTracks.length">
+                All tracks ({{ selectedTracks.length }})
               </span>
-              <span v-else-if="selectedFeatureTypes.length === 0">
-                No types selected
+              <span v-else-if="selectedTracks.length === 0">
+                No tracks selected
               </span>
               <span v-else>
-                {{ selectedFeatureTypes.length }} types selected
+                {{ selectedTracks.length }} tracks selected
               </span>
               <span class="dropdown-arrow">▼</span>
             </div>
@@ -35,8 +40,8 @@
                 <label>
                   <input 
                     type="checkbox" 
-                    :checked="selectedFeatureTypes.length === availableFeatureTypes.length"
-                    :indeterminate="selectedFeatureTypes.length > 0 && selectedFeatureTypes.length < availableFeatureTypes.length"
+                    :checked="selectedTracks.length === availableTracks.length"
+                    :indeterminate="selectedTracks.length > 0 && selectedTracks.length < availableTracks.length"
                     @change="toggleSelectAll"
                   >
                   Select All
@@ -44,18 +49,18 @@
               </div>
               <div class="option-separator"></div>
               <div 
-                v-for="featureType in availableFeatureTypes" 
-                :key="featureType" 
+                v-for="track in availableTracks" 
+                :key="track.id" 
                 class="dropdown-option"
               >
                 <label>
                   <input 
                     type="checkbox" 
-                    :value="featureType"
-                    v-model="selectedFeatureTypes"
+                    :value="track.id"
+                    v-model="selectedTracks"
                     @change="updateViewer"
                   >
-                  {{ featureType }} ({{ getFeatureCount(featureType) }})
+                  {{ track.label }} ({{ track.annotationCount }})
                 </label>
               </div>
             </div>
@@ -64,7 +69,7 @@
       </div>
     </div>
     
-    <div ref="viewerContainer" class="viewer-container" v-show="selectedRecord && selectedRegion"></div>
+    <div ref="viewerContainer" class="viewer-container" v-show="selectedRecord"></div>
     
     <div v-if="loading" class="loading">
       Loading region data...
@@ -79,6 +84,8 @@
 <script>
 import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
+import './cluster-styling.css'
+import './cand-cluster-styling.css'
 
 export default {
   name: 'RegionViewerComponent',
@@ -91,14 +98,17 @@ export default {
     const loading = ref(false)
     const error = ref('')
     
-    // Feature type management
-    const availableFeatureTypes = ref([])
-    const selectedFeatureTypes = ref([])
+    // Track management
+    const availableTracks = ref([])
+    const selectedTracks = ref([])
     const dropdownOpen = ref(false)
     
     let regionViewer = null
     let currentFeatures = []
-    
+    let allTrackData = {} // Store all generated tracks
+
+    const pfam_colormap = {}
+
     onMounted(async () => {
       try {
         const response = await axios.get('/api/records')
@@ -107,7 +117,28 @@ export default {
         error.value = `Failed to load records: ${err.message}`
       }
       
-      // Add click outside listener
+      // Load PFAM color mapping
+      try {
+        const colorResponse = await axios.get('/domain-colors.csv')
+        const csvText = colorResponse.data
+        const lines = csvText.split('\n')
+        
+        // Skip header line and process each color mapping
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim()
+          if (line) {
+            const [id, color] = line.split(',')
+            if (id && color) {
+              pfam_colormap[id] = color
+            }
+          }
+        }
+        console.log('Loaded PFAM colors for', Object.keys(pfam_colormap).length, 'domains')
+      } catch (err) {
+        console.warn('Failed to load PFAM color mapping:', err.message)
+      }
+      
+      // Add event listeners
       document.addEventListener('click', handleClickOutside)
     })
     
@@ -135,10 +166,67 @@ export default {
         const response = await axios.get(`/api/records/${selectedRecord.value}/regions`)
         regions.value = response.data.regions
         
+        console.log('Loaded regions:', regions.value.length)
+        
+        // If no regions are available, load all features directly
+        if (!regions.value || regions.value.length === 0) {
+          console.log('No regions found, loading all features...')
+          await loadAllFeaturesForRecord()
+        } else {
+          console.log('Found', regions.value.length, 'regions')
+        }
+        
       } catch (err) {
         error.value = `Failed to load regions: ${err.message}`
       } finally {
         loading.value = false
+      }
+    }
+    
+    const loadAllFeaturesForRecord = async () => {
+      try {
+        console.log('Loading all features for record:', selectedRecord.value)
+        // Load all features for the selected record (no region filtering)
+        const response = await axios.get(`/api/records/${selectedRecord.value}/features`)
+        console.log('Features API response:', response.data)
+        currentFeatures = response.data.features
+        
+        if (!currentFeatures || currentFeatures.length === 0) {
+          console.warn('No features found for record:', selectedRecord.value)
+          error.value = 'No features found for this record'
+          return
+        }
+        
+        console.log('Found', currentFeatures.length, 'features')
+        
+        // Build all tracks from features
+        buildAllTracks()
+        console.log('Built tracks:', Object.keys(allTrackData))
+        
+        // Extract available tracks and select all by default
+        const tracks = Object.values(allTrackData).map(track => ({
+          id: track.id,
+          label: track.label,
+          annotationCount: track.annotations.length
+        }))
+        sortTracks(tracks)
+        availableTracks.value = tracks
+        // For all features mode, select all tracks by default (not just CDS/protocluster)
+        selectedTracks.value = tracks.map(t => t.id)
+
+        console.log('Available tracks:', availableTracks.value)
+        console.log('Selected tracks:', selectedTracks.value)
+
+        await nextTick() // Wait for DOM update
+        // Initialize viewer without region boundaries (use feature boundaries)
+        console.log('Initializing viewer...')
+        initializeViewer(null)
+        updateViewer()
+        console.log('Viewer initialized and updated')
+        
+      } catch (err) {
+        console.error('Error in loadAllFeaturesForRecord:', err)
+        error.value = `Failed to load all features: ${err.message}`
       }
     }
     
@@ -159,13 +247,22 @@ export default {
         const response = await axios.get(`/api/records/${selectedRecord.value}/regions/${selectedRegion.value}/features`)
         currentFeatures = response.data.features
         
-        // Extract unique feature types from the loaded features
-        const types = [...new Set(currentFeatures.map(f => f.type).filter(Boolean))].sort()
-        availableFeatureTypes.value = types
+        // Build all tracks from features
+        buildAllTracks()
         
-        // Select all types by default
-        selectedFeatureTypes.value = [...types]
-        
+        // Extract available tracks
+        const tracks = Object.values(allTrackData).map(track => ({
+          id: track.id,
+          label: track.label,
+          annotationCount: track.annotations.length
+        }))
+        sortTracks(tracks)
+        availableTracks.value = tracks
+        selectedTracks.value = tracks.filter(t => ['CDS'].includes(t.id) ||
+                                                  t.id.includes('protocluster') ||
+                                                  t.id.includes('PFAM_domain') ||
+                                                  t.id.includes('cand_cluster')).map(t => t.id)
+
         await nextTick() // Wait for DOM update
         initializeViewer(response.data.region_boundaries)
         updateViewer()
@@ -191,97 +288,273 @@ export default {
         minPos = regionBoundaries.start
         maxPos = regionBoundaries.end
         padding = (maxPos - minPos) * 0.1
+        console.log('Using region boundaries:', minPos, '-', maxPos)
       } else {
         // Fallback to calculating from features
+        console.log('Calculating boundaries from', currentFeatures.length, 'features')
         const positions = currentFeatures
           .filter(f => f.location)
           .map(f => {
             // Parse location string like "[164:2414](+)" or "[257:2393](+)"
-            const match = f.location.match(/\[(\d+):(\d+)\]/)
+            const match = f.location.match(/\[<?(\d+):>?(\d+)\]/)  
             return match ? [parseInt(match[1]), parseInt(match[2])] : null
           })
           .filter(Boolean)
           .flat()
         
-        minPos = Math.min(...positions) || 0
-        maxPos = Math.max(...positions) || 1000
+        console.log('Extracted positions:', positions.slice(0, 10), positions.length > 10 ? `... (${positions.length} total)` : '')
+        
+        if (positions.length === 0) {
+          console.warn('No valid positions found, using default domain')
+          minPos = 0
+          maxPos = 1000
+        } else {
+          minPos = Math.min(...positions)
+          maxPos = Math.max(...positions)
+        }
         padding = (maxPos - minPos) * 0.1
+        console.log('Calculated domain:', minPos - padding, 'to', maxPos + padding)
       }
       
-      regionViewer = new window.BgcViewer.RegionViewer({
+      console.log('Creating TrackViewer...')
+      regionViewer = new window.BGCViewer.TrackViewer({
         container: viewerContainer.value,
-        width: 800,
+        // width is not specified, so it will be responsive
         height: 400,
         domain: [minPos - padding, maxPos + padding],
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
         },
         onAnnotationHover: (annotation, track, event) => {
-          // Hover is handled by the RegionViewer's built-in tooltip
+          // Hover is handled by the TrackViewer's built-in tooltip
+        }
+      })
+      console.log('TrackViewer created successfully')
+    }
+    
+    const makeSureTrackExists = (trackId, trackLabel, trackHeight) => {
+      if (!allTrackData[trackId]) {
+        allTrackData[trackId] = {
+          id: trackId,
+          label: trackLabel,
+          height: trackHeight,
+          annotations: []
+        }
+      }
+    }
+
+    const parseGeneLocation = (location) => {
+      // Parse location string like "[164:2414](+)" or "[164:2414]"
+      if (!location) return null
+      const match = location.match(/\[<?(\d+):>?(\d+)\](?:\(([+-])\))?/)
+      if (!match) return null
+
+      const strand = match[3] || null
+      return {
+        start: parseInt(match[1]),
+        end: parseInt(match[2]),
+        strand: strand,
+        direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none'
+      }
+    }
+
+    // Converts a string to a readable label
+    const stringToLabel = (str) => {
+      return str.toLowerCase().replace('_', ' ')
+    }
+
+    // Converts a string to a CSS class-friendly format
+    const stringToClass = (str) => {
+      return str.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    }
+
+    const buildAllTracks = () => {
+      // Reset track data
+      allTrackData = {}
+      
+      // Process all features to build all possible tracks
+      currentFeatures.forEach(feature => {
+        if (!feature.location) return
+        const location = parseGeneLocation(feature.location)
+        if (!location) {
+          console.warn('Failed to parse location for feature:', feature.type, feature.location)
+          return
+        }
+
+        const classes = []
+        classes.push(getFeatureClass(feature.type))
+        
+        let trackId, trackLabel
+        switch (feature.type) {
+          case "cand_cluster":
+            // Only include the candidate clusters that have multiple protocluster children
+            if ((feature.qualifiers?.protoclusters?.length || 1) < 2) break
+
+            const cluster_index = feature.qualifiers?.candidate_cluster_number?.[0] || 'unknown'
+            const cluster_kind = feature.qualifiers?.kind?.[0] || 'unknown'
+            trackId = `cand_cluster-${cluster_index}`
+            trackLabel = `Candidate Cluster ${cluster_index}`
+            classes.push(`candidate-${stringToClass(cluster_kind)}`)
+            makeSureTrackExists(trackId, trackLabel)
+
+            allTrackData[trackId].annotations.push({
+              id: `${feature.type}-${cluster_index}`,
+              trackId: trackId,
+              type: 'box',
+              heightFraction: 0.4,
+              classes: classes,
+              label: `CC ${cluster_index}: ${stringToLabel(cluster_kind)}`,
+              labelPosition: 'center',
+              showLabel: 'always',
+              start: location.start,
+              end: location.end,
+            })
+            break
+
+          case "PFAM_domain":
+            trackId = feature.type
+            trackLabel = feature.type
+            makeSureTrackExists(trackId, trackLabel)
+            
+            // Get PFAM ID from qualifiers to look up color
+            const pfamId = feature.qualifiers?.db_xref?.[0]?.replace('PFAM:', '') || 
+                           feature.qualifiers?.inference?.[0]?.match(/PFAM:([^,\s]+)/)?.[1] ||
+                           feature.qualifiers?.note?.[0]?.match(/PF\d+/)?.[0]
+            const [pfamAccession, pfamVersion] = pfamId ? pfamId.split('.') : [null, null];
+            const domainColor = pfamAccession && pfam_colormap[pfamAccession] ? pfam_colormap[pfamAccession] : null
+            
+            const annotation = {
+              id: `${feature.type}-${location.start}-${location.end}`,
+              trackId: trackId,
+              type: 'box',
+              classes: classes,
+              label: getFeatureLabel(feature),
+              start: location.start,
+              end: location.end,
+              fill: domainColor,
+              stroke: domainColor
+            }
+            
+            allTrackData[trackId].annotations.push(annotation)
+            break
+            
+          case "CDS":
+            trackId = feature.type
+            trackLabel = feature.type
+            classes.push(`gene-type-${feature.qualifiers?.gene_kind?.[0] || 'other'}`)
+            makeSureTrackExists(trackId, trackLabel)
+
+            allTrackData[trackId].annotations.push({
+              id: `${feature.type}-${location.start}-${location.end}`,
+              trackId: trackId,
+              type: 'arrow',
+              classes: classes,
+              label: getFeatureLabel(feature),
+              start: location.start,
+              end: location.end,
+              direction: location.direction,
+              stroke: 'black'
+            })
+            break
+            
+          case "protocluster":
+            const protocluster_number = feature.qualifiers?.protocluster_number?.[0] || 'unknown'
+            const protocluster_category = feature.qualifiers?.category?.[0] || 'unknown'
+            const protocluster_product = feature.qualifiers?.product?.[0] || 'unknown'
+            classes.push(protocluster_category)
+            classes.push(protocluster_product)
+            const core_location = parseGeneLocation(feature.qualifiers?.core_location?.[0] || null)
+            trackId = `protocluster-track-${protocluster_number}`
+            trackLabel = `Protocluster track ${protocluster_number}`
+
+            // See if there is any room on existing tracks. This is the case when none of the annotations
+            // on the track overlap with the current annotation.
+            for (let key of Object.keys(allTrackData)) {
+              if (!key.startsWith('protocluster-track-')) continue
+              const track = allTrackData[key]
+              const overlaps = track.annotations.some(ann => !(location.end < ann.start || location.start > ann.end))
+              if (!overlaps) {
+                trackId = key
+                break // Exit the loop once we find a suitable track
+              }
+            }
+            makeSureTrackExists(trackId, trackLabel)
+
+            // Protocluster
+            allTrackData[trackId].annotations.push({
+              id: `${feature.type}-${protocluster_number}`,
+              trackId: trackId,
+              type: 'box',
+              heightFraction: 0.3,
+              classes: classes,
+              label: getFeatureLabel(feature),
+              showLabel: 'always',
+              start: location.start,
+              end: location.end,
+              stroke: 'none',
+              opacity: 0.5
+            })
+            // Protocluster core
+            if (core_location) {
+              allTrackData[trackId].annotations.push({
+                id: `${feature.type}-${protocluster_number}-core`,
+                trackId: trackId,
+                type: 'box',
+                heightFraction: 0.35,
+                classes: [...classes, 'proto-core'],
+                label: '',
+                start: core_location.start,
+                end: core_location.end,
+                stroke: 'black'
+              })
+            }
+            break
+            
+          default:
+            trackId = feature.type
+            trackLabel = feature.type
+            makeSureTrackExists(trackId, trackLabel)
+            
+            allTrackData[trackId].annotations.push({
+              id: `${feature.type}-${location.start}-${location.end}`,
+              trackId: trackId,
+              type: 'box',
+              classes: classes,
+              label: getFeatureLabel(feature),
+              start: location.start,
+              end: location.end
+            })
+            break
         }
       })
     }
-    
+
     const updateViewer = () => {
-      if (!regionViewer || !currentFeatures.length) return
+      if (!regionViewer || !Object.keys(allTrackData).length) return
       
-      // Filter features based on selected feature types
-      const filteredFeatures = currentFeatures.filter(feature => 
-        selectedFeatureTypes.value.includes(feature.type)
-      )
-      
-      // Group features by type into tracks
-      const trackData = {}
-      filteredFeatures.forEach(feature => {
-        if (!trackData[feature.type]) {
-          trackData[feature.type] = {
-            id: feature.type,
-            label: feature.type,
-            annotations: []
-          }
-        }
-        
-        // Parse location string like "[164:2414](+)"
-        const locationMatch = feature.location?.match(/\[(\d+):(\d+)\]\(([+-])\)/)
-        if (locationMatch) {
-          const start = parseInt(locationMatch[1])
-          const end = parseInt(locationMatch[2])
-          const strand = locationMatch[3]
-          
-          trackData[feature.type].annotations.push({
-            id: `${feature.type}-${start}-${end}`,
-            trackId: feature.type,
-            type: feature.type === 'CDS' ? 'arrow' : 'box',
-            direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none',
-            class: getFeatureClass(feature.type),
-            label: getFeatureLabel(feature),
-            start: start,
-            end: end
-          })
+      // Filter tracks based on selected tracks, but maintain original order
+      const selectedTrackData = []
+      availableTracks.value.forEach(track => {
+        if (selectedTracks.value.includes(track.id) && allTrackData[track.id]) {
+          selectedTrackData.push(allTrackData[track.id])
         }
       })
       
       // Convert to RegionViewer format
-      const tracks = Object.values(trackData).map(track => ({
+      const tracks = selectedTrackData.map(track => ({
         id: track.id,
-        label: track.label
+        label: track.label,
+        height: track.height || undefined
       }))
       
-      const annotations = Object.values(trackData)
+      const annotations = selectedTrackData
         .flatMap(track => track.annotations)
       
       regionViewer.setData({ tracks, annotations })
     }
     
     const getFeatureClass = (type) => {
-      const classes = {
-        'CDS': 'feature-cds',
-        'PFAM_domain': 'feature-pfam', 
-        'region': 'feature-region',
-        'protocluster': 'feature-protocluster',
-        'cand_cluster': 'feature-cand-cluster'
-      }
-      return classes[type] || 'feature-default'
+      return `feature-${type.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
     }
     
     const getFeatureLabel = (feature) => {
@@ -297,21 +570,41 @@ export default {
       return feature.type || 'Feature'
     }
     
+    const sortTracks = (tracks) => {
+      // Define track type priority: candidates, protoclusters, CDS, PFAM domains, others
+      const getTrackTypePriority = (trackId) => {
+        if (trackId.startsWith('cand_cluster')) return 1 // Candidates first
+        if (trackId.startsWith('protocluster')) return 2 // Protoclusters second
+        if (trackId.startsWith('CDS')) return 3 // CDS third
+        if (trackId.startsWith('PFAM_domain')) return 4 // PFAM domains fourth
+        return 5 // Everything else last
+      }
+      
+      return tracks.sort((a, b) => {
+        const priorityA = getTrackTypePriority(a.id)
+        const priorityB = getTrackTypePriority(b.id)
+        
+        // First sort by priority
+        if (priorityA !== priorityB) {
+          return priorityA - priorityB
+        }
+        
+        // Within same priority, maintain original order (stable sort by id)
+        return a.id.localeCompare(b.id)
+      })
+    }
+    
     const toggleDropdown = () => {
       dropdownOpen.value = !dropdownOpen.value
     }
     
     const toggleSelectAll = (event) => {
       if (event.target.checked) {
-        selectedFeatureTypes.value = [...availableFeatureTypes.value]
+        selectedTracks.value = [...availableTracks.value.map(t => t.id)]
       } else {
-        selectedFeatureTypes.value = []
+        selectedTracks.value = []
       }
       updateViewer()
-    }
-    
-    const getFeatureCount = (featureType) => {
-      return currentFeatures.filter(f => f.type === featureType).length
     }
     
     // Close dropdown when clicking outside
@@ -331,9 +624,10 @@ export default {
         selectedRecord.value = ''
         selectedRegion.value = ''
         regions.value = []
-        availableFeatureTypes.value = []
-        selectedFeatureTypes.value = []
+        availableTracks.value = []
+        selectedTracks.value = []
         dropdownOpen.value = false
+        allTrackData = {}
         if (regionViewer) {
           regionViewer.destroy()
           regionViewer = null
@@ -355,16 +649,15 @@ export default {
       regions,
       loading,
       error,
-      availableFeatureTypes,
-      selectedFeatureTypes,
+      availableTracks,
+      selectedTracks,
       dropdownOpen,
       onRecordChange,
       onRegionChange,
       updateViewer,
       refreshData,
       toggleDropdown,
-      toggleSelectAll,
-      getFeatureCount
+      toggleSelectAll
     }
   }
 }
@@ -397,6 +690,18 @@ export default {
   font-size: 14px;
   margin-right: 10px;
   min-width: 250px;
+}
+
+.no-regions-message {
+  display: inline-block;
+  padding: 8px 12px;
+  background-color: #e8f4fd;
+  border: 1px solid #bee5eb;
+  border-radius: 4px;
+  color: #0c5460;
+  font-size: 14px;
+  margin-right: 10px;
+  font-style: italic;
 }
 
 .feature-controls {
@@ -503,9 +808,11 @@ export default {
 }
 
 .viewer-container {
+  width: 100%;
   min-height: 400px;
   border: 1px solid #eee;
   border-radius: 4px;
+  overflow-x: auto; /* Allow horizontal scrolling if needed */
 }
 
 .loading {
@@ -523,11 +830,32 @@ export default {
   margin: 10px 0;
 }
 
-/* Feature styling classes for the RegionViewer */
-:global(.feature-cds) {
-  fill: #4CAF50;
-  stroke: #388E3C;
+/* Gene type styling classes for the RegionViewer */
+:global(.gene-type-biosynthetic) {
+  fill: #810e15;
 }
+:global(.gene-type-biosynthetic-additional) {
+  fill: #f16d75;
+}
+:global(.gene-type-regulatory) {
+  fill: seagreen;
+}
+:global(.gene-type-transport) {
+  fill: cornflowerblue;
+}
+:global(.gene-type-other) {
+  fill: gray;
+}
+
+:global(.feature-resistance) {
+  fill: #bbb;
+}
+:global(.feature-tta-codon) {
+  fill: #444;
+}
+
+
+/* Feature styling classes for the RegionViewer */
 
 :global(.feature-pfam) {
   fill: #2196F3;
@@ -537,16 +865,6 @@ export default {
 :global(.feature-region) {
   fill: #FF9800;
   stroke: #F57C00;
-}
-
-:global(.feature-protocluster) {
-  fill: #9C27B0;
-  stroke: #7B1FA2;
-}
-
-:global(.feature-cand-cluster) {
-  fill: #F44336;
-  stroke: #D32F2F;
 }
 
 :global(.feature-default) {

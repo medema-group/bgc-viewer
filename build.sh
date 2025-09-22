@@ -51,18 +51,18 @@ rm -rf build/ dist/
 npm install
 npm run build
 
-# Copy viewer components to frontend static directory for development
-echo "Copying viewer components to frontend static directory..."
-mkdir -p static
+# Copy viewer components to frontend public directory so Vite includes it in build
+echo "Copying viewer components to frontend public directory..."
+mkdir -p public
 if [ -f "../viewer-components/dist/index.umd.js" ]; then
-    cp ../viewer-components/dist/index.umd.js static/regionviewer.umd.js
+    cp ../viewer-components/dist/index.umd.js public/viewer-components.umd.js
     if [ -f "../viewer-components/dist/index.umd.js.map" ]; then
-        cp ../viewer-components/dist/index.umd.js.map static/regionviewer.umd.js.map
+        cp ../viewer-components/dist/index.umd.js.map public/viewer-components.umd.js.map
     fi
 elif [ -f "../viewer-components/dist/index.js" ]; then
-    cp ../viewer-components/dist/index.js static/regionviewer.umd.js
+    cp ../viewer-components/dist/index.js public/viewer-components.umd.js
     if [ -f "../viewer-components/dist/index.js.map" ]; then
-        cp ../viewer-components/dist/index.js.map static/regionviewer.umd.js.map
+        cp ../viewer-components/dist/index.js.map public/viewer-components.umd.js.map
     fi
 fi
 
@@ -89,33 +89,11 @@ cd backend
 # Clean previous build
 rm -rf dist/ bgc_viewer.egg-info/
 
-# Copy viewer components build files to static directory
-echo "Copying viewer components..."
-if [ -d "../viewer-components/dist" ]; then
-    mkdir -p bgc_viewer/static
-    # Copy the UMD build as regionviewer.umd.js for backward compatibility
-    if [ -f "../viewer-components/dist/index.umd.js" ]; then
-        cp ../viewer-components/dist/index.umd.js bgc_viewer/static/regionviewer.umd.js
-        # Also copy the source map if it exists
-        if [ -f "../viewer-components/dist/index.umd.js.map" ]; then
-            cp ../viewer-components/dist/index.umd.js.map bgc_viewer/static/regionviewer.umd.js.map
-        fi
-    elif [ -f "../viewer-components/dist/index.js" ]; then
-        cp ../viewer-components/dist/index.js bgc_viewer/static/regionviewer.umd.js
-        # Also copy the source map if it exists
-        if [ -f "../viewer-components/dist/index.js.map" ]; then
-            cp ../viewer-components/dist/index.js.map bgc_viewer/static/regionviewer.umd.js.map
-        fi
-    fi
-    echo "Viewer components copied to bgc_viewer/static/"
-else
-    echo "Warning: Viewer components not built. Something went wrong."
-    exit 1
-fi
-
 # Copy frontend build files to static directory
 echo "Copying frontend assets..."
 if [ -d "../frontend/build" ]; then
+    # Clean and recreate static directory to avoid accumulating old files
+    rm -rf bgc_viewer/static
     mkdir -p bgc_viewer/static
     cp -r ../frontend/build/* bgc_viewer/static/
     echo "Frontend assets copied to bgc_viewer/static/"
