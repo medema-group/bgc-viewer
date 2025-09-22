@@ -209,7 +209,7 @@ export default {
           label: track.label,
           annotationCount: track.annotations.length
         }))
-        tracks.sort((a, b) => a.id.localeCompare(b.id))
+        sortTracks(tracks)
         availableTracks.value = tracks
         // For all features mode, select all tracks by default (not just CDS/protocluster)
         selectedTracks.value = tracks.map(t => t.id)
@@ -256,7 +256,7 @@ export default {
           label: track.label,
           annotationCount: track.annotations.length
         }))
-        tracks.sort((a, b) => a.id.localeCompare(b.id))
+        sortTracks(tracks)
         availableTracks.value = tracks
         selectedTracks.value = tracks.filter(t => ['CDS'].includes(t.id) ||
                                                   t.id.includes('protocluster') ||
@@ -568,6 +568,30 @@ export default {
       if (qualifiers.db_xref?.[0]) return qualifiers.db_xref[0]
       
       return feature.type || 'Feature'
+    }
+    
+    const sortTracks = (tracks) => {
+      // Define track type priority: candidates, protoclusters, CDS, PFAM domains, others
+      const getTrackTypePriority = (trackId) => {
+        if (trackId.startsWith('cand_cluster')) return 1 // Candidates first
+        if (trackId.startsWith('protocluster')) return 2 // Protoclusters second
+        if (trackId.startsWith('CDS')) return 3 // CDS third
+        if (trackId.startsWith('PFAM_domain')) return 4 // PFAM domains fourth
+        return 5 // Everything else last
+      }
+      
+      return tracks.sort((a, b) => {
+        const priorityA = getTrackTypePriority(a.id)
+        const priorityB = getTrackTypePriority(b.id)
+        
+        // First sort by priority
+        if (priorityA !== priorityB) {
+          return priorityA - priorityB
+        }
+        
+        // Within same priority, maintain original order (stable sort by id)
+        return a.id.localeCompare(b.id)
+      })
     }
     
     const toggleDropdown = () => {
