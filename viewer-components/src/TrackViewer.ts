@@ -294,6 +294,7 @@ export class TrackViewer {
       .selectAll<SVGGElement, TrackData>('.track')
       .data(this.data.tracks, d => d.id)
       .join('g')
+      .attr('id', d => d.id)
       .attr('class', 'track')
       .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
 
@@ -302,6 +303,7 @@ export class TrackViewer {
       .selectAll<SVGGElement, TrackData>('.track-label-group')
       .data(this.data.tracks, d => d.id)
       .join('g')
+      .attr('id', d => `${d.id}-label`)
       .attr('class', 'track-label-group')
       .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
 
@@ -316,20 +318,6 @@ export class TrackViewer {
       .attr('text-anchor', 'end')
       .style('font', '12px sans-serif')
       .text(d => d.label);
-
-    // Add primitives containers first (inside clipped area, will render behind annotations)
-    this.trackGroups
-      .selectAll('.primitives')
-      .data(d => [d])
-      .join('g')
-      .attr('class', 'primitives');
-
-    // Add annotation containers after (inside clipped area, will render in front of primitives)
-    this.trackGroups
-      .selectAll('.annotations')
-      .data(d => [d])
-      .join('g')
-      .attr('class', 'annotations');
   }
 
   private drawTracks(): void {
@@ -346,27 +334,53 @@ export class TrackViewer {
     // Update annotations and primitives for each track
     this.trackGroups.each((trackData, trackIndex, trackNodes) => {
       const trackGroup = d3.select(trackNodes[trackIndex]);
-      const annotationsGroup = trackGroup.select<SVGGElement>('.annotations');
-      const primitivesGroup = trackGroup.select<SVGGElement>('.primitives');
 
-      // Get annotations for this track
+      // Get annotations and primitives for this track
       const trackAnnotations = this.data.annotations.filter(ann => ann.trackId === trackData.id);
-      
-      // Get primitives for this track
       const trackPrimitives = (this.data.primitives || []).filter(prim => prim.trackId === trackData.id);
 
-      // Clear existing primitives and annotations
-      primitivesGroup.selectAll('*').remove();
-      annotationsGroup.selectAll('*').remove();
+      // Combine primitives and annotations into a single array for rendering
+      // Primitives go first so they render behind annotations
+      const allElements: Array<{ type: 'primitive'; data: DrawingPrimitive } | { type: 'annotation'; data: AnnotationData }> = [
+        ...trackPrimitives.map(p => ({ type: 'primitive' as const, data: p })),
+        ...trackAnnotations.map(a => ({ type: 'annotation' as const, data: a }))
+      ];
 
-      // Render primitives first (so they appear behind annotations)
-      trackPrimitives.forEach(primitive => {
-        this.renderPrimitive(primitivesGroup, primitive, xz, trackData);
-      });
+      // Use proper D3 data binding to manage element lifecycle
+      const elementGroups = trackGroup
+        .selectAll<SVGGElement, any>('g')
+        .data(allElements, d => d.data.id)
+        .join(
+          // Enter: create new groups
+          enter => enter.append('g'),
+          // Update: existing groups (no action needed)
+          update => update,
+          // Exit: remove groups that are no longer in data
+          exit => exit.remove()
+        )
+        .attr('id', d => d.data.id)
+        .attr('class', d => {
+          if (d.type === 'primitive') {
+            return `${d.type} ${d.data.type} ${d.data.class}`;
+          } else {
+            return `${d.type} ${d.data.type} ${d.data.classes.join(' ')}`;
+          }
+        });
 
-      // Render annotations on top
-      trackAnnotations.forEach(ann => {
-        this.renderAnnotation(annotationsGroup, ann, xz, trackData);
+      // Clear existing content in each group and render
+      const self = this;
+      elementGroups.each(function(d) {
+        const group = d3.select(this) as d3.Selection<SVGGElement, unknown, null, undefined>;
+        
+        // Clear the group content
+        group.selectAll('*').remove();
+        
+        // Render the element
+        if (d.type === 'primitive') {
+          self.renderPrimitive(group, d.data, xz, trackData);
+        } else {
+          self.renderAnnotation(group, d.data, xz, trackData);
+        }
       });
     });
   }
@@ -415,7 +429,6 @@ export class TrackViewer {
 
     // Apply common styling and event handlers
     element
-      .attr('class', `annotation ${annotation.classes.join(' ')}`)
       .attr('data-annotation-id', annotation.id) // Add data attribute for label handling
       .style('cursor', 'pointer')
       .style('pointer-events', 'all'); // Ensure annotations can receive mouse events
@@ -768,12 +781,12 @@ export class TrackViewer {
       .attr('y', labelY)
       .attr('dy', '0.35em') // Vertically center text
       .attr('text-anchor', textAnchor)
-      .attr('class', `annotation-label ${annotation.classes.join(' ')}`)
+      .attr('class', 'annotation-label')
       .attr('data-annotation-id', annotation.id)
       .attr('data-show-label', showLabel)
       .style('font-size', '10px')
       .style('font-family', 'sans-serif')
-      .style('fill', 'black') // Default text color
+      .style('fill', 'currentColor') // Use currentColor to inherit from CSS color property
       .style('stroke', 'white') // White outline for better readability
       .style('stroke-width', '0.5px')
       .style('paint-order', 'stroke fill') // Ensure stroke renders behind fill
