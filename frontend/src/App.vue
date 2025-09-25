@@ -5,9 +5,8 @@
     </header>
 
     <main>
-      <!-- File Selector Section -->
-      <FileSelector 
-        @file-loaded="handleFileLoaded" 
+      <!-- Folder Selector Section -->
+      <FolderSelector 
         @folder-selected="handleFolderSelected"
       />
 
@@ -38,14 +37,14 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import RegionViewerComponent from './components/RegionViewer.vue'
-import FileSelector from './components/FileSelector.vue'
+import FolderSelector from './components/FolderSelector.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
 
 export default {
   name: 'App',
   components: {
     RegionViewerComponent,
-    FileSelector,
+    FolderSelector,
     RecordListSelector
   },
   setup() {
@@ -58,11 +57,6 @@ export default {
     // Database folder tracking
     const selectedDatabaseFolder = ref('')
     
-    const handleFileLoaded = async (fileData) => {
-      // This method is for old file-based loading, now mostly unused
-      console.log('File loaded:', fileData)
-    }
-
     const handleFolderSelected = async (folderPath) => {
       // Update the selected database folder
       selectedDatabaseFolder.value = folderPath
@@ -96,7 +90,6 @@ export default {
       appVersion,
       appName,
       selectedDatabaseFolder,
-      handleFileLoaded,
       handleFolderSelected,
       handleRecordLoaded
     }
