@@ -144,6 +144,7 @@ Thumbs.db
 
 # Custom
 data/
+data-index/
 temp/
 
 # Build artifacts
