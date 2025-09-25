@@ -63,7 +63,7 @@ export default {
     FolderSelectionDialog,
     PreprocessingStatus
   },
-  emits: ['file-loaded'],
+  emits: ['file-loaded', 'folder-selected'],
   setup(_, { emit }) {
     const selectedFile = ref('')
     const availableFiles = ref([])
@@ -93,6 +93,8 @@ export default {
           if (scanResponse.data.json_files && scanResponse.data.json_files.length > 0) {
             availableFiles.value = scanResponse.data.json_files
             currentFolderPath.value = scanResponse.data.folder_path
+            // Emit folder selection for default data directory
+            emit('folder-selected', scanResponse.data.folder_path)
           } else {
             // No files in data directory
             availableFiles.value = []
@@ -140,6 +142,9 @@ export default {
       
       // Clear current selection
       selectedFile.value = ''
+      
+      // Emit the folder selection event to parent
+      emit('folder-selected', folderData.folderPath)
       
       const count = folderData.count
       const scanType = folderData.scanType

@@ -1,26 +1,31 @@
 <template>
   <div class="region-viewer-container">
-    <div class="controls">
-      <select v-model="selectedRecord" @change="onRecordChange" class="record-select">
-        <option value="">Select a record...</option>
-        <option v-for="record in records" :key="record.id" :value="record.id">
-          {{ record.id }} ({{ record.feature_count }} features)
-        </option>
-      </select>
-      
-      <select v-if="selectedRecord && regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
-        <option value="">Select a region...</option>
+    <!-- Current Entry Info -->
+    <div v-if="currentEntry" class="current-entry-info">
+      <h4>Current Entry: {{ currentEntry.filename }} - {{ currentEntry.recordId }}</h4>
+      <div class="entry-details">
+        <span class="feature-count">{{ currentEntry.recordInfo.feature_count }} features</span>
+        <span v-if="currentEntry.recordInfo.description" class="description">
+          - {{ currentEntry.recordInfo.description }}
+        </span>
+      </div>
+    </div>
+    
+    <!-- Region Selector (shown when entry is loaded) -->
+    <div v-if="currentEntry" class="controls">
+      <select v-if="regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
+        <option value="">Show all features</option>
         <option v-for="region in regions" :key="region.id" :value="region.id">
           Region {{ region.region_number }} - {{ region.product.join(', ') }}
         </option>
       </select>
       
       <!-- Show message when no regions are available -->
-      <div v-if="selectedRecord && regions.length === 0 && !loading" class="no-regions-message">
+      <div v-if="regions.length === 0 && !loading" class="no-regions-message">
         No regions found - showing all features for this record
       </div>
       
-      <div v-if="selectedRecord && (selectedRegion || (regions.length === 0 && availableTracks.length > 0))" class="feature-controls">
+      <div v-if="availableTracks.length > 0" class="feature-controls">
         <div class="multi-select-container">
           <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
             <div class="selected-display">
@@ -69,7 +74,7 @@
       </div>
     </div>
     
-    <div ref="viewerContainer" class="viewer-container" v-show="selectedRecord"></div>
+    <div ref="viewerContainer" class="viewer-container" v-show="currentEntry"></div>
     
     <div v-if="loading" class="loading">
       Loading region data...
@@ -89,14 +94,15 @@ import './cand-cluster-styling.css'
 
 export default {
   name: 'RegionViewerComponent',
-  setup() {
+  setup(props, { expose }) {
     const viewerContainer = ref(null)
-    const selectedRecord = ref('')
     const selectedRegion = ref('')
-    const records = ref([])
     const regions = ref([])
     const loading = ref(false)
     const error = ref('')
+    
+    // Current entry info
+    const currentEntry = ref(null)
     
     // Track management
     const availableTracks = ref([])
@@ -110,13 +116,6 @@ export default {
     const pfam_colormap = {}
 
     onMounted(async () => {
-      try {
-        const response = await axios.get('/api/records')
-        records.value = response.data
-      } catch (err) {
-        error.value = `Failed to load records: ${err.message}`
-      }
-      
       // Load PFAM color mapping
       try {
         const colorResponse = await axios.get('/domain-colors.csv')
@@ -146,54 +145,44 @@ export default {
       document.removeEventListener('click', handleClickOutside)
     })
     
-    const onRecordChange = async () => {
+    const onEntryLoaded = async (entryInfo) => {
+      // Store current entry info
+      currentEntry.value = entryInfo
       selectedRegion.value = ''
       regions.value = []
-      
-      if (!selectedRecord.value) {
-        if (regionViewer) {
-          regionViewer.destroy()
-          regionViewer = null
-        }
-        return
-      }
       
       loading.value = true
       error.value = ''
       
       try {
         // Load regions for the selected record
-        const response = await axios.get(`/api/records/${selectedRecord.value}/regions`)
+        const response = await axios.get(`/api/records/${entryInfo.recordId}/regions`)
         regions.value = response.data.regions
         
         console.log('Loaded regions:', regions.value.length)
         
-        // If no regions are available, load all features directly
-        if (!regions.value || regions.value.length === 0) {
-          console.log('No regions found, loading all features...')
-          await loadAllFeaturesForRecord()
-        } else {
-          console.log('Found', regions.value.length, 'regions')
-        }
+        // Load all features for this entry (since we have a single record loaded)
+        await loadAllFeaturesForEntry()
         
       } catch (err) {
-        error.value = `Failed to load regions: ${err.message}`
+        error.value = `Failed to load entry data: ${err.message}`
       } finally {
         loading.value = false
       }
     }
     
-    const loadAllFeaturesForRecord = async () => {
+    const loadAllFeaturesForEntry = async () => {
       try {
-        console.log('Loading all features for record:', selectedRecord.value)
+        console.log('Loading all features for entry:', currentEntry.value.recordId)
         // Load all features for the selected record (no region filtering)
-        const response = await axios.get(`/api/records/${selectedRecord.value}/features`)
+        // Since we loaded a specific entry, we use the single record that was loaded
+        const response = await axios.get(`/api/records/${currentEntry.value.recordId}/features`)
         console.log('Features API response:', response.data)
         currentFeatures = response.data.features
         
         if (!currentFeatures || currentFeatures.length === 0) {
-          console.warn('No features found for record:', selectedRecord.value)
-          error.value = 'No features found for this record'
+          console.warn('No features found for entry:', currentEntry.value.recordId)
+          error.value = 'No features found for this entry'
           return
         }
         
@@ -225,16 +214,16 @@ export default {
         console.log('Viewer initialized and updated')
         
       } catch (err) {
-        console.error('Error in loadAllFeaturesForRecord:', err)
+        console.error('Error in loadAllFeaturesForEntry:', err)
         error.value = `Failed to load all features: ${err.message}`
       }
     }
     
     const onRegionChange = async () => {
-      if (!selectedRecord.value || !selectedRegion.value) {
-        if (regionViewer) {
-          regionViewer.destroy()
-          regionViewer = null
+      if (!currentEntry.value || !selectedRegion.value) {
+        // If no region selected, show all features
+        if (!selectedRegion.value && currentEntry.value) {
+          await loadAllFeaturesForEntry()
         }
         return
       }
@@ -244,7 +233,7 @@ export default {
       
       try {
         // Load features for the selected region
-        const response = await axios.get(`/api/records/${selectedRecord.value}/regions/${selectedRegion.value}/features`)
+        const response = await axios.get(`/api/records/${currentEntry.value.recordId}/regions/${selectedRegion.value}/features`)
         currentFeatures = response.data.features
         
         // Build all tracks from features
@@ -422,13 +411,14 @@ export default {
                            feature.qualifiers?.note?.[0]?.match(/PF\d+/)?.[0]
             const [pfamAccession, pfamVersion] = pfamId ? pfamId.split('.') : [null, null];
             const domainColor = pfamAccession && pfam_colormap[pfamAccession] ? pfam_colormap[pfamAccession] : null
+            const label = feature.qualifiers?.description?.[0] || ''
             
             const annotation = {
               id: `${feature.type}-${location.start}-${location.end}`,
               trackId: trackId,
               type: 'box',
               classes: classes,
-              label: getFeatureLabel(feature),
+              label: label,
               start: location.start,
               end: location.end,
               fill: domainColor,
@@ -614,48 +604,26 @@ export default {
       }
     }
     
-    const refreshData = async () => {
-      try {
-        loading.value = true
-        const response = await axios.get('/api/records')
-        records.value = response.data
-        
-        // Clear the current selections since the data changed
-        selectedRecord.value = ''
-        selectedRegion.value = ''
-        regions.value = []
-        availableTracks.value = []
-        selectedTracks.value = []
-        dropdownOpen.value = false
-        allTrackData = {}
-        if (regionViewer) {
-          regionViewer.destroy()
-          regionViewer = null
-        }
-        
-        error.value = ''
-      } catch (err) {
-        error.value = `Failed to load records: ${err.message}`
-      } finally {
-        loading.value = false
-      }
-    }
+
     
+    // Expose methods for parent component
+    expose({
+      loadEntry: onEntryLoaded
+    })
+
     return {
       viewerContainer,
-      selectedRecord,
       selectedRegion,
-      records,
       regions,
       loading,
       error,
+      currentEntry,
       availableTracks,
       selectedTracks,
       dropdownOpen,
-      onRecordChange,
+      onEntryLoaded,
       onRegionChange,
       updateViewer,
-      refreshData,
       toggleDropdown,
       toggleSelectAll
     }
@@ -671,16 +639,36 @@ export default {
   padding: 20px;
 }
 
-.controls {
-  margin-bottom: 20px;
+.current-entry-info {
+  margin: 20px 0;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
 }
 
-.record-select {
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+.current-entry-info h4 {
+  margin: 0 0 8px 0;
+  color: #333;
+  font-size: 16px;
+}
+
+.entry-details {
   font-size: 14px;
-  margin-right: 10px;
+  color: #666;
+}
+
+.feature-count {
+  font-weight: 600;
+  color: #1976d2;
+}
+
+.description {
+  font-style: italic;
+}
+
+.controls {
+  margin-bottom: 20px;
 }
 
 .region-select {

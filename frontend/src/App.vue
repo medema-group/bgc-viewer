@@ -6,7 +6,16 @@
 
     <main>
       <!-- File Selector Section -->
-      <FileSelector @file-loaded="handleFileLoaded" />
+      <FileSelector 
+        @file-loaded="handleFileLoaded" 
+        @folder-selected="handleFolderSelected"
+      />
+
+      <!-- Entry List Selector Section -->
+      <EntryListSelector 
+        :database-folder="selectedDatabaseFolder"
+        @entry-loaded="handleEntryLoaded" 
+      />
 
       <!-- Region Viewer Section -->
       <section class="region-section">
@@ -30,12 +39,14 @@ import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import RegionViewerComponent from './components/RegionViewer.vue'
 import FileSelector from './components/FileSelector.vue'
+import EntryListSelector from './components/EntryListSelector.vue'
 
 export default {
   name: 'App',
   components: {
     RegionViewerComponent,
-    FileSelector
+    FileSelector,
+    EntryListSelector
   },
   setup() {
     const regionViewerRef = ref(null)
@@ -44,10 +55,23 @@ export default {
     const appVersion = ref('')
     const appName = ref('BGC Viewer')
     
+    // Database folder tracking
+    const selectedDatabaseFolder = ref('')
+    
     const handleFileLoaded = async (fileData) => {
-      // Refresh the RegionViewer component
+      // This method is for old file-based loading, now mostly unused
+      console.log('File loaded:', fileData)
+    }
+
+    const handleFolderSelected = async (folderPath) => {
+      // Update the selected database folder
+      selectedDatabaseFolder.value = folderPath
+    }
+
+    const handleEntryLoaded = async (entryData) => {
+      // Load the entry into the RegionViewer component
       if (regionViewerRef.value) {
-        await regionViewerRef.value.refreshData()
+        await regionViewerRef.value.loadEntry(entryData)
       }
     }
     
@@ -71,7 +95,10 @@ export default {
       regionViewerRef,
       appVersion,
       appName,
-      handleFileLoaded
+      selectedDatabaseFolder,
+      handleFileLoaded,
+      handleFolderSelected,
+      handleEntryLoaded
     }
   }
 }
