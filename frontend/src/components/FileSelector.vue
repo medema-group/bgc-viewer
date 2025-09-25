@@ -43,6 +43,11 @@
       @close="handleDialogClose"
       @folder-selected="handleFolderSelected"
     />
+
+    <PreprocessingStatus 
+      :folder-path="currentFolderPath"
+      @preprocessing-completed="handlePreprocessingCompleted"
+    />
   </section>
 </template>
 
@@ -50,11 +55,13 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import FolderSelectionDialog from './FolderSelectionDialog.vue'
+import PreprocessingStatus from './PreprocessingStatus.vue'
 
 export default {
   name: 'FileSelector',
   components: {
-    FolderSelectionDialog
+    FolderSelectionDialog,
+    PreprocessingStatus
   },
   emits: ['file-loaded'],
   setup(_, { emit }) {
@@ -178,6 +185,12 @@ export default {
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
     }
     
+    const handlePreprocessingCompleted = () => {
+      // Refresh the file list when preprocessing is completed
+      console.log('Preprocessing completed, refreshing file list...')
+      // You might want to refresh the available files here if needed
+    }
+    
     // Load available files on component mount
     onMounted(() => {
       loadAvailableFiles()
@@ -194,7 +207,8 @@ export default {
       handleDialogClose,
       handleFolderSelected,
       handleFileSelection,
-      formatFileSize
+      formatFileSize,
+      handlePreprocessingCompleted
     }
   }
 }

@@ -3,6 +3,9 @@ from flask_cors import CORS
 import json
 import os
 import re
+import threading
+import subprocess
+import time
 from pathlib import Path
 from waitress import serve
 from dotenv import load_dotenv
@@ -29,6 +32,17 @@ CORS(app)
 # Global variable to store currently loaded data
 ANTISMASH_DATA = None
 CURRENT_FILE = None
+
+# Global variables for preprocessing status
+PREPROCESSING_STATUS = {
+    'is_running': False,
+    'current_file': None,
+    'files_processed': 0,
+    'total_files': 0,
+    'status': 'idle',  # 'idle', 'running', 'completed', 'error'
+    'error_message': None,
+    'folder_path': None
+}
 
 def get_available_files():
     """Get list of available JSON files in the data directory."""
@@ -495,6 +509,175 @@ def get_version():
         "version": __version__,
         "name": "BGC Viewer"
     })
+
+@app.route('/api/check-index', methods=['POST'])
+def check_index_status():
+    """Check if an SQLite index exists for the given folder."""
+    data = request.get_json()
+    folder_path = data.get('path')
+    
+    if not folder_path:
+        return jsonify({"error": "No folder path provided"}), 400
+    
+    try:
+        resolved_path = Path(folder_path).resolve()
+        
+        if not resolved_path.exists() or not resolved_path.is_dir():
+            return jsonify({"error": "Invalid folder path"}), 400
+        
+        # Check for attributes.db file
+        db_path = resolved_path / "attributes.db"
+        has_index = db_path.exists()
+        
+        # Count JSON files in the folder
+        json_files = list(resolved_path.glob("*.json"))
+        json_count = len(json_files)
+        
+        result = {
+            "folder_path": str(resolved_path),
+            "has_index": has_index,
+            "database_path": str(db_path) if has_index else None,
+            "json_files_count": json_count,
+            "can_preprocess": json_count > 0
+        }
+        
+        # If index exists, get some basic stats
+        if has_index:
+            try:
+                import sqlite3
+                conn = sqlite3.connect(db_path)
+                cursor = conn.execute("SELECT COUNT(*) FROM attributes")
+                total_attributes = cursor.fetchone()[0]
+                
+                cursor = conn.execute("SELECT COUNT(DISTINCT filename) FROM attributes")
+                indexed_files = cursor.fetchone()[0]
+                
+                conn.close()
+                
+                result["index_stats"] = {
+                    "total_attributes": total_attributes,
+                    "indexed_files": indexed_files
+                }
+            except Exception:
+                result["index_stats"] = None
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to check index status: {str(e)}"}), 500
+
+@app.route('/api/preprocess-folder', methods=['POST'])
+def start_preprocessing():
+    """Start preprocessing a folder in a background thread."""
+    global PREPROCESSING_STATUS
+    
+    if PREPROCESSING_STATUS['is_running']:
+        return jsonify({"error": "Preprocessing is already running"}), 409
+    
+    data = request.get_json()
+    folder_path = data.get('path')
+    
+    if not folder_path:
+        return jsonify({"error": "No folder path provided"}), 400
+    
+    try:
+        resolved_path = Path(folder_path).resolve()
+        
+        if not resolved_path.exists() or not resolved_path.is_dir():
+            return jsonify({"error": "Invalid folder path"}), 400
+        
+        # Count JSON files
+        json_files = list(resolved_path.glob("*.json"))
+        if not json_files:
+            return jsonify({"error": "No JSON files found in the folder"}), 400
+        
+        # Reset status
+        PREPROCESSING_STATUS.update({
+            'is_running': True,
+            'current_file': None,
+            'files_processed': 0,
+            'total_files': len(json_files),
+            'status': 'running',
+            'error_message': None,
+            'folder_path': str(resolved_path)
+        })
+        
+        # Start preprocessing in background thread
+        thread = threading.Thread(target=run_preprocessing, args=(str(resolved_path),))
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            "message": "Preprocessing started",
+            "total_files": len(json_files),
+            "folder_path": str(resolved_path)
+        })
+        
+    except Exception as e:
+        PREPROCESSING_STATUS['is_running'] = False
+        return jsonify({"error": f"Failed to start preprocessing: {str(e)}"}), 500
+
+@app.route('/api/preprocessing-status')
+def get_preprocessing_status():
+    """Get the current preprocessing status."""
+    return jsonify(PREPROCESSING_STATUS)
+
+def run_preprocessing(folder_path):
+    """Run the preprocessing script in a subprocess."""
+    global PREPROCESSING_STATUS
+    
+    try:
+        # Get the path to the preprocessing script
+        backend_dir = Path(__file__).parent.parent
+        preprocess_script = backend_dir / "preprocess_data.py"
+        
+        if not preprocess_script.exists():
+            raise FileNotFoundError(f"Preprocessing script not found: {preprocess_script}")
+        
+        # Run the preprocessing script
+        process = subprocess.Popen(
+            ["python", str(preprocess_script), folder_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            universal_newlines=True
+        )
+        
+        # Monitor the process output
+        while process.poll() is None:
+            output = process.stdout.readline()
+            if output:
+                # Parse output to update status
+                if "Processing " in output and ".json" in output:
+                    filename = output.split("Processing ")[1].split("...")[0].strip()
+                    PREPROCESSING_STATUS['current_file'] = filename
+                elif "-> Extracted" in output:
+                    PREPROCESSING_STATUS['files_processed'] += 1
+            
+            time.sleep(0.1)
+        
+        # Get final output
+        stdout, stderr = process.communicate()
+        
+        if process.returncode == 0:
+            PREPROCESSING_STATUS.update({
+                'is_running': False,
+                'status': 'completed',
+                'current_file': None
+            })
+        else:
+            PREPROCESSING_STATUS.update({
+                'is_running': False,
+                'status': 'error',
+                'error_message': stderr or stdout or "Unknown error occurred"
+            })
+            
+    except Exception as e:
+        PREPROCESSING_STATUS.update({
+            'is_running': False,
+            'status': 'error',
+            'error_message': str(e)
+        })
 
 @app.route('/api/debug/static-files')
 def debug_static_files():
