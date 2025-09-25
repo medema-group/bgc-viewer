@@ -33,6 +33,9 @@ CORS(app)
 ANTISMASH_DATA = None
 CURRENT_FILE = None
 
+# Global variable to store current database path
+CURRENT_DATABASE_PATH = None
+
 # Global variables for preprocessing status
 PREPROCESSING_STATUS = {
     'is_running': False,
@@ -286,6 +289,79 @@ def load_file_from_path():
         return jsonify({"error": f"Invalid JSON file: {str(e)}"}), 400
     except Exception as e:
         return jsonify({"error": f"Failed to load file: {str(e)}"}), 500
+
+@app.route('/api/load-entry', methods=['POST'])
+def load_database_entry():
+    """Load a specific file+record entry from the database."""
+    global CURRENT_DATABASE_PATH
+    
+    data = request.get_json()
+    entry_id = data.get('id')  # Format: "filename:record_id"
+    
+    if not entry_id:
+        return jsonify({"error": "No entry ID provided"}), 400
+    
+    try:
+        # Parse entry ID
+        if ':' not in entry_id:
+            return jsonify({"error": "Invalid entry ID format"}), 400
+        
+        filename, record_id = entry_id.split(':', 1)
+        
+        # Determine the folder to look in
+        if CURRENT_DATABASE_PATH:
+            # Use the folder containing the current database
+            db_folder = Path(CURRENT_DATABASE_PATH).parent
+            file_path = db_folder / filename
+        else:
+            # Fallback: Look for the file in the data directory
+            data_dir = Path("data")
+            file_path = data_dir / filename
+        
+        if not file_path.exists():
+            return jsonify({"error": f"File {filename} not found in database folder"}), 404
+        
+        # Load the JSON file
+        with open(file_path, 'r') as f:
+            full_data = json.load(f)
+        
+        # Find the specific record
+        target_record = None
+        for record in full_data.get("records", []):
+            if record.get("id") == record_id:
+                target_record = record
+                break
+        
+        if not target_record:
+            return jsonify({"error": f"Record {record_id} not found in {filename}"}), 404
+        
+        # Create a modified dataset with just this record
+        modified_data = {
+            **full_data,
+            "records": [target_record]
+        }
+        
+        # Set global data
+        global ANTISMASH_DATA, CURRENT_FILE
+        ANTISMASH_DATA = modified_data
+        CURRENT_FILE = f"{filename}:{record_id}"
+        
+        return jsonify({
+            "message": f"Successfully loaded {filename}:{record_id}",
+            "current_file": CURRENT_FILE,
+            "filename": filename,
+            "record_id": record_id,
+            "record_info": {
+                "id": target_record.get("id"),
+                "description": target_record.get("description"),
+                "feature_count": len(target_record.get("features", []))
+            }
+        })
+        
+    except json.JSONDecodeError as e:
+        return jsonify({"error": f"Invalid JSON file: {str(e)}"}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to load entry: {str(e)}"}), 500
 
 @app.route('/api/info')
 def get_info():
@@ -565,6 +641,143 @@ def check_index_status():
         
     except Exception as e:
         return jsonify({"error": f"Failed to check index status: {str(e)}"}), 500
+
+@app.route('/api/set-database-path', methods=['POST'])
+def set_database_path():
+    """Set the current database path for queries."""
+    global CURRENT_DATABASE_PATH
+    
+    data = request.get_json()
+    folder_path = data.get('path')
+    
+    if not folder_path:
+        return jsonify({"error": "No folder path provided"}), 400
+    
+    try:
+        resolved_path = Path(folder_path).resolve()
+        
+        if not resolved_path.exists() or not resolved_path.is_dir():
+            return jsonify({"error": "Invalid folder path"}), 400
+        
+        # Check for attributes.db file
+        db_path = resolved_path / "attributes.db"
+        
+        if not db_path.exists():
+            return jsonify({"error": "No database found in the specified folder"}), 404
+        
+        CURRENT_DATABASE_PATH = str(db_path)
+        
+        return jsonify({
+            "message": "Database path set successfully",
+            "database_path": CURRENT_DATABASE_PATH
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to set database path: {str(e)}"}), 500
+
+@app.route('/api/database-entries')
+def get_database_entries():
+    """Get paginated list of all file+record entries from the current database."""
+    global CURRENT_DATABASE_PATH
+    
+    # Get query parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
+    search = request.args.get('search', '').strip()
+    
+    # Try to find database path
+    db_path = None
+    
+    if CURRENT_DATABASE_PATH and Path(CURRENT_DATABASE_PATH).exists():
+        db_path = Path(CURRENT_DATABASE_PATH)
+    else:
+        # Fallback: Look for attributes.db in the data directory
+        data_dir = Path("data")
+        fallback_db_path = data_dir / "attributes.db"
+        if fallback_db_path.exists():
+            db_path = fallback_db_path
+            CURRENT_DATABASE_PATH = str(fallback_db_path)
+    
+    if not db_path or not db_path.exists():
+        return jsonify({
+            "error": "No database found. Please select a folder and preprocess some data first.",
+            "entries": [],
+            "total": 0,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": 0
+        }), 404
+    
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        
+        # Build query to get distinct file+record combinations
+        base_query = """
+            SELECT DISTINCT filename, record_id, 
+                   COUNT(*) as attribute_count
+            FROM attributes 
+        """
+        count_query = """
+            SELECT COUNT(*) FROM (
+                SELECT DISTINCT filename, record_id FROM attributes
+        """
+        
+        params = []
+        where_clause = ""
+        
+        # Add search filter if provided
+        if search:
+            where_clause = " WHERE (filename LIKE ? OR record_id LIKE ?)"
+            search_param = f"%{search}%"
+            params = [search_param, search_param]
+            base_query += where_clause
+            count_query += where_clause
+        
+        # Complete the count query
+        count_query += ")"
+        
+        # Get total count
+        cursor = conn.execute(count_query, params)
+        total = cursor.fetchone()[0]
+        
+        # Calculate pagination
+        total_pages = (total + per_page - 1) // per_page
+        offset = (page - 1) * per_page
+        
+        # Get paginated results
+        query = base_query + """
+            GROUP BY filename, record_id
+            ORDER BY filename, record_id
+            LIMIT ? OFFSET ?
+        """
+        
+        cursor = conn.execute(query, params + [per_page, offset])
+        entries = []
+        
+        for row in cursor.fetchall():
+            filename, record_id, attr_count = row
+            entries.append({
+                "filename": filename,
+                "record_id": record_id,
+                "attribute_count": attr_count,
+                "id": f"{filename}:{record_id}"  # Unique identifier for frontend
+            })
+        
+        conn.close()
+        
+        return jsonify({
+            "entries": entries,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "has_search": bool(search),
+            "search": search
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to query database: {str(e)}"}), 500
 
 @app.route('/api/preprocess-folder', methods=['POST'])
 def start_preprocessing():

@@ -11,10 +11,10 @@
         @folder-selected="handleFolderSelected"
       />
 
-      <!-- Entry List Selector Section -->
-      <EntryListSelector 
+      <!-- Record List Selector Section -->
+      <RecordListSelector 
         :database-folder="selectedDatabaseFolder"
-        @entry-loaded="handleEntryLoaded" 
+        @record-loaded="handleRecordLoaded" 
       />
 
       <!-- Region Viewer Section -->
@@ -39,14 +39,14 @@ import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import RegionViewerComponent from './components/RegionViewer.vue'
 import FileSelector from './components/FileSelector.vue'
-import EntryListSelector from './components/EntryListSelector.vue'
+import RecordListSelector from './components/RecordListSelector.vue'
 
 export default {
   name: 'App',
   components: {
     RegionViewerComponent,
     FileSelector,
-    EntryListSelector
+    RecordListSelector
   },
   setup() {
     const regionViewerRef = ref(null)
@@ -68,10 +68,10 @@ export default {
       selectedDatabaseFolder.value = folderPath
     }
 
-    const handleEntryLoaded = async (entryData) => {
-      // Load the entry into the RegionViewer component
+    const handleRecordLoaded = async (recordData) => {
+      // Load the record into the RegionViewer component
       if (regionViewerRef.value) {
-        await regionViewerRef.value.loadEntry(entryData)
+        await regionViewerRef.value.loadRecord(recordData)
       }
     }
     
@@ -98,7 +98,7 @@ export default {
       selectedDatabaseFolder,
       handleFileLoaded,
       handleFolderSelected,
-      handleEntryLoaded
+      handleRecordLoaded
     }
   }
 }

@@ -1,18 +1,18 @@
 <template>
   <div class="region-viewer-container">
-    <!-- Current Entry Info -->
-    <div v-if="currentEntry" class="current-entry-info">
-      <h4>Current Entry: {{ currentEntry.filename }} - {{ currentEntry.recordId }}</h4>
-      <div class="entry-details">
-        <span class="feature-count">{{ currentEntry.recordInfo.feature_count }} features</span>
-        <span v-if="currentEntry.recordInfo.description" class="description">
-          - {{ currentEntry.recordInfo.description }}
+    <!-- Current Record Info -->
+    <div v-if="currentRecord" class="current-record-info">
+      <h4>Current Record: {{ currentRecord.filename }} - {{ currentRecord.recordId }}</h4>
+      <div class="record-details">
+        <span class="feature-count">{{ currentRecord.recordInfo.feature_count }} features</span>
+        <span v-if="currentRecord.recordInfo.description" class="description">
+          - {{ currentRecord.recordInfo.description }}
         </span>
       </div>
     </div>
     
-    <!-- Region Selector (shown when entry is loaded) -->
-    <div v-if="currentEntry" class="controls">
+    <!-- Region Selector (shown when record is loaded) -->
+    <div v-if="currentRecord" class="controls">
       <select v-if="regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
         <option value="">Show all features</option>
         <option v-for="region in regions" :key="region.id" :value="region.id">
@@ -74,7 +74,7 @@
       </div>
     </div>
     
-    <div ref="viewerContainer" class="viewer-container" v-show="currentEntry"></div>
+    <div ref="viewerContainer" class="viewer-container" v-show="currentRecord"></div>
     
     <div v-if="loading" class="loading">
       Loading region data...
@@ -101,8 +101,8 @@ export default {
     const loading = ref(false)
     const error = ref('')
     
-    // Current entry info
-    const currentEntry = ref(null)
+    // Current record info
+    const currentRecord = ref(null)
     
     // Track management
     const availableTracks = ref([])
@@ -145,9 +145,9 @@ export default {
       document.removeEventListener('click', handleClickOutside)
     })
     
-    const onEntryLoaded = async (entryInfo) => {
-      // Store current entry info
-      currentEntry.value = entryInfo
+    const onRecordLoaded = async (recordInfo) => {
+      // Store current record info
+      currentRecord.value = recordInfo
       selectedRegion.value = ''
       regions.value = []
       
@@ -156,33 +156,33 @@ export default {
       
       try {
         // Load regions for the selected record
-        const response = await axios.get(`/api/records/${entryInfo.recordId}/regions`)
+        const response = await axios.get(`/api/records/${recordInfo.recordId}/regions`)
         regions.value = response.data.regions
         
         console.log('Loaded regions:', regions.value.length)
         
-        // Load all features for this entry (since we have a single record loaded)
-        await loadAllFeaturesForEntry()
+        // Load all features for this record (since we have a single record loaded)
+        await loadAllFeaturesForRecord()
         
       } catch (err) {
-        error.value = `Failed to load entry data: ${err.message}`
+        error.value = `Failed to load record data: ${err.message}`
       } finally {
         loading.value = false
       }
     }
     
-    const loadAllFeaturesForEntry = async () => {
+    const loadAllFeaturesForRecord = async () => {
       try {
-        console.log('Loading all features for entry:', currentEntry.value.recordId)
+        console.log('Loading all features for record:', currentRecord.value.recordId)
         // Load all features for the selected record (no region filtering)
-        // Since we loaded a specific entry, we use the single record that was loaded
-        const response = await axios.get(`/api/records/${currentEntry.value.recordId}/features`)
+        // Since we loaded a specific record, we use the single record that was loaded
+        const response = await axios.get(`/api/records/${currentRecord.value.recordId}/features`)
         console.log('Features API response:', response.data)
         currentFeatures = response.data.features
         
         if (!currentFeatures || currentFeatures.length === 0) {
-          console.warn('No features found for entry:', currentEntry.value.recordId)
-          error.value = 'No features found for this entry'
+          console.warn('No features found for record:', currentRecord.value.recordId)
+          error.value = 'No features found for this record'
           return
         }
         
@@ -214,16 +214,16 @@ export default {
         console.log('Viewer initialized and updated')
         
       } catch (err) {
-        console.error('Error in loadAllFeaturesForEntry:', err)
+        console.error('Error in loadAllFeaturesForRecord:', err)
         error.value = `Failed to load all features: ${err.message}`
       }
     }
     
     const onRegionChange = async () => {
-      if (!currentEntry.value || !selectedRegion.value) {
+      if (!currentRecord.value || !selectedRegion.value) {
         // If no region selected, show all features
-        if (!selectedRegion.value && currentEntry.value) {
-          await loadAllFeaturesForEntry()
+        if (!selectedRegion.value && currentRecord.value) {
+          await loadAllFeaturesForRecord()
         }
         return
       }
@@ -233,7 +233,7 @@ export default {
       
       try {
         // Load features for the selected region
-        const response = await axios.get(`/api/records/${currentEntry.value.recordId}/regions/${selectedRegion.value}/features`)
+        const response = await axios.get(`/api/records/${currentRecord.value.recordId}/regions/${selectedRegion.value}/features`)
         currentFeatures = response.data.features
         
         // Build all tracks from features
@@ -608,7 +608,7 @@ export default {
     
     // Expose methods for parent component
     expose({
-      loadEntry: onEntryLoaded
+      loadRecord: onRecordLoaded
     })
 
     return {
@@ -617,11 +617,11 @@ export default {
       regions,
       loading,
       error,
-      currentEntry,
+      currentRecord,
       availableTracks,
       selectedTracks,
       dropdownOpen,
-      onEntryLoaded,
+      onRecordLoaded,
       onRegionChange,
       updateViewer,
       toggleDropdown,
@@ -639,7 +639,7 @@ export default {
   padding: 20px;
 }
 
-.current-entry-info {
+.current-record-info {
   margin: 20px 0;
   padding: 15px;
   background-color: #f8f9fa;
@@ -647,13 +647,13 @@ export default {
   border-radius: 4px;
 }
 
-.current-entry-info h4 {
+.current-record-info h4 {
   margin: 0 0 8px 0;
   color: #333;
   font-size: 16px;
 }
 
-.entry-details {
+.record-details {
   font-size: 14px;
   color: #666;
 }

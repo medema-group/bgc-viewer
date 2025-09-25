@@ -3,7 +3,6 @@ Preprocessing module for AntiSMASH JSON files.
 Extracts attributes into SQLite database.
 """
 
-import json
 import ijson
 import sqlite3
 from pathlib import Path

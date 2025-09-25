@@ -1,6 +1,6 @@
 <template>
-  <section class="entry-list-selector-section">
-    <h2>Dataset Entries</h2>
+  <section class="record-list-selector-section">
+    <h2>Dataset Records</h2>
     
     <div v-if="!hasDatabase" class="no-database-message">
       <p>No processed database found. Please select a folder and run preprocessing first.</p>
@@ -51,29 +51,29 @@
         </div>
       </div>
       
-      <!-- Entries List -->
-      <div v-if="entriesData.length === 0" class="no-entries">
-        <p v-if="searchQuery">No entries found matching "{{ searchQuery }}"</p>
-        <p v-else>No entries available in the database.</p>
+      <!-- Records List -->
+      <div v-if="entriesData.length === 0" class="no-records">
+        <p v-if="searchQuery">No records found matching "{{ searchQuery }}"</p>
+        <p v-else>No records available in the database.</p>
       </div>
       
-      <div v-else class="entries-list">
+      <div v-else class="records-list">
         <div
-          v-for="entry in entriesData"
-          :key="entry.id"
-          :class="['entry-item', { 'selected': selectedEntryId === entry.id, 'loading': loadingEntryId === entry.id }]"
-          @click="selectAndLoadEntry(entry)"
+          v-for="record in entriesData"
+          :key="record.id"
+          :class="['record-item', { 'selected': selectedRecordId === record.id, 'loading': loadingRecordId === record.id }]"
+          @click="selectAndLoadRecord(record)"
         >
-          <div class="entry-main">
-            <div class="entry-filename">
-              <span class="filename">{{ entry.filename }}</span>
-              <span class="record-id">{{ entry.record_id }}</span>
+          <div class="record-main">
+            <div class="record-filename">
+              <span class="filename">{{ record.filename }}</span>
+              <span class="record-id">{{ record.record_id }}</span>
             </div>
-            <div class="entry-stats">
-              <span class="attribute-count">{{ entry.attribute_count }} attributes</span>
+            <div class="record-stats">
+              <span class="attribute-count">{{ record.attribute_count }} attributes</span>
             </div>
           </div>
-          <div v-if="loadingEntryId === entry.id" class="loading-spinner">
+          <div v-if="loadingRecordId === record.id" class="loading-spinner">
             ⟳
           </div>
         </div>
@@ -82,7 +82,7 @@
       <!-- Bottom Pagination Info -->
       <div class="pagination-info" v-if="entriesData.length > 0">
         Showing {{ ((currentPage - 1) * perPage) + 1 }}-{{ Math.min(currentPage * perPage, total) }} 
-        of {{ total }} entries
+        of {{ total }} records
       </div>
     </div>
   </section>
@@ -93,22 +93,22 @@ import { ref, computed, onMounted, watch, toRefs } from 'vue'
 import axios from 'axios'
 
 export default {
-  name: 'EntryListSelector',
+  name: 'RecordListSelector',
   props: {
     databaseFolder: {
       type: String,
       default: ''
     }
   },
-  emits: ['entry-loaded'],
+  emits: ['record-loaded'],
   setup(props, { emit }) {
     const { databaseFolder } = toRefs(props)
     
     const entriesData = ref([])
     const loading = ref(false)
     const error = ref('')
-    const selectedEntryId = ref('')
-    const loadingEntryId = ref('')
+    const selectedRecordId = ref('')
+    const loadingRecordId = ref('')
     const hasDatabase = ref(false)
     
     // Pagination
@@ -166,29 +166,29 @@ export default {
       }
     }
     
-    const selectAndLoadEntry = async (entry) => {
-      if (loadingEntryId.value || selectedEntryId.value === entry.id) return
+    const selectAndLoadRecord = async (record) => {
+      if (loadingRecordId.value || selectedRecordId.value === record.id) return
       
-      selectedEntryId.value = entry.id
-      loadingEntryId.value = entry.id
+      selectedRecordId.value = record.id
+      loadingRecordId.value = record.id
       
       try {
         const response = await axios.post('/api/load-entry', {
-          id: entry.id
+          id: record.id
         })
         
-        emit('entry-loaded', {
-          entryId: entry.id,
+        emit('record-loaded', {
+          recordId: record.id,
           filename: response.data.filename,
           recordId: response.data.record_id,
           recordInfo: response.data.record_info
         })
         
       } catch (err) {
-        error.value = err.response?.data?.error || 'Failed to load entry'
-        selectedEntryId.value = ''
+        error.value = err.response?.data?.error || 'Failed to load record'
+        selectedRecordId.value = ''
       } finally {
-        loadingEntryId.value = ''
+        loadingRecordId.value = ''
       }
     }
     
@@ -250,8 +250,8 @@ export default {
       entriesData,
       loading,
       error,
-      selectedEntryId,
-      loadingEntryId,
+      selectedRecordId,
+      loadingRecordId,
       hasDatabase,
       currentPage,
       perPage,
@@ -260,7 +260,7 @@ export default {
       searchQuery,
       loadEntries,
       goToPage,
-      selectAndLoadEntry,
+      selectAndLoadRecord,
       debouncedSearch,
       clearSearch,
       refreshEntries
@@ -270,18 +270,17 @@ export default {
 </script>
 
 <style scoped>
-.entry-list-selector-section {
+.record-list-selector-section {
   border: 1px solid #ddd;
   border-radius: 8px;
-  padding: 20px;
-  margin: 20px 0;
-  background: white;
+  padding: 16px;
+  margin-bottom: 16px;
+  background-color: #f9f9f9;
 }
 
-.entry-list-selector-section h2 {
-  margin: 0 0 20px 0;
+.record-list-selector-section h2 {
+  margin: 0 0 16px 0;
   color: #333;
-  font-size: 20px;
 }
 
 .no-database-message {
@@ -404,7 +403,7 @@ export default {
   border-radius: 4px;
 }
 
-.entries-list {
+.records-list {
   border: 1px solid #eee;
   border-radius: 4px;
   background: white;
@@ -412,7 +411,7 @@ export default {
   overflow-y: auto;
 }
 
-.entry-item {
+.record-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -423,32 +422,32 @@ export default {
   position: relative;
 }
 
-.entry-item:last-child {
+.record-item:last-child {
   border-bottom: none;
 }
 
-.entry-item:hover {
+.record-item:hover {
   background-color: #f5f5f5;
 }
 
-.entry-item.selected {
+.record-item.selected {
   background-color: #e3f2fd;
   border-left: 4px solid #1976d2;
 }
 
-.entry-item.loading {
+.record-item.loading {
   pointer-events: none;
   opacity: 0.7;
 }
 
-.entry-main {
+.record-main {
   flex-grow: 1;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.entry-filename {
+.record-filename {
   flex-grow: 1;
 }
 
@@ -465,7 +464,7 @@ export default {
   font-family: monospace;
 }
 
-.entry-stats {
+.record-stats {
   text-align: right;
   margin-left: 15px;
 }
@@ -515,13 +514,13 @@ export default {
     justify-content: center;
   }
   
-  .entry-main {
+  .record-main {
     flex-direction: column;
     align-items: flex-start;
     gap: 5px;
   }
   
-  .entry-stats {
+  .record-stats {
     margin-left: 0;
     text-align: left;
   }
