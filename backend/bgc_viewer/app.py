@@ -1,10 +1,10 @@
 from flask import Flask, render_template, jsonify, request, send_from_directory
 from flask_cors import CORS
 import json
+import ijson
 import os
 import re
 import threading
-import time
 from pathlib import Path
 from waitress import serve
 from dotenv import load_dotenv
@@ -60,16 +60,153 @@ def get_available_files():
     return sorted(json_files)
 
 def load_antismash_data(filename=None):
-    """Load AntiSMASH JSON data from file."""
+    """Load AntiSMASH JSON data from file using ijson for better performance."""
     if filename is None:
         # Default to Y16952.json if no file specified
         filename = "Y16952.json"
     
     data_file = Path("data") / filename
     if data_file.exists():
-        with open(data_file, 'r') as f:
-            return json.load(f)
+        try:
+            # Use ijson for efficient parsing
+            with open(data_file, 'rb') as f:
+                # Parse the entire structure efficiently
+                parser = ijson.parse(f)
+                data = _build_data_structure(parser)
+                return data
+        except Exception as e:
+            # Fallback to regular json if ijson fails
+            print(f"ijson parsing failed for {filename}, falling back to json: {e}")
+            with open(data_file, 'r') as f:
+                return json.load(f)
     return None
+
+def _build_data_structure(parser):
+    """Build data structure from ijson parser events."""
+    data = {}
+    stack = [data]
+    path_stack = []
+    
+    for prefix, event, value in parser:
+        if event == 'start_map':
+            if prefix:
+                # Navigate to the correct location in the structure
+                current = _navigate_to_path(data, prefix.split('.'))
+                new_dict = {}
+                if isinstance(current, list):
+                    current.append(new_dict)
+                else:
+                    key = prefix.split('.')[-1]
+                    current[key] = new_dict
+                stack.append(new_dict)
+            else:
+                stack.append(data)
+        elif event == 'end_map':
+            if stack:
+                stack.pop()
+        elif event == 'start_array':
+            if prefix:
+                current = _navigate_to_path(data, prefix.split('.')[:-1])
+                key = prefix.split('.')[-1]
+                current[key] = []
+                stack.append(current[key])
+        elif event == 'end_array':
+            if stack:
+                stack.pop()
+        elif event in ('string', 'number', 'boolean', 'null'):
+            if prefix:
+                path_parts = prefix.split('.')
+                if path_parts[-1].isdigit():  # Array index
+                    # Handle array elements
+                    parent_path = path_parts[:-1]
+                    parent = _navigate_to_path(data, parent_path)
+                    if isinstance(parent, list):
+                        # Extend list if necessary
+                        index = int(path_parts[-1])
+                        while len(parent) <= index:
+                            parent.append(None)
+                        parent[index] = value
+                else:
+                    # Handle object properties
+                    parent_path = path_parts[:-1]
+                    key = path_parts[-1]
+                    parent = _navigate_to_path(data, parent_path)
+                    if isinstance(parent, dict):
+                        parent[key] = value
+            else:
+                # Root level value
+                return value
+    
+    return data
+
+def _navigate_to_path(data, path_parts):
+    """Navigate to a specific path in the data structure."""
+    current = data
+    for part in path_parts:
+        if part == '':
+            continue
+        if part.isdigit():
+            # Array index
+            index = int(part)
+            if isinstance(current, list):
+                while len(current) <= index:
+                    current.append({})
+                current = current[index]
+        else:
+            # Object key
+            if isinstance(current, dict):
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+    return current
+
+def load_specific_record(file_path, target_record_id):
+    """Load only a specific record from a JSON file for better performance."""
+    try:
+        with open(file_path, 'rb') as f:
+            # Use ijson to parse and extract only the needed record
+            # First pass: get metadata
+            metadata = {}
+            for key, value in ijson.kvitems(f, ''):
+                if key != 'records':
+                    metadata[key] = value
+            
+            # Second pass: find the target record
+            f.seek(0)
+            records = ijson.items(f, 'records.item')
+            target_record = None
+            
+            for record in records:
+                if record.get('id') == target_record_id:
+                    target_record = record
+                    break
+            
+            if target_record:
+                return {
+                    **metadata,
+                    "records": [target_record]
+                }
+            else:
+                return None
+                
+    except Exception as e:
+        print(f"Optimized record loading failed: {e}, falling back to full file load")
+        # Fallback to loading the full file
+        try:
+            with open(file_path, 'r') as f:
+                full_data = json.load(f)
+            
+            # Find the specific record
+            for record in full_data.get("records", []):
+                if record.get("id") == target_record_id:
+                    return {
+                        **full_data,
+                        "records": [record]
+                    }
+            return None
+        except Exception as fallback_error:
+            print(f"Fallback loading also failed: {fallback_error}")
+            return None
 
 def set_current_file(filename):
     """Set the current file and load its data."""
@@ -269,10 +406,18 @@ def load_file_from_path():
         if not resolved_path.is_file() or resolved_path.suffix.lower() != '.json':
             return jsonify({"error": "Not a JSON file"}), 400
         
-        # Load the file
+        # Load the file using efficient parsing
         global ANTISMASH_DATA, CURRENT_FILE
-        with open(resolved_path, 'r') as f:
-            data = json.load(f)
+        try:
+            # Use ijson for efficient parsing
+            with open(resolved_path, 'rb') as f:
+                parser = ijson.parse(f)
+                data = _build_data_structure(parser)
+        except Exception as e:
+            # Fallback to regular json if ijson fails
+            print(f"ijson parsing failed for {resolved_path.name}, falling back to json: {e}")
+            with open(resolved_path, 'r') as f:
+                data = json.load(f)
         
         ANTISMASH_DATA = data
         CURRENT_FILE = resolved_path.name
@@ -321,30 +466,19 @@ def load_database_entry():
         if not file_path.exists():
             return jsonify({"error": f"File {filename} not found in database folder"}), 404
         
-        # Load the JSON file
-        with open(file_path, 'r') as f:
-            full_data = json.load(f)
+        # Load only the specific record for better performance
+        modified_data = load_specific_record(file_path, record_id)
         
-        # Find the specific record
-        target_record = None
-        for record in full_data.get("records", []):
-            if record.get("id") == record_id:
-                target_record = record
-                break
-        
-        if not target_record:
+        if not modified_data:
             return jsonify({"error": f"Record {record_id} not found in {filename}"}), 404
-        
-        # Create a modified dataset with just this record
-        modified_data = {
-            **full_data,
-            "records": [target_record]
-        }
         
         # Set global data
         global ANTISMASH_DATA, CURRENT_FILE
         ANTISMASH_DATA = modified_data
         CURRENT_FILE = f"{filename}:{record_id}"
+        
+        # Get the loaded record info
+        loaded_record = modified_data["records"][0] if modified_data["records"] else {}
         
         return jsonify({
             "message": f"Successfully loaded {filename}:{record_id}",
@@ -352,9 +486,9 @@ def load_database_entry():
             "filename": filename,
             "record_id": record_id,
             "record_info": {
-                "id": target_record.get("id"),
-                "description": target_record.get("description"),
-                "feature_count": len(target_record.get("features", []))
+                "id": loaded_record.get("id"),
+                "description": loaded_record.get("description"),
+                "feature_count": len(loaded_record.get("features", []))
             }
         })
         
