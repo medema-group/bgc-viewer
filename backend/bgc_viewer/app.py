@@ -1,9 +1,7 @@
 from flask import Flask, render_template, jsonify, request, send_from_directory
 from flask_cors import CORS
 import json
-import ijson
 import os
-import re
 import threading
 from pathlib import Path
 from waitress import serve
@@ -12,6 +10,9 @@ from dotenv import load_dotenv
 # Import version from package
 from . import __version__
 from .preprocessing import preprocess_antismash_files
+from .data_loader import load_antismash_data, load_json_file, load_specific_record
+from .file_utils import get_available_files, match_location
+from .database import check_database_exists, get_database_entries
 
 # Load environment variables from .env file
 load_dotenv()
@@ -47,166 +48,9 @@ PREPROCESSING_STATUS = {
     'folder_path': None
 }
 
-def get_available_files():
-    """Get list of available JSON files in the data directory."""
-    data_dir = Path("data")
-    if not data_dir.exists():
-        return []
-    
-    json_files = []
-    for file_path in data_dir.glob("*.json"):
-        json_files.append(file_path.name)
-    
-    return sorted(json_files)
 
-def load_antismash_data(filename=None):
-    """Load AntiSMASH JSON data from file using ijson for better performance."""
-    if filename is None:
-        # Default to Y16952.json if no file specified
-        filename = "Y16952.json"
-    
-    data_file = Path("data") / filename
-    if data_file.exists():
-        try:
-            # Use ijson for efficient parsing
-            with open(data_file, 'rb') as f:
-                # Parse the entire structure efficiently
-                parser = ijson.parse(f)
-                data = _build_data_structure(parser)
-                return data
-        except Exception as e:
-            # Fallback to regular json if ijson fails
-            print(f"ijson parsing failed for {filename}, falling back to json: {e}")
-            with open(data_file, 'r') as f:
-                return json.load(f)
-    return None
 
-def _build_data_structure(parser):
-    """Build data structure from ijson parser events."""
-    data = {}
-    stack = [data]
-    path_stack = []
-    
-    for prefix, event, value in parser:
-        if event == 'start_map':
-            if prefix:
-                # Navigate to the correct location in the structure
-                current = _navigate_to_path(data, prefix.split('.'))
-                new_dict = {}
-                if isinstance(current, list):
-                    current.append(new_dict)
-                else:
-                    key = prefix.split('.')[-1]
-                    current[key] = new_dict
-                stack.append(new_dict)
-            else:
-                stack.append(data)
-        elif event == 'end_map':
-            if stack:
-                stack.pop()
-        elif event == 'start_array':
-            if prefix:
-                current = _navigate_to_path(data, prefix.split('.')[:-1])
-                key = prefix.split('.')[-1]
-                current[key] = []
-                stack.append(current[key])
-        elif event == 'end_array':
-            if stack:
-                stack.pop()
-        elif event in ('string', 'number', 'boolean', 'null'):
-            if prefix:
-                path_parts = prefix.split('.')
-                if path_parts[-1].isdigit():  # Array index
-                    # Handle array elements
-                    parent_path = path_parts[:-1]
-                    parent = _navigate_to_path(data, parent_path)
-                    if isinstance(parent, list):
-                        # Extend list if necessary
-                        index = int(path_parts[-1])
-                        while len(parent) <= index:
-                            parent.append(None)
-                        parent[index] = value
-                else:
-                    # Handle object properties
-                    parent_path = path_parts[:-1]
-                    key = path_parts[-1]
-                    parent = _navigate_to_path(data, parent_path)
-                    if isinstance(parent, dict):
-                        parent[key] = value
-            else:
-                # Root level value
-                return value
-    
-    return data
 
-def _navigate_to_path(data, path_parts):
-    """Navigate to a specific path in the data structure."""
-    current = data
-    for part in path_parts:
-        if part == '':
-            continue
-        if part.isdigit():
-            # Array index
-            index = int(part)
-            if isinstance(current, list):
-                while len(current) <= index:
-                    current.append({})
-                current = current[index]
-        else:
-            # Object key
-            if isinstance(current, dict):
-                if part not in current:
-                    current[part] = {}
-                current = current[part]
-    return current
-
-def load_specific_record(file_path, target_record_id):
-    """Load only a specific record from a JSON file for better performance."""
-    try:
-        with open(file_path, 'rb') as f:
-            # Use ijson to parse and extract only the needed record
-            # First pass: get metadata
-            metadata = {}
-            for key, value in ijson.kvitems(f, ''):
-                if key != 'records':
-                    metadata[key] = value
-            
-            # Second pass: find the target record
-            f.seek(0)
-            records = ijson.items(f, 'records.item')
-            target_record = None
-            
-            for record in records:
-                if record.get('id') == target_record_id:
-                    target_record = record
-                    break
-            
-            if target_record:
-                return {
-                    **metadata,
-                    "records": [target_record]
-                }
-            else:
-                return None
-                
-    except Exception as e:
-        print(f"Optimized record loading failed: {e}, falling back to full file load")
-        # Fallback to loading the full file
-        try:
-            with open(file_path, 'r') as f:
-                full_data = json.load(f)
-            
-            # Find the specific record
-            for record in full_data.get("records", []):
-                if record.get("id") == target_record_id:
-                    return {
-                        **full_data,
-                        "records": [record]
-                    }
-            return None
-        except Exception as fallback_error:
-            print(f"Fallback loading also failed: {fallback_error}")
-            return None
 
 def set_current_file(filename):
     """Set the current file and load its data."""
@@ -233,14 +77,7 @@ except Exception as e:
     ANTISMASH_DATA = None
     CURRENT_FILE = None
 
-def match_location(location):
-    """Match location string to extract start and end coordinates."""
-    location_match = re.match(r"\[<?(\d+):>?(\d+)\]", location)
-    if location_match:
-        start = int(location_match.group(1))
-        end = int(location_match.group(2))
-        return start, end
-    return None
+
 
 @app.route('/')
 def index():
@@ -408,16 +245,7 @@ def load_file_from_path():
         
         # Load the file using efficient parsing
         global ANTISMASH_DATA, CURRENT_FILE
-        try:
-            # Use ijson for efficient parsing
-            with open(resolved_path, 'rb') as f:
-                parser = ijson.parse(f)
-                data = _build_data_structure(parser)
-        except Exception as e:
-            # Fallback to regular json if ijson fails
-            print(f"ijson parsing failed for {resolved_path.name}, falling back to json: {e}")
-            with open(resolved_path, 'r') as f:
-                data = json.load(f)
+        data = load_json_file(resolved_path)
         
         ANTISMASH_DATA = data
         CURRENT_FILE = resolved_path.name
@@ -730,47 +558,7 @@ def check_index_status():
         return jsonify({"error": "No folder path provided"}), 400
     
     try:
-        resolved_path = Path(folder_path).resolve()
-        
-        if not resolved_path.exists() or not resolved_path.is_dir():
-            return jsonify({"error": "Invalid folder path"}), 400
-        
-        # Check for attributes.db file
-        db_path = resolved_path / "attributes.db"
-        has_index = db_path.exists()
-        
-        # Count JSON files in the folder
-        json_files = list(resolved_path.glob("*.json"))
-        json_count = len(json_files)
-        
-        result = {
-            "folder_path": str(resolved_path),
-            "has_index": has_index,
-            "database_path": str(db_path) if has_index else None,
-            "json_files_count": json_count,
-            "can_preprocess": json_count > 0
-        }
-        
-        # If index exists, get some basic stats
-        if has_index:
-            try:
-                import sqlite3
-                conn = sqlite3.connect(db_path)
-                cursor = conn.execute("SELECT COUNT(*) FROM attributes")
-                total_attributes = cursor.fetchone()[0]
-                
-                cursor = conn.execute("SELECT COUNT(DISTINCT filename) FROM attributes")
-                indexed_files = cursor.fetchone()[0]
-                
-                conn.close()
-                
-                result["index_stats"] = {
-                    "total_attributes": total_attributes,
-                    "indexed_files": indexed_files
-                }
-            except Exception:
-                result["index_stats"] = None
-        
+        has_index, db_path, result = check_database_exists(folder_path)
         return jsonify(result)
         
     except Exception as e:
@@ -810,7 +598,7 @@ def set_database_path():
         return jsonify({"error": f"Failed to set database path: {str(e)}"}), 500
 
 @app.route('/api/database-entries')
-def get_database_entries():
+def get_database_entries_endpoint():
     """Get paginated list of all file+record entries from the current database."""
     global CURRENT_DATABASE_PATH
     
@@ -820,98 +608,22 @@ def get_database_entries():
     search = request.args.get('search', '').strip()
     
     # Try to find database path
-    db_path = None
-    
-    if CURRENT_DATABASE_PATH and Path(CURRENT_DATABASE_PATH).exists():
-        db_path = Path(CURRENT_DATABASE_PATH)
-    else:
+    db_path = CURRENT_DATABASE_PATH
+    if not db_path or not Path(db_path).exists():
         # Fallback: Look for attributes.db in the data directory
         data_dir = Path("data")
         fallback_db_path = data_dir / "attributes.db"
         if fallback_db_path.exists():
-            db_path = fallback_db_path
-            CURRENT_DATABASE_PATH = str(fallback_db_path)
+            db_path = str(fallback_db_path)
+            CURRENT_DATABASE_PATH = db_path
     
-    if not db_path or not db_path.exists():
-        return jsonify({
-            "error": "No database found. Please select a folder and preprocess some data first.",
-            "entries": [],
-            "total": 0,
-            "page": page,
-            "per_page": per_page,
-            "total_pages": 0
-        }), 404
+    # Use the database module function
+    result = get_database_entries(db_path, page, per_page, search)
     
-    try:
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        
-        # Build query to get distinct file+record combinations
-        base_query = """
-            SELECT DISTINCT filename, record_id, 
-                   COUNT(*) as attribute_count
-            FROM attributes 
-        """
-        count_query = """
-            SELECT COUNT(*) FROM (
-                SELECT DISTINCT filename, record_id FROM attributes
-        """
-        
-        params = []
-        where_clause = ""
-        
-        # Add search filter if provided
-        if search:
-            where_clause = " WHERE (filename LIKE ? OR record_id LIKE ?)"
-            search_param = f"%{search}%"
-            params = [search_param, search_param]
-            base_query += where_clause
-            count_query += where_clause
-        
-        # Complete the count query
-        count_query += ")"
-        
-        # Get total count
-        cursor = conn.execute(count_query, params)
-        total = cursor.fetchone()[0]
-        
-        # Calculate pagination
-        total_pages = (total + per_page - 1) // per_page
-        offset = (page - 1) * per_page
-        
-        # Get paginated results
-        query = base_query + """
-            GROUP BY filename, record_id
-            ORDER BY filename, record_id
-            LIMIT ? OFFSET ?
-        """
-        
-        cursor = conn.execute(query, params + [per_page, offset])
-        entries = []
-        
-        for row in cursor.fetchall():
-            filename, record_id, attr_count = row
-            entries.append({
-                "filename": filename,
-                "record_id": record_id,
-                "attribute_count": attr_count,
-                "id": f"{filename}:{record_id}"  # Unique identifier for frontend
-            })
-        
-        conn.close()
-        
-        return jsonify({
-            "entries": entries,
-            "total": total,
-            "page": page,
-            "per_page": per_page,
-            "total_pages": total_pages,
-            "has_search": bool(search),
-            "search": search
-        })
-        
-    except Exception as e:
-        return jsonify({"error": f"Failed to query database: {str(e)}"}), 500
+    if "error" in result:
+        return jsonify(result), 404 if "No database found" in result["error"] else 500
+    
+    return jsonify(result)
 
 @app.route('/api/preprocess-folder', methods=['POST'])
 def start_preprocessing():
