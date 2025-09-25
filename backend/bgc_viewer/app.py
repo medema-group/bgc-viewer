@@ -4,7 +4,6 @@ import json
 import os
 import re
 import threading
-import subprocess
 import time
 from pathlib import Path
 from waitress import serve
@@ -12,6 +11,7 @@ from dotenv import load_dotenv
 
 # Import version from package
 from . import __version__
+from .preprocessing import preprocess_antismash_files
 
 # Load environment variables from .env file
 load_dotenv()
@@ -623,54 +623,29 @@ def get_preprocessing_status():
     return jsonify(PREPROCESSING_STATUS)
 
 def run_preprocessing(folder_path):
-    """Run the preprocessing script in a subprocess."""
+    """Run the preprocessing function in a background thread."""
     global PREPROCESSING_STATUS
     
+    def progress_callback(current_file, files_processed, total_files):
+        """Update preprocessing status with progress information."""
+        PREPROCESSING_STATUS.update({
+            'current_file': current_file,
+            'files_processed': files_processed,
+            'total_files': total_files
+        })
+    
     try:
-        # Get the path to the preprocessing script
-        backend_dir = Path(__file__).parent.parent
-        preprocess_script = backend_dir / "preprocess_data.py"
+        # Run the preprocessing function
+        results = preprocess_antismash_files(folder_path, progress_callback)
         
-        if not preprocess_script.exists():
-            raise FileNotFoundError(f"Preprocessing script not found: {preprocess_script}")
-        
-        # Run the preprocessing script
-        process = subprocess.Popen(
-            ["python", str(preprocess_script), folder_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            universal_newlines=True
-        )
-        
-        # Monitor the process output
-        while process.poll() is None:
-            output = process.stdout.readline()
-            if output:
-                # Parse output to update status
-                if "Processing " in output and ".json" in output:
-                    filename = output.split("Processing ")[1].split("...")[0].strip()
-                    PREPROCESSING_STATUS['current_file'] = filename
-                elif "-> Extracted" in output:
-                    PREPROCESSING_STATUS['files_processed'] += 1
-            
-            time.sleep(0.1)
-        
-        # Get final output
-        stdout, stderr = process.communicate()
-        
-        if process.returncode == 0:
-            PREPROCESSING_STATUS.update({
-                'is_running': False,
-                'status': 'completed',
-                'current_file': None
-            })
-        else:
-            PREPROCESSING_STATUS.update({
-                'is_running': False,
-                'status': 'error',
-                'error_message': stderr or stdout or "Unknown error occurred"
-            })
+        # Update status on completion
+        PREPROCESSING_STATUS.update({
+            'is_running': False,
+            'status': 'completed',
+            'current_file': None,
+            'files_processed': results['files_processed'],
+            'total_files': results['files_processed']  # Final count
+        })
             
     except Exception as e:
         PREPROCESSING_STATUS.update({
