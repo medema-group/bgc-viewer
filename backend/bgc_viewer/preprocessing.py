@@ -10,14 +10,14 @@ from typing import Dict, List, Any, Optional, Union, Callable
 
 
 def create_attributes_database(db_path: Path) -> sqlite3.Connection:
-    """Create SQLite database for storing attributes. Drops existing database if it exists."""
+    """Create SQLite database for storing attributes and record index. Drops existing database if it exists."""
     # Remove existing database if it exists
     if db_path.exists():
         db_path.unlink()
     
     conn = sqlite3.connect(db_path)
     
-    # Create the attributes table
+    # Create the attributes table with byte position columns
     conn.execute("""
         CREATE TABLE IF NOT EXISTS attributes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +25,9 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
             record_id TEXT NOT NULL,
             origin TEXT NOT NULL,  -- 'annotations' or 'source'
             attribute_name TEXT NOT NULL,
-            attribute_value TEXT NOT NULL
+            attribute_value TEXT NOT NULL,
+            byte_start INTEGER,  -- Start byte position of this record in the file
+            byte_end INTEGER     -- End byte position of this record in the file
         )
     """)
     
@@ -36,6 +38,8 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_attribute_name ON attributes (attribute_name)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_attribute_value ON attributes (attribute_value)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_name_value ON attributes (attribute_name, attribute_value)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_filename_record_id ON attributes (filename, record_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_byte_positions ON attributes (filename, record_id, byte_start, byte_end)")
     
     conn.commit()
     return conn
@@ -74,12 +78,12 @@ def flatten_complex_value(value: Any, prefix: str = "") -> List[tuple]:
     return results
 
 
-def extract_attributes_from_record(record: Dict[str, Any], filename: str, record_id: str) -> List[tuple]:
+def extract_attributes_from_record(record: Dict[str, Any], filename: str, record_id: str, byte_start: int = None, byte_end: int = None) -> List[tuple]:
     """
     Extract all attributes from a record for database storage.
     
     Returns:
-        List of tuples: (filename, record_id, origin, attribute_name, attribute_value)
+        List of tuples: (filename, record_id, origin, attribute_name, attribute_value, byte_start, byte_end)
     """
     attributes = []
     
@@ -95,7 +99,9 @@ def extract_attributes_from_record(record: Dict[str, Any], filename: str, record
                     record_id,
                     'annotations',
                     full_attr_name,
-                    attr_value
+                    attr_value,
+                    byte_start,
+                    byte_end
                 ))
     
     # Extract from source features
@@ -109,7 +115,9 @@ def extract_attributes_from_record(record: Dict[str, Any], filename: str, record
                         record_id,
                         'source',
                         attr_name,
-                        attr_value
+                        attr_value,
+                        byte_start,
+                        byte_end
                     ))
     
     return attributes
@@ -150,27 +158,70 @@ def preprocess_antismash_files(
                 file_attributes = []
                 file_records = 0
                 
+                # Parse file to extract both attributes and byte positions
                 with open(json_file, 'rb') as f:
-                    # Parse records array
-                    parser = ijson.items(f, 'records.item')
+                    # Read entire file content to track byte positions
+                    content = f.read()
                     
-                    for record in parser:
-                        record_id = record.get('id', f'record_{total_records}')  
+                    # Find the records array boundaries
+                    records_start_pattern = b'"records"'
+                    records_pos = content.find(records_start_pattern)
+                    
+                    if records_pos != -1:
+                        # Find the opening bracket of records array
+                        bracket_pos = content.find(b'[', records_pos)
                         
-                        # Extract attributes from this record
-                        attributes = extract_attributes_from_record(
-                            record, json_file.name, record_id
-                        )
-                        file_attributes.extend(attributes)
-                        file_records += 1
-                        total_records += 1
+                        if bracket_pos != -1:
+                            # Parse individual records and track their byte positions
+                            pos = bracket_pos + 1  # Start after opening bracket
+                            brace_count = 0
+                            record_start = None
+                            
+                            while pos < len(content):
+                                char = content[pos:pos+1]
+                                
+                                if char == b'{':
+                                    if brace_count == 0:
+                                        record_start = pos
+                                    brace_count += 1
+                                elif char == b'}':
+                                    brace_count -= 1
+                                    if brace_count == 0 and record_start is not None:
+                                        # Found complete record
+                                        record_end = pos + 1
+                                        
+                                        # Parse the record JSON
+                                        record_json = content[record_start:record_end]
+                                        try:
+                                            import json
+                                            record = json.loads(record_json.decode('utf-8'))
+                                            record_id = record.get('id', f'record_{total_records}')
+                                            
+                                            # Extract attributes from this record with byte positions
+                                            attributes = extract_attributes_from_record(
+                                                record, json_file.name, record_id, record_start, record_end
+                                            )
+                                            file_attributes.extend(attributes)
+                                            file_records += 1
+                                            total_records += 1
+                                            
+                                        except (json.JSONDecodeError, UnicodeDecodeError):
+                                            # Skip malformed records
+                                            pass
+                                        
+                                        record_start = None
+                                elif char == b']' and brace_count == 0:
+                                    # End of records array
+                                    break
+                                
+                                pos += 1
                 
-                # Batch insert attributes for this file
+                # Batch insert attributes for this file (now includes byte positions)
                 if file_attributes:
                     conn.executemany(
                         """INSERT INTO attributes 
-                           (filename, record_id, origin, attribute_name, attribute_value)
-                           VALUES (?, ?, ?, ?, ?)""",
+                           (filename, record_id, origin, attribute_name, attribute_value, byte_start, byte_end)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
                         file_attributes
                     )
                     conn.commit()

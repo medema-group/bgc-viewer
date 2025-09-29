@@ -1,11 +1,14 @@
 """
 Data loading and parsing utilities for BGC Viewer.
 Handles efficient JSON parsing using ijson with fallback to standard json.
+Supports fast random access using byte position indexing.
 """
 
 import json
 import ijson
+import sqlite3
 from pathlib import Path
+from typing import Optional, Dict, Any
 
 
 def load_antismash_data(filename=None, data_dir="data"):
@@ -46,8 +49,99 @@ def load_json_file(file_path):
             return json.load(f)
 
 
+def get_record_index(file_path: str, data_dir: str = "data") -> Optional[sqlite3.Connection]:
+    """Get database connection for record index."""
+    data_path = Path(data_dir)
+    db_path = data_path / "attributes.db"
+    
+    if db_path.exists():
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row  # Enable column access by name
+            return conn
+        except sqlite3.Error:
+            return None
+    return None
+
+
+def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = "data") -> Optional[Dict[str, Any]]:
+    """
+    Load a specific record using byte position index for fast random access.
+    
+    Args:
+        file_path: Path to the JSON file
+        target_record_id: ID of the record to load
+        data_dir: Directory containing the index database
+        
+    Returns:
+        Dictionary containing file metadata and the target record
+    """
+    conn = get_record_index(file_path, data_dir)
+    if not conn:
+        # Fallback to original method if no index
+        return load_specific_record_fallback(file_path, target_record_id)
+    
+    try:
+        # Query the attributes table for byte positions (get any row for this record)
+        cursor = conn.execute(
+            """SELECT DISTINCT byte_start, byte_end FROM attributes 
+               WHERE filename = ? AND record_id = ? AND byte_start IS NOT NULL LIMIT 1""",
+            (Path(file_path).name, target_record_id)
+        )
+        
+        result = cursor.fetchone()
+        if not result:
+            conn.close()
+            return None
+        
+        byte_start, byte_end = result['byte_start'], result['byte_end']
+        
+        # Load metadata (everything except records)
+        metadata = {}
+        with open(file_path, 'rb') as f:
+            # Parse metadata efficiently
+            for key, value in ijson.kvitems(f, ''):
+                if key != 'records':
+                    metadata[key] = value
+        
+        # Load the specific record using byte positions
+        with open(file_path, 'rb') as f:
+            f.seek(byte_start)
+            record_bytes = f.read(byte_end - byte_start)
+            
+            try:
+                record_data = json.loads(record_bytes.decode('utf-8'))
+                conn.close()
+                
+                return {
+                    **metadata,
+                    "records": [record_data]
+                }
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                print(f"Failed to parse record at byte positions {byte_start}-{byte_end}: {e}")
+                conn.close()
+                return load_specific_record_fallback(file_path, target_record_id)
+    
+    except Exception as e:
+        print(f"Index-based loading failed: {e}")
+        if conn:
+            conn.close()
+        return load_specific_record_fallback(file_path, target_record_id)
+
+
 def load_specific_record(file_path, target_record_id):
     """Load only a specific record from a JSON file for better performance."""
+    # Try index-based loading first
+    result = load_record_by_index(file_path, target_record_id)
+    if result:
+        return result
+    
+    # Fallback to original method
+    return load_specific_record_fallback(file_path, target_record_id)
+
+
+def load_specific_record_fallback(file_path, target_record_id):
+    """Fallback method for loading specific record without index."""
     try:
         with open(file_path, 'rb') as f:
             # Use ijson to parse and extract only the needed record
@@ -93,6 +187,103 @@ def load_specific_record(file_path, target_record_id):
         except Exception as fallback_error:
             print(f"Fallback loading also failed: {fallback_error}")
             return None
+
+
+def list_available_records(filename: Optional[str] = None, data_dir: str = "data") -> Dict[str, Any]:
+    """
+    List all available records from the index database.
+    
+    Args:
+        filename: Optional specific filename to filter by
+        data_dir: Directory containing the index database
+        
+    Returns:
+        Dictionary with file information and available records
+    """
+    conn = get_record_index("", data_dir)
+    if not conn:
+        return {"error": "No index database found. Run preprocessing first."}
+    
+    try:
+        if filename:
+            # Get records for specific file
+            cursor = conn.execute(
+                """SELECT DISTINCT record_id FROM attributes 
+                   WHERE filename = ? AND byte_start IS NOT NULL ORDER BY record_id""",
+                (filename,)
+            )
+        else:
+            # Get all records grouped by file
+            cursor = conn.execute(
+                """SELECT DISTINCT filename, record_id FROM attributes 
+                   WHERE byte_start IS NOT NULL ORDER BY filename, record_id"""
+            )
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        if filename:
+            # Return records for specific file
+            return {
+                "filename": filename,
+                "records": [{"id": row["record_id"]} for row in results]
+            }
+        else:
+            # Group by filename
+            files = {}
+            for row in results:
+                file_name = row["filename"]
+                if file_name not in files:
+                    files[file_name] = []
+                files[file_name].append({"id": row["record_id"]})
+            return {"files": files}
+    
+    except Exception as e:
+        if conn:
+            conn.close()
+        return {"error": f"Failed to query index: {e}"}
+
+
+def get_record_metadata_from_index(filename: str, record_id: str, data_dir: str = "data") -> Optional[Dict[str, Any]]:
+    """
+    Get record metadata from index without loading the full record.
+    
+    Args:
+        filename: Name of the file containing the record
+        record_id: ID of the record
+        data_dir: Directory containing the index database
+        
+    Returns:
+        Dictionary with record metadata or None if not found
+    """
+    conn = get_record_index("", data_dir)
+    if not conn:
+        return None
+    
+    try:
+        cursor = conn.execute(
+            """SELECT DISTINCT filename, record_id, byte_start, byte_end FROM attributes 
+               WHERE filename = ? AND record_id = ? AND byte_start IS NOT NULL LIMIT 1""",
+            (filename, record_id)
+        )
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {
+                "filename": result["filename"],
+                "record_id": result["record_id"],
+                "byte_start": result["byte_start"],
+                "byte_end": result["byte_end"],
+                "size_bytes": result["byte_end"] - result["byte_start"]
+            }
+        return None
+    
+    except Exception as e:
+        if conn:
+            conn.close()
+        return None
 
 
 def _build_data_structure(parser):
