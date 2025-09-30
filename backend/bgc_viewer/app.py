@@ -286,16 +286,17 @@ def load_database_entry():
             # Use the folder containing the current database
             db_folder = Path(CURRENT_DATABASE_PATH).parent
             file_path = db_folder / filename
+            data_dir = str(db_folder)
         else:
             # Fallback: Look for the file in the data directory
-            data_dir = Path("data")
-            file_path = data_dir / filename
+            data_dir = "data"
+            file_path = Path(data_dir) / filename
         
         if not file_path.exists():
             return jsonify({"error": f"File {filename} not found in database folder"}), 404
         
         # Load only the specific record for better performance
-        modified_data = load_specific_record(file_path, record_id)
+        modified_data = load_specific_record(str(file_path), record_id, data_dir)
         
         if not modified_data:
             return jsonify({"error": f"Record {record_id} not found in {filename}"}), 404

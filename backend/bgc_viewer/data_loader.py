@@ -78,7 +78,6 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
     """
     conn = get_record_index(file_path, data_dir)
     if not conn:
-        # Fallback to original method if no index
         return load_specific_record_fallback(file_path, target_record_id)
     
     try:
@@ -96,15 +95,7 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
         
         byte_start, byte_end = result['byte_start'], result['byte_end']
         
-        # Load metadata (everything except records)
-        metadata = {}
-        with open(file_path, 'rb') as f:
-            # Parse metadata efficiently
-            for key, value in ijson.kvitems(f, ''):
-                if key != 'records':
-                    metadata[key] = value
-        
-        # Load the specific record using byte positions
+        # Load the specific record using byte positions (skip metadata for performance)
         with open(file_path, 'rb') as f:
             f.seek(byte_start)
             record_bytes = f.read(byte_end - byte_start)
@@ -114,32 +105,27 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
                 conn.close()
                 
                 return {
-                    **metadata,
                     "records": [record_data]
                 }
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                print(f"Failed to parse record at byte positions {byte_start}-{byte_end}: {e}")
                 conn.close()
                 return load_specific_record_fallback(file_path, target_record_id)
     
     except Exception as e:
-        print(f"Index-based loading failed: {e}")
         if conn:
             conn.close()
         return load_specific_record_fallback(file_path, target_record_id)
 
 
-def load_specific_record(file_path, target_record_id):
+def load_specific_record(file_path, target_record_id, data_dir="data"):
     """Load only a specific record from a JSON file for better performance."""
     # Try index-based loading first
-    result = load_record_by_index(file_path, target_record_id)
+    result = load_record_by_index(file_path, target_record_id, data_dir)
     if result:
         return result
-    
+
     # Fallback to original method
     return load_specific_record_fallback(file_path, target_record_id)
-
-
 def load_specific_record_fallback(file_path, target_record_id):
     """Fallback method for loading specific record without index."""
     try:
