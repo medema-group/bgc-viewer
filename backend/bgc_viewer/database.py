@@ -89,9 +89,16 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         
         # Add search filter if provided
         if search:
-            where_clause = " WHERE (filename LIKE ? OR record_id LIKE ?)"
+            # Search in filename, record_id, and attribute_value columns
+            where_clause = """ WHERE (filename LIKE ? OR record_id LIKE ? 
+                              OR EXISTS (
+                                  SELECT 1 FROM attributes a2 
+                                  WHERE a2.filename = attributes.filename 
+                                  AND a2.record_id = attributes.record_id 
+                                  AND a2.attribute_value LIKE ?
+                              ))"""
             search_param = f"%{search}%"
-            params = [search_param, search_param]
+            params = [search_param, search_param, search_param]
             base_query += where_clause
             count_query += where_clause
         

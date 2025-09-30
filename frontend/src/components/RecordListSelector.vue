@@ -22,7 +22,8 @@
             v-model="searchQuery"
             @input="debouncedSearch"
             type="text"
-            placeholder="Search files or records..."
+            placeholder="Search files, records, or attributes..."
+            title="Search across filenames, record IDs, and all attribute values (organisms, products, descriptions, etc.)"
             class="search-input"
           />
           <button v-if="searchQuery" @click="clearSearch" class="clear-search">×</button>
