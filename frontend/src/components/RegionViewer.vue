@@ -161,8 +161,14 @@ export default {
         
         console.log('Loaded regions:', regions.value.length)
         
-        // Load all features for this record (since we have a single record loaded)
-        await loadAllFeaturesForRecord()
+        // If regions are found, select the first one by default
+        if (regions.value.length > 0) {
+          selectedRegion.value = regions.value[0].id
+          await onRegionChange()
+        } else {
+          // Load all features for this record if no regions found
+          await loadAllFeaturesForRecord()
+        }
         
       } catch (err) {
         error.value = `Failed to load record data: ${err.message}`

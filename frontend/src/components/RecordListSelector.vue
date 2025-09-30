@@ -1,6 +1,6 @@
 <template>
   <section class="record-list-selector-section">
-    <h2>Dataset Records</h2>
+    <h2>Record selection</h2>
     
     <div v-if="!hasDatabase" class="no-database-message">
       <p>No processed database found. Please select a folder and run preprocessing first.</p>
@@ -408,7 +408,7 @@ export default {
   border: 1px solid #eee;
   border-radius: 4px;
   background: white;
-  max-height: 600px;
+  max-height: 300px;
   overflow-y: auto;
 }
 
