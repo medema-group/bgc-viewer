@@ -165,12 +165,11 @@ export class TrackViewer {
     const body = document.body || document.documentElement;
     this.tooltip = d3.select(body)
       .append('div')
-      .attr('class', 'region-viewer-tooltip')
+      .attr('class', 'track-viewer-tooltip')
       .style('position', 'absolute')
       .style('background', 'white')
       .style('border', '1px solid #ccc')
       .style('padding', '4px 8px')
-      .style('font-size', '12px')
       .style('pointer-events', 'none')
       .style('display', 'none')
       .style('z-index', '1000');
@@ -312,11 +311,11 @@ export class TrackViewer {
       .data(d => [d])
       .join('text')
       .attr('class', 'track-label')
+      .attr('class', 'track-label')
       .attr('x', -10)
       .attr('y', (d) => this.getTrackHeight(d) / 2)
       .attr('dy', '0.35em')
       .attr('text-anchor', 'end')
-      .style('font', '12px sans-serif')
       .text(d => d.label);
   }
 
@@ -325,6 +324,10 @@ export class TrackViewer {
 
     // Update axis
     this.xAxisGroup.call(d3.axisBottom(xz));
+    
+    // Add CSS class to axis text for styling
+    this.xAxisGroup.selectAll('text')
+      .attr('class', 'axis-label');
 
     // Early return if no tracks have been created yet
     if (!this.trackGroups) {
@@ -768,7 +771,7 @@ export class TrackViewer {
       // For box and arrow annotations, position relative to the shape
       labelX = x + width / 2; // Center horizontally
       if (labelPosition === 'above') {
-        labelY = y - height / 2 - 6; // Above the shape
+        labelY = y - height / 2 - 8; // Above the shape
       } else {
         labelY = y; // Center of the shape
       }
@@ -784,8 +787,6 @@ export class TrackViewer {
       .attr('class', 'annotation-label')
       .attr('data-annotation-id', annotation.id)
       .attr('data-show-label', showLabel)
-      .style('font-size', '10px')
-      .style('font-family', 'sans-serif')
       .style('fill', 'currentColor') // Use currentColor to inherit from CSS color property
       .style('stroke', 'white') // White outline for better readability
       .style('stroke-width', '0.5px')
@@ -825,7 +826,7 @@ export class TrackViewer {
     // Create a temporary text element to measure text width
     const tempText = this.svg
       .append('text')
-      .style('font', '12px sans-serif')
+      .attr('class', 'track-label') // Use same class as track labels for consistent measurement
       .style('visibility', 'hidden');
 
     let maxWidth = 0;

@@ -317,6 +317,7 @@ export default {
         // width is not specified, so it will be responsive
         height: 400,
         domain: [minPos - padding, maxPos + padding],
+        trackHeight: 40,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
         },
@@ -483,8 +484,6 @@ export default {
               type: 'box',
               heightFraction: 0.3,
               classes: classes,
-              label: getFeatureLabel(feature),
-              showLabel: 'always',
               start: location.start,
               end: location.end,
               stroke: 'none',
@@ -498,7 +497,8 @@ export default {
                 type: 'box',
                 heightFraction: 0.35,
                 classes: [...classes, 'proto-core'],
-                label: '',
+                label: getFeatureLabel(feature),
+                showLabel: 'always',
                 start: core_location.start,
                 end: core_location.end,
                 stroke: 'black'
@@ -865,4 +865,35 @@ export default {
   fill: #757575;
   stroke: #424242;
 }
+
+/* TrackViewer font styles - using :global() to apply to dynamically created elements */
+:global(.track-viewer-tooltip) {
+  font-size: 14px;
+  font-family: sans-serif;
+}
+
+:global(.track-label) {
+  font-size: 14px;
+  font-family: sans-serif;
+}
+
+:global(.annotation-label) {
+  font-size: 13px;
+  font-family: sans-serif;
+  stroke: white;
+  stroke-width: 0.5px;
+  paint-order: stroke fill;
+  pointer-events: none;
+}
+
+:global(.axis-label) {
+  font-size: 14px;
+  font-family: sans-serif;
+}
+
+:global(.x-axis) {
+  font-size: 14px;
+  font-family: sans-serif;
+}
+
 </style>

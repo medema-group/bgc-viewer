@@ -25,7 +25,7 @@ describe('TrackViewer', () => {
     }
     
     // Remove any tooltips that were created
-    const tooltips = document.querySelectorAll('.region-viewer-tooltip');
+    const tooltips = document.querySelectorAll('.track-viewer-tooltip');
     tooltips.forEach(tooltip => tooltip.remove());
   });
 
