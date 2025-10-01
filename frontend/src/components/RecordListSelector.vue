@@ -67,8 +67,8 @@
         >
           <div class="record-main">
             <div class="record-filename">
-              <span class="filename">{{ record.filename }}</span>
               <span class="record-id">{{ record.record_id }}</span>
+              <span class="filename">{{ record.filename }}</span>
             </div>
             <div class="record-stats">
               <span class="attribute-count">{{ record.attribute_count }} attributes</span>
@@ -227,6 +227,17 @@ export default {
       loadEntries(currentPage.value, searchQuery.value)
     }
     
+    const clearRecords = () => {
+      entriesData.value = []
+      total.value = 0
+      totalPages.value = 0
+      currentPage.value = 1
+      selectedRecordId.value = ''
+      loadingRecordId.value = ''
+      searchQuery.value = ''
+      hasDatabase.value = false
+    }
+    
     // Watch for database folder changes
     watch(databaseFolder, async (newFolder) => {
       if (newFolder) {
@@ -264,7 +275,8 @@ export default {
       selectAndLoadRecord,
       debouncedSearch,
       clearSearch,
-      refreshEntries
+      refreshEntries,
+      clearRecords
     }
   }
 }
@@ -416,7 +428,7 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: 6px 16px;
   border-bottom: 1px solid #eee;
   cursor: pointer;
   transition: background-color 0.2s ease;
@@ -453,16 +465,15 @@ export default {
 }
 
 .filename {
-  font-weight: 600;
-  color: #333;
-  display: block;
-  margin-bottom: 2px;
-}
-
-.record-id {
   font-size: 13px;
   color: #666;
   font-family: monospace;
+}
+
+.record-id {
+  font-weight: 600;
+  color: #333;
+  display: block;
 }
 
 .record-stats {

@@ -35,14 +35,59 @@ export default {
     FolderSelectionDialog,
     PreprocessingStatus
   },
-  emits: ['folder-selected'],
+  emits: ['folder-selected', 'folder-changed', 'preprocessing-completed'],
   setup(_, { emit }) {
     const currentFolderPath = ref('')
     const showDialog = ref(false)
+    const folderRestoredFromMemory = ref(false)
+    
+    const STORAGE_KEY = 'bgc-viewer-last-folder'
+    
+    const saveLastFolder = (folderPath) => {
+      try {
+        localStorage.setItem(STORAGE_KEY, folderPath)
+        console.log('Saved folder to localStorage:', folderPath)
+      } catch (error) {
+        console.warn('Failed to save last folder to localStorage:', error)
+      }
+    }
+    
+    const loadLastFolder = () => {
+      try {
+        const savedFolder = localStorage.getItem(STORAGE_KEY)
+        console.log('Loaded folder from localStorage:', savedFolder)
+        return savedFolder
+      } catch (error) {
+        console.warn('Failed to load last folder from localStorage:', error)
+        return null
+      }
+    }
     
     const tryDefaultFolder = async () => {
+      // First try to use the last remembered folder
+      const lastFolder = loadLastFolder()
+      if (lastFolder) {
+        try {
+          const lastFolderResponse = await axios.post('/api/scan-folder', {
+            path: lastFolder
+          })
+          
+          if (lastFolderResponse.data.folder_path) {
+            currentFolderPath.value = lastFolderResponse.data.folder_path
+            folderRestoredFromMemory.value = true
+            // Emit folder change event first
+            emit('folder-changed', lastFolderResponse.data.folder_path)
+            emit('folder-selected', lastFolderResponse.data.folder_path)
+            console.log('Restored last used folder:', lastFolder)
+            return // Successfully restored, no need to try default
+          }
+        } catch (lastFolderError) {
+          console.warn('Failed to restore last used folder:', lastFolderError.message)
+        }
+      }
+      
+      // If no saved folder or saved folder failed, try the default data directory
       try {
-        // Try to scan the default data directory
         const dataDir = '../data'
         const scanResponse = await axios.post('/api/scan-folder', {
           path: dataDir
@@ -50,13 +95,19 @@ export default {
         
         if (scanResponse.data.folder_path) {
           currentFolderPath.value = scanResponse.data.folder_path
+          folderRestoredFromMemory.value = false
+          // Save the default folder for next time
+          saveLastFolder(scanResponse.data.folder_path)
+          // Emit folder change event first
+          emit('folder-changed', scanResponse.data.folder_path)
           // Emit folder selection for default data directory
           emit('folder-selected', scanResponse.data.folder_path)
+          console.log('Using default data directory:', dataDir)
         }
         
       } catch (scanError) {
         console.warn('Failed to scan default data directory:', scanError.message)
-        // Don't show error to user - just means no default folder available
+        console.log('No folder selected - user will need to select one manually')
       }
     }
     
@@ -70,6 +121,13 @@ export default {
     
     const handleFolderSelected = (folderData) => {
       currentFolderPath.value = folderData.folderPath
+      folderRestoredFromMemory.value = false
+      
+      // Save the selected folder for next time
+      saveLastFolder(folderData.folderPath)
+      
+      // Emit folder change event first when user manually selects folder
+      emit('folder-changed', folderData.folderPath)
       
       // Emit the folder selection event to parent
       emit('folder-selected', folderData.folderPath)
@@ -88,6 +146,8 @@ export default {
     
     const handlePreprocessingCompleted = () => {
       console.log('Preprocessing completed')
+      // Emit event that preprocessing is completed
+      emit('preprocessing-completed', currentFolderPath.value)
     }
     
     // Try to load default folder on component mount
@@ -98,6 +158,7 @@ export default {
     return {
       currentFolderPath,
       showDialog,
+      folderRestoredFromMemory,
       showFolderDialog,
       handleDialogClose,
       handleFolderSelected,
@@ -132,6 +193,13 @@ export default {
   color: #2e7d32;
   font-size: 14px;
   margin-left: 15px;
+}
+
+.restored-indicator {
+  color: #1976d2;
+  font-size: 12px;
+  font-style: italic;
+  margin-left: 8px;
 }
 
 .browse-button {

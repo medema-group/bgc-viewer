@@ -8,17 +8,20 @@
       <!-- Folder Selector Section -->
       <FolderSelector 
         @folder-selected="handleFolderSelected"
+        @folder-changed="handleFolderChanged"
+        @preprocessing-completed="handlePreprocessingCompleted"
       />
 
       <!-- Record List Selector Section -->
       <RecordListSelector 
+        ref="recordListSelectorRef"
         :database-folder="selectedDatabaseFolder"
         @record-loaded="handleRecordLoaded" 
       />
 
       <!-- Region Viewer Section -->
       <section class="region-section">
-        <h2>Region Visualization</h2>
+        <h2>Record Visualization</h2>
         <RegionViewerComponent ref="regionViewerRef" />
       </section>
 
@@ -49,6 +52,7 @@ export default {
   },
   setup() {
     const regionViewerRef = ref(null)
+    const recordListSelectorRef = ref(null)
     
     // Version information
     const appVersion = ref('')
@@ -60,6 +64,22 @@ export default {
     const handleFolderSelected = async (folderPath) => {
       // Update the selected database folder
       selectedDatabaseFolder.value = folderPath
+    }
+
+    const handleFolderChanged = async (folderPath) => {
+      // Clear the record list immediately when folder changes
+      if (recordListSelectorRef.value) {
+        recordListSelectorRef.value.clearRecords()
+      }
+      // Update the selected database folder
+      selectedDatabaseFolder.value = folderPath
+    }
+
+    const handlePreprocessingCompleted = async (folderPath) => {
+      // Refresh the record list when preprocessing is completed
+      if (recordListSelectorRef.value) {
+        recordListSelectorRef.value.refreshEntries()
+      }
     }
 
     const handleRecordLoaded = async (recordData) => {
@@ -87,10 +107,13 @@ export default {
     
     return {
       regionViewerRef,
+      recordListSelectorRef,
       appVersion,
       appName,
       selectedDatabaseFolder,
       handleFolderSelected,
+      handleFolderChanged,
+      handlePreprocessingCompleted,
       handleRecordLoaded
     }
   }
@@ -141,13 +164,6 @@ header h1 {
   padding: 30px;
   margin-bottom: 30px;
   box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-.region-section h2 {
-  margin-top: 0;
-  color: #2c3e50;
-  border-bottom: 2px solid #3498db;
-  padding-bottom: 10px;
 }
 
 .app-footer {

@@ -418,14 +418,13 @@ export default {
                            feature.qualifiers?.note?.[0]?.match(/PF\d+/)?.[0]
             const [pfamAccession, pfamVersion] = pfamId ? pfamId.split('.') : [null, null];
             const domainColor = pfamAccession && pfam_colormap[pfamAccession] ? pfam_colormap[pfamAccession] : null
-            const label = feature.qualifiers?.description?.[0] || ''
             
             const annotation = {
               id: `${feature.type}-${location.start}-${location.end}`,
               trackId: trackId,
               type: 'box',
               classes: classes,
-              label: label,
+              label: pfamAccession || 'unknown',
               start: location.start,
               end: location.end,
               fill: domainColor,

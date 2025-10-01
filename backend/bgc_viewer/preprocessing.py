@@ -143,8 +143,8 @@ def preprocess_antismash_files(
     db_path = input_path / "attributes.db"
     conn = create_attributes_database(db_path)
     
-    # Process all JSON files
-    json_files = list(input_path.glob("*.json"))
+    # Process first 100 JSON files only
+    json_files = list(input_path.glob("*.json"))[:100]
     total_records = 0
     total_attributes = 0
     files_processed = 0
