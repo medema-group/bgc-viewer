@@ -91,15 +91,25 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         """
         
         params = []
-        where_clause = ""
+        where_conditions = []
+        
+        # Always filter for records with relevant cluster types
+        # TODO: Later we will move this to a user-selectable filter
+        cluster_filter = "(r.protocluster_count > 0 OR r.proto_core_count > 0 OR r.cand_cluster_count > 0)"
+        where_conditions.append(cluster_filter)
         
         # Add search filter if provided
         if search:
             # Search in filename, record_id, organism, product, and attribute values
-            where_clause = """ WHERE (r.filename LIKE ? OR r.record_id LIKE ? OR r.organism LIKE ? OR r.product LIKE ? 
+            search_condition = """(r.filename LIKE ? OR r.record_id LIKE ? OR r.organism LIKE ? OR r.product LIKE ? 
                                OR EXISTS (SELECT 1 FROM attributes a2 WHERE a2.record_ref = r.id AND a2.attribute_value LIKE ?))"""
+            where_conditions.append(search_condition)
             search_param = f"%{search}%"
             params = [search_param, search_param, search_param, search_param, search_param]
+        
+        # Build WHERE clause
+        if where_conditions:
+            where_clause = " WHERE " + " AND ".join(where_conditions)
             base_query += where_clause
             count_query += where_clause
         

@@ -29,6 +29,11 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
             product TEXT,
             organism TEXT,
             description TEXT,
+            protocluster_count INTEGER DEFAULT 0,
+            proto_core_count INTEGER DEFAULT 0,
+            pfam_domain_count INTEGER DEFAULT 0,
+            cds_count INTEGER DEFAULT 0,
+            cand_cluster_count INTEGER DEFAULT 0,
             UNIQUE(filename, record_id)
         )
     """)
@@ -110,12 +115,31 @@ def extract_record_metadata(record: Dict[str, Any], filename: str, record_id: st
         'feature_count': 0,
         'product': None,
         'organism': None,
-        'description': record.get('description', None)
+        'description': record.get('description', None),
+        'protocluster_count': 0,
+        'proto_core_count': 0,
+        'pfam_domain_count': 0,
+        'cds_count': 0,
+        'cand_cluster_count': 0
     }
     
-    # Count features
+    # Count features by type
     if 'features' in record and isinstance(record['features'], list):
         metadata['feature_count'] = len(record['features'])
+        
+        # Count specific feature types
+        for feature in record['features']:
+            feature_type = feature.get('type', '').lower()
+            if feature_type == 'protocluster':
+                metadata['protocluster_count'] += 1
+            elif feature_type == 'proto_core':
+                metadata['proto_core_count'] += 1
+            elif feature_type == 'pfam_domain':
+                metadata['pfam_domain_count'] += 1
+            elif feature_type == 'cds':
+                metadata['cds_count'] += 1
+            elif feature_type == 'cand_cluster':
+                metadata['cand_cluster_count'] += 1
     
     # Extract organism from source features
     if 'features' in record and isinstance(record['features'], list):
@@ -281,12 +305,16 @@ def preprocess_antismash_files(
                     for record_metadata in file_record_data:
                         cursor = conn.execute(
                             """INSERT INTO records 
-                               (filename, record_id, byte_start, byte_end, feature_count, product, organism, description)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                               (filename, record_id, byte_start, byte_end, feature_count, product, organism, description,
+                                protocluster_count, proto_core_count, pfam_domain_count, cds_count, cand_cluster_count)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                             (record_metadata['filename'], record_metadata['record_id'], 
                              record_metadata['byte_start'], record_metadata['byte_end'],
                              record_metadata['feature_count'], record_metadata['product'],
-                             record_metadata['organism'], record_metadata['description'])
+                             record_metadata['organism'], record_metadata['description'],
+                             record_metadata['protocluster_count'], record_metadata['proto_core_count'],
+                             record_metadata['pfam_domain_count'], record_metadata['cds_count'],
+                             record_metadata['cand_cluster_count'])
                         )
                         record_internal_id = cursor.lastrowid
                         
