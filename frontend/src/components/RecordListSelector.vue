@@ -65,23 +65,34 @@
           :class="['record-item', { 'selected': selectedRecordId === record.id, 'loading': loadingRecordId === record.id }]"
           @click="selectAndLoadRecord(record)"
         >
-          <div class="record-main">
-            <div class="record-filename">
-              <span class="record-id">{{ record.record_id }}</span>
-              <span class="filename">{{ record.filename }}</span>
-              <span class="organism">{{ record.organism }}</span>
+          <div class="record-content">
+            <!-- First Line: Record ID -->
+            <div class="record-id-line">
+              {{ record.record_id }}
             </div>
-            <div class="record-stats">
-              <span class="feature-count">{{ record.feature_count }} features</span>
-              <div class="record-tags" v-if="record.products && record.products.length > 0">
-                <span v-for="product in record.products.slice(0, 2)" :key="product" class="product-tag">{{ product }}</span>
-              </div>
-              <div class="record-tags" v-if="record.cluster_types && record.cluster_types.length > 0">
-                <span v-for="cluster in record.cluster_types.slice(0, 2)" :key="cluster" class="cluster-tag">{{ cluster }}</span>
-              </div>
+            
+            <!-- Second Line: All other attributes in dark gray -->
+            <div class="record-details-line">
+              <span class="detail-item">{{ record.filename }}</span>
+              <span class="detail-separator">•</span>
+              <span class="detail-item" v-if="record.organism">{{ record.organism }}</span>
+              <span class="detail-separator" v-if="record.organism">•</span>
+              <span class="detail-item" v-if="record.description">{{ record.description }}</span>
+              <span class="detail-separator" v-if="record.description">•</span>
+              <span class="detail-item">{{ record.feature_count }} features</span>
+              <span class="detail-separator" v-if="record.products && record.products.length > 0">•</span>
+              <span class="detail-item" v-if="record.products && record.products.length > 0">
+                {{ record.products.slice(0, 2).join(', ') }}
+              </span>
+              <span class="detail-separator" v-if="record.cluster_types && record.cluster_types.length > 0">•</span>
+              <span class="detail-item" v-if="record.cluster_types && record.cluster_types.length > 0">
+                {{ record.cluster_types.slice(0, 2).join(', ') }}
+              </span>
             </div>
           </div>
-          <LoadingSpinner v-if="loadingRecordId === record.id" style="margin-left: 10px;" />
+          <div v-if="loadingRecordId === record.id" class="spinner-container">
+            <LoadingSpinner />
+          </div>
         </div>
       </div>
       
@@ -435,9 +446,8 @@ export default {
 
 .record-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 16px;
+  align-items: flex-start;
+  padding: 10px 16px;
   border-bottom: 1px solid #eee;
   cursor: pointer;
   transition: background-color 0.2s ease;
@@ -462,84 +472,46 @@ export default {
   opacity: 0.7;
 }
 
-.record-main {
-  flex-grow: 1;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.record-filename {
+.record-content {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  width: 100%;
 }
 
-.filename {
-  font-size: 13px;
-  color: #666;
-  font-family: monospace;
-}
-
-.record-id {
+/* First Line: Record ID */
+.record-id-line {
   font-weight: 600;
   color: #333;
+  font-size: 16px;
 }
 
-.organism {
-  font-size: 12px;
-  color: #2c5aa0;
-  font-style: italic;
-}
-
-.record-stats {
-  text-align: right;
-  margin-left: 15px;
+/* Second Line: All other attributes */
+.record-details-line {
+  font-size: 13px;
+  color: #555;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: flex-end;
-}
-
-.feature-count {
-  font-size: 12px;
-  color: #888;
-  background: #f0f0f0;
-  padding: 2px 6px;
-  border-radius: 3px;
-  white-space: nowrap;
-}
-
-.record-tags {
-  display: flex;
-  gap: 4px;
+  align-items: center;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  gap: 4px;
+  line-height: 1.3;
 }
 
-.product-tag {
-  font-size: 11px;
-  color: #2e7d32;
-  background: #e8f5e8;
-  padding: 1px 4px;
-  border-radius: 2px;
-  white-space: nowrap;
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.detail-item {
+  color: #555;
 }
 
-.cluster-tag {
-  font-size: 11px;
-  color: #1565c0;
-  background: #e3f2fd;
-  padding: 1px 4px;
-  border-radius: 2px;
-  white-space: nowrap;
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.detail-separator {
+  color: #999;
+  margin: 0 2px;
+}
+
+.spinner-container {
+  margin-left: auto;
+  padding-left: 10px;
+  display: flex;
+  align-items: center;
 }
 
 
@@ -568,20 +540,23 @@ export default {
     justify-content: center;
   }
   
-  .record-main {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 5px;
+  .record-content {
+    gap: 6px;
   }
   
-  .record-stats {
-    margin-left: 0;
-    text-align: left;
-    align-items: flex-start;
+  .record-id-line {
+    font-size: 15px;
   }
-
-  .record-tags {
-    justify-content: flex-start;
+  
+  .record-details-line {
+    font-size: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  
+  .detail-separator {
+    display: none;
   }
 }
 </style>
