@@ -73,10 +73,15 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
     try:
         conn = sqlite3.connect(db_path)
         
-        # Build query to get distinct file+record combinations
+        # Build query to get distinct file+record combinations with additional stats
         base_query = """
-            SELECT DISTINCT filename, record_id, 
-                   COUNT(*) as attribute_count
+            SELECT 
+                filename, 
+                record_id,
+                COUNT(CASE WHEN attribute_name LIKE '%type' AND origin = 'annotations' THEN 1 END) as feature_count,
+                MAX(CASE WHEN attribute_name = 'organism' AND origin = 'source' THEN attribute_value END) as organism,
+                GROUP_CONCAT(DISTINCT CASE WHEN attribute_name LIKE '%product' AND origin = 'annotations' THEN attribute_value END) as products,
+                GROUP_CONCAT(DISTINCT CASE WHEN (attribute_name LIKE '%type' OR attribute_name LIKE '%category') AND origin = 'annotations' THEN attribute_value END) as cluster_types
             FROM attributes 
         """
         count_query = """
@@ -90,13 +95,7 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         # Add search filter if provided
         if search:
             # Search in filename, record_id, and attribute_value columns
-            where_clause = """ WHERE (filename LIKE ? OR record_id LIKE ? 
-                              OR EXISTS (
-                                  SELECT 1 FROM attributes a2 
-                                  WHERE a2.filename = attributes.filename 
-                                  AND a2.record_id = attributes.record_id 
-                                  AND a2.attribute_value LIKE ?
-                              ))"""
+            where_clause = """ WHERE (filename LIKE ? OR record_id LIKE ? OR attribute_value LIKE ?)"""
             search_param = f"%{search}%"
             params = [search_param, search_param, search_param]
             base_query += where_clause
@@ -124,11 +123,14 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         entries = []
         
         for row in cursor.fetchall():
-            filename, record_id, attr_count = row
+            filename, record_id, feature_count, organism, products, cluster_types = row
             entries.append({
                 "filename": filename,
                 "record_id": record_id,
-                "attribute_count": attr_count,
+                "feature_count": feature_count or 0,
+                "organism": organism or "Unknown",
+                "products": products.split(',') if products else [],
+                "cluster_types": cluster_types.split(',') if cluster_types else [],
                 "id": f"{filename}:{record_id}"  # Unique identifier for frontend
             })
         

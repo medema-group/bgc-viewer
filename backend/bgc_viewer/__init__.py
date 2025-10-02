@@ -13,6 +13,7 @@ except ImportError:
 __author__ = "Your Name"
 __email__ = "your.email@example.com"
 
-from .app import app
+# Don't import app here to avoid circular imports when running with -m
+# from .app import app
 
-__all__ = ["app"]
+__all__ = []

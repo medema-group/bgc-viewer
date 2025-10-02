@@ -69,9 +69,16 @@
             <div class="record-filename">
               <span class="record-id">{{ record.record_id }}</span>
               <span class="filename">{{ record.filename }}</span>
+              <span class="organism">{{ record.organism }}</span>
             </div>
             <div class="record-stats">
-              <span class="attribute-count">{{ record.attribute_count }} attributes</span>
+              <span class="feature-count">{{ record.feature_count }} features</span>
+              <div class="record-tags" v-if="record.products && record.products.length > 0">
+                <span v-for="product in record.products.slice(0, 2)" :key="product" class="product-tag">{{ product }}</span>
+              </div>
+              <div class="record-tags" v-if="record.cluster_types && record.cluster_types.length > 0">
+                <span v-for="cluster in record.cluster_types.slice(0, 2)" :key="cluster" class="cluster-tag">{{ cluster }}</span>
+              </div>
             </div>
           </div>
           <div v-if="loadingRecordId === record.id" class="loading-spinner">
@@ -462,6 +469,9 @@ export default {
 
 .record-filename {
   flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .filename {
@@ -473,21 +483,61 @@ export default {
 .record-id {
   font-weight: 600;
   color: #333;
-  display: block;
+}
+
+.organism {
+  font-size: 12px;
+  color: #2c5aa0;
+  font-style: italic;
 }
 
 .record-stats {
   text-align: right;
   margin-left: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
 }
 
-.attribute-count {
+.feature-count {
   font-size: 12px;
   color: #888;
   background: #f0f0f0;
   padding: 2px 6px;
   border-radius: 3px;
   white-space: nowrap;
+}
+
+.record-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.product-tag {
+  font-size: 11px;
+  color: #2e7d32;
+  background: #e8f5e8;
+  padding: 1px 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cluster-tag {
+  font-size: 11px;
+  color: #1565c0;
+  background: #e3f2fd;
+  padding: 1px 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .loading-spinner {
@@ -535,6 +585,11 @@ export default {
   .record-stats {
     margin-left: 0;
     text-align: left;
+    align-items: flex-start;
+  }
+
+  .record-tags {
+    justify-content: flex-start;
   }
 }
 </style>
