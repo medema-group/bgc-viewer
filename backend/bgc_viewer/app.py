@@ -704,11 +704,7 @@ def run_preprocessing(folder_path):
             'status': 'completed',
             'current_file': None,
             'files_processed': results['files_processed'],
-            'total_files': results['files_processed'],  # Final count
-            'total_records': results.get('total_records', 0),
-            'total_attributes': results.get('total_attributes', 0),
-            'processing_time_seconds': results.get('processing_time_seconds'),
-            'processing_time_formatted': results.get('processing_time_formatted')
+            'total_files': results['files_processed']  # Final count
         })
             
     except Exception as e:
