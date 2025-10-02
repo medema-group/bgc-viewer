@@ -1,88 +1,85 @@
 <template>
-  <div class="region-viewer-container">
-    <!-- Current Record Info -->
-    <div v-if="currentRecord" class="current-record-info">
-      <h4>Current Record: {{ currentRecord.filename }} - {{ currentRecord.recordId }}</h4>
-      <div class="record-details">
-        <span class="feature-count">{{ currentRecord.recordInfo.feature_count }} features</span>
-        <span v-if="currentRecord.recordInfo.description" class="description">
-          - {{ currentRecord.recordInfo.description }}
-        </span>
-      </div>
+  <!-- Region Selector (shown when record is loaded) -->
+  <div v-if="currentRecord" class="controls">
+    <select v-if="regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
+      <option value="">Show all features</option>
+      <option v-for="region in regions" :key="region.id" :value="region.id">
+        Region {{ region.region_number }} - {{ region.product.join(', ') }}
+      </option>
+    </select>
+
+    <!-- Show message when no regions are available -->
+    <div v-if="regions.length === 0 && !loading" class="no-regions-message">
+      No regions found - showing all features for this record
     </div>
     
-    <!-- Region Selector (shown when record is loaded) -->
-    <div v-if="currentRecord" class="controls">
-      <select v-if="regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
-        <option value="">Show all features</option>
-        <option v-for="region in regions" :key="region.id" :value="region.id">
-          Region {{ region.region_number }} - {{ region.product.join(', ') }}
-        </option>
-      </select>
-      
-      <!-- Show message when no regions are available -->
-      <div v-if="regions.length === 0 && !loading" class="no-regions-message">
-        No regions found - showing all features for this record
-      </div>
-      
-      <div v-if="availableTracks.length > 0" class="feature-controls">
-        <div class="multi-select-container">
-          <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
-            <div class="selected-display">
-              <span v-if="selectedTracks.length === availableTracks.length">
-                All tracks ({{ selectedTracks.length }})
-              </span>
-              <span v-else-if="selectedTracks.length === 0">
-                No tracks selected
-              </span>
-              <span v-else>
-                {{ selectedTracks.length }} tracks selected
-              </span>
-              <span class="dropdown-arrow">▼</span>
+    <div v-if="availableTracks.length > 0" class="feature-controls">
+      <div class="multi-select-container">
+        <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
+          <div class="selected-display">
+            <span v-if="selectedTracks.length === availableTracks.length">
+              All tracks ({{ selectedTracks.length }})
+            </span>
+            <span v-else-if="selectedTracks.length === 0">
+              No tracks selected
+            </span>
+            <span v-else>
+              {{ selectedTracks.length }} tracks selected
+            </span>
+            <span class="dropdown-arrow">▼</span>
+          </div>
+          <div v-if="dropdownOpen" class="dropdown-options" @click.stop>
+            <div class="select-all-option">
+              <label>
+                <input 
+                  type="checkbox" 
+                  :checked="selectedTracks.length === availableTracks.length"
+                  :indeterminate="selectedTracks.length > 0 && selectedTracks.length < availableTracks.length"
+                  @change="toggleSelectAll"
+                >
+                Select All
+              </label>
             </div>
-            <div v-if="dropdownOpen" class="dropdown-options" @click.stop>
-              <div class="select-all-option">
-                <label>
-                  <input 
-                    type="checkbox" 
-                    :checked="selectedTracks.length === availableTracks.length"
-                    :indeterminate="selectedTracks.length > 0 && selectedTracks.length < availableTracks.length"
-                    @change="toggleSelectAll"
-                  >
-                  Select All
-                </label>
-              </div>
-              <div class="option-separator"></div>
-              <div 
-                v-for="track in availableTracks" 
-                :key="track.id" 
-                class="dropdown-option"
-              >
-                <label>
-                  <input 
-                    type="checkbox" 
-                    :value="track.id"
-                    v-model="selectedTracks"
-                    @change="updateViewer"
-                  >
-                  {{ track.label }} ({{ track.annotationCount }})
-                </label>
-              </div>
+            <div class="option-separator"></div>
+            <div 
+              v-for="track in availableTracks" 
+              :key="track.id" 
+              class="dropdown-option"
+            >
+              <label>
+                <input 
+                  type="checkbox" 
+                  :value="track.id"
+                  v-model="selectedTracks"
+                  @change="updateViewer"
+                >
+                {{ track.label }} ({{ track.annotationCount }})
+              </label>
             </div>
           </div>
         </div>
       </div>
     </div>
-    
-    <div ref="viewerContainer" class="viewer-container" v-show="currentRecord"></div>
-    
-    <div v-if="loading" class="loading">
-      Loading region data...
+  </div>
+
+  <!-- Current Record Info -->
+  <div v-if="currentRecord" class="current-record-info">
+    <span>Current Record: {{ currentRecord.recordId }} ({{ currentRecord.filename }})</span>
+    <div class="record-details">
+      <span v-if="currentRecord.recordInfo.description" class="description">
+        {{ currentRecord.recordInfo.description }}
+      </span>
     </div>
-    
-    <div v-if="error" class="error">
-      {{ error }}
-    </div>
+  </div>
+  
+  <div ref="viewerContainer" class="viewer-container" v-show="currentRecord"></div>
+  
+  <div v-if="loading" class="loading">
+    Loading region data...
+  </div>
+  
+  <div v-if="error" class="error">
+    {{ error }}
   </div>
 </template>
 
@@ -637,25 +634,10 @@ export default {
 </script>
 
 <style scoped>
-.region-viewer-container {
-  margin: 20px 0;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 20px;
-}
 
 .current-record-info {
-  margin: 20px 0;
-  padding: 15px;
-  background-color: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 4px;
-}
-
-.current-record-info h4 {
-  margin: 0 0 8px 0;
-  color: #333;
-  font-size: 16px;
+  margin: 10px 0;
+  padding: 8px;
 }
 
 .record-details {
@@ -677,6 +659,7 @@ export default {
 }
 
 .region-select {
+  margin: 20px 0px 0px 0px;
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 4px;
