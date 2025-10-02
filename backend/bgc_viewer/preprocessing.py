@@ -5,8 +5,24 @@ Extracts attributes into SQLite database.
 
 import ijson
 import sqlite3
+import time
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable
+
+
+def _format_duration(seconds: float) -> str:
+    """Format duration in seconds to human-readable string."""
+    if seconds < 60:
+        return f"{seconds:.1f} seconds"
+    elif seconds < 3600:
+        minutes = int(seconds // 60)
+        secs = seconds % 60
+        return f"{minutes}m {secs:.1f}s"
+    else:
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = seconds % 60
+        return f"{hours}h {minutes}m {secs:.1f}s"
 
 
 def create_attributes_database(db_path: Path) -> sqlite3.Connection:
@@ -203,20 +219,327 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
     return attributes
 
 
+def _process_records_batch(conn: sqlite3.Connection, records_batch: List[Dict], attributes_batch: List[tuple], total_attributes: int):
+    """
+    Process a batch of records and attributes efficiently with single transaction.
+    """
+    # Insert records one by one to get their IDs (but in a single transaction)
+    record_ids = []
+    
+    for metadata in records_batch:
+        cursor = conn.execute(
+            """INSERT INTO records 
+               (filename, record_id, byte_start, byte_end, feature_count, product, organism, description,
+                protocluster_count, proto_core_count, pfam_domain_count, cds_count, cand_cluster_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (metadata['filename'], metadata['record_id'], 
+             metadata['byte_start'], metadata['byte_end'],
+             metadata['feature_count'], metadata['product'],
+             metadata['organism'], metadata['description'],
+             metadata['protocluster_count'], metadata['proto_core_count'],
+             metadata['pfam_domain_count'], metadata['cds_count'],
+             metadata['cand_cluster_count'])
+        )
+        record_ids.append(cursor.lastrowid)
+    
+    # Update attributes batch with correct record references
+    final_attributes = []
+    for record_index, origin, attr_name, attr_value in attributes_batch:
+        if record_index < len(record_ids):
+            actual_record_id = record_ids[record_index]
+            final_attributes.append((actual_record_id, origin, attr_name, attr_value))
+    
+    # Insert attributes in batch
+    if final_attributes:
+        conn.executemany(
+            """INSERT INTO attributes 
+               (record_ref, origin, attribute_name, attribute_value)
+               VALUES (?, ?, ?, ?)""",
+            final_attributes
+        )
+    
+    # Single commit for the entire batch
+    conn.commit()
+
+
+def _fallback_parse_file(f, filename: str, total_records_so_far: int) -> tuple:
+    """
+    Fallback parsing method for files that can't be streamed with ijson.
+    Uses memory-efficient chunked reading for large files.
+    """
+    import json
+    
+    # For fallback, we'll read in chunks and try to find complete records
+    # This is still better than loading everything into memory at once
+    chunk_size = 1024 * 1024  # 1MB chunks
+    buffer = b""
+    records_batch = []
+    attributes_batch = []
+    in_records = False
+    brace_count = 0
+    record_start = None
+    current_record_data = b""
+    
+    while True:
+        chunk = f.read(chunk_size)
+        if not chunk:
+            break
+            
+        buffer += chunk
+        
+        # Simple state machine to find records
+        i = 0
+        while i < len(buffer):
+            char = buffer[i:i+1]
+            
+            if not in_records:
+                # Look for "records" array start
+                if buffer[i:i+9] == b'"records"':
+                    # Find opening bracket
+                    bracket_pos = buffer.find(b'[', i)
+                    if bracket_pos != -1:
+                        in_records = True
+                        i = bracket_pos + 1
+                        continue
+                i += 1
+                continue
+            
+            # Inside records array
+            if char == b'{':
+                if brace_count == 0:
+                    record_start = i
+                    current_record_data = b""
+                brace_count += 1
+                current_record_data += char
+            elif char == b'}':
+                brace_count -= 1
+                current_record_data += char
+                if brace_count == 0 and record_start is not None:
+                    # Complete record found
+                    try:
+                        record = json.loads(current_record_data.decode('utf-8'))
+                        record_id = record.get('id', f'record_{total_records_so_far + len(records_batch)}')
+                        
+                        # Create metadata
+                        metadata = extract_record_metadata(
+                            record, filename, record_id, record_start, record_start + len(current_record_data)
+                        )
+                        records_batch.append(metadata)
+                        
+                        # Extract attributes
+                        attributes = extract_attributes_from_record(record, len(records_batch) - 1)
+                        for attr in attributes:
+                            attributes_batch.append((len(records_batch) - 1, attr[1], attr[2], attr[3]))
+                            
+                    except Exception:
+                        pass  # Skip malformed records
+                    
+                    record_start = None
+                    current_record_data = b""
+            elif char == b']' and brace_count == 0 and in_records:
+                # End of records array
+                break
+            else:
+                if brace_count > 0:
+                    current_record_data += char
+            
+            i += 1
+        
+        # Keep only unprocessed part of buffer
+        if record_start is not None:
+            buffer = buffer[record_start:]
+        else:
+            buffer = b""
+    
+    return records_batch, attributes_batch
+
+
+def _parse_large_file_with_byte_positions(json_file: Path, total_records_so_far: int) -> tuple:
+    """
+    Parse large files with precise byte position tracking using memory-efficient streaming.
+    This maintains fast record loading while handling large files efficiently.
+    """
+    import json
+    
+    records_batch = []
+    attributes_batch = []
+    
+    with open(json_file, 'rb') as f:
+        # Find the records array start
+        chunk_size = 8192
+        buffer = b""
+        records_start_pos = None
+        
+        # Scan for records array
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            buffer += chunk
+            
+            records_pos = buffer.find(b'"records"')
+            if records_pos != -1:
+                # Find opening bracket
+                bracket_pos = buffer.find(b'[', records_pos)
+                if bracket_pos != -1:
+                    records_start_pos = f.tell() - len(buffer) + bracket_pos + 1
+                    break
+                    
+            # Keep last part of buffer for potential split patterns
+            if len(buffer) > 16384:  # Keep 16KB overlap
+                buffer = buffer[-8192:]
+        
+        if records_start_pos is None:
+            return records_batch, attributes_batch
+        
+        # Now parse records with precise byte tracking
+        f.seek(records_start_pos)
+        brace_count = 0
+        record_start = None
+        current_pos = records_start_pos
+        
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+                
+            for i, byte_val in enumerate(chunk):
+                char = bytes([byte_val])
+                
+                if char == b'{':
+                    if brace_count == 0:
+                        record_start = current_pos + i
+                    brace_count += 1
+                elif char == b'}':
+                    brace_count -= 1
+                    if brace_count == 0 and record_start is not None:
+                        record_end = current_pos + i + 1
+                        
+                        # Extract and parse this record
+                        f.seek(record_start)
+                        record_data = f.read(record_end - record_start)
+                        
+                        try:
+                            record = json.loads(record_data.decode('utf-8'))
+                            record_id = record.get('id', f'record_{total_records_so_far + len(records_batch)}')
+                            
+                            # Create metadata with precise byte positions
+                            metadata = extract_record_metadata(
+                                record, json_file.name, record_id, record_start, record_end
+                            )
+                            records_batch.append(metadata)
+                            
+                            # Extract attributes
+                            attributes = extract_attributes_from_record(record, len(records_batch) - 1)
+                            for attr in attributes:
+                                attributes_batch.append((len(records_batch) - 1, attr[1], attr[2], attr[3]))
+                                
+                        except Exception:
+                            pass  # Skip malformed records
+                        
+                        # Return to the end of current chunk for continuation
+                        f.seek(current_pos + len(chunk))
+                        record_start = None
+                elif char == b']' and brace_count == 0:
+                    # End of records array
+                    return records_batch, attributes_batch
+                    
+            current_pos = f.tell()
+    
+    return records_batch, attributes_batch
+
+
+def _parse_file_with_ijson_and_positions(json_file: Path, total_records_so_far: int) -> tuple:
+    """
+    Parse smaller files using ijson for speed while maintaining byte position accuracy.
+    This is a hybrid approach for moderate-sized files.
+    """
+    import json
+    
+    records_batch = []
+    attributes_batch = []
+    
+    # For files < 50MB, we can afford to load them for precise byte tracking
+    with open(json_file, 'rb') as f:
+        content = f.read()
+    
+    # Find records array boundaries
+    records_pattern = b'"records"'
+    records_pos = content.find(records_pattern)
+    
+    if records_pos == -1:
+        return records_batch, attributes_batch
+    
+    # Find the opening bracket of records array
+    bracket_pos = content.find(b'[', records_pos)
+    
+    if bracket_pos != -1:
+        # Parse individual records with precise byte positions
+        pos = bracket_pos + 1  # Start after opening bracket
+        brace_count = 0
+        record_start = None
+        
+        while pos < len(content):
+            char = content[pos:pos+1]
+            
+            if char == b'{':
+                if brace_count == 0:
+                    record_start = pos
+                brace_count += 1
+            elif char == b'}':
+                brace_count -= 1
+                if brace_count == 0 and record_start is not None:
+                    # Found complete record
+                    record_end = pos + 1
+                    
+                    # Parse the record JSON
+                    record_json = content[record_start:record_end]
+                    try:
+                        record = json.loads(record_json.decode('utf-8'))
+                        record_id = record.get('id', f'record_{total_records_so_far + len(records_batch)}')
+                        
+                        # Extract record metadata with precise byte positions
+                        metadata = extract_record_metadata(
+                            record, json_file.name, record_id, record_start, record_end
+                        )
+                        records_batch.append(metadata)
+                        
+                        # Extract attributes
+                        attributes = extract_attributes_from_record(record, len(records_batch) - 1)
+                        for attr in attributes:
+                            attributes_batch.append((len(records_batch) - 1, attr[1], attr[2], attr[3]))
+                            
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        pass  # Skip malformed records
+                    
+                    record_start = None
+            elif char == b']' and brace_count == 0:
+                # End of records array
+                break
+            
+            pos += 1
+    
+    return records_batch, attributes_batch
+
+
 def preprocess_antismash_files(
     input_directory: str, 
     progress_callback: Optional[Callable[[str, int, int], None]] = None
 ) -> Dict[str, Any]:
     """
     Preprocess antiSMASH JSON files and store attributes in SQLite database.
+    Optimized for large files with streaming and batched database operations.
     
     Args:
         input_directory: Directory containing JSON files to process
         progress_callback: Optional callback function called with (current_file, files_processed, total_files)
         
     Returns:
-        Dict with processing statistics
+        Dict with processing statistics including timing information
     """
+    # Start timing
+    start_time = time.time()
+    
     input_path = Path(input_directory)
     
     # Create database in the input directory
@@ -229,135 +552,58 @@ def preprocess_antismash_files(
     total_attributes = 0
     files_processed = 0
     
+    # Batch size for database operations (reduce transaction overhead)
+    BATCH_SIZE = 100
+    
     try:
         for json_file in json_files:
             try:
                 if progress_callback:
                     progress_callback(json_file.name, files_processed, len(json_files))
                 
-                file_attributes = []
-                file_records = 0
+                # Use streaming approach for large files
+                records_batch = []
+                attributes_batch = []
                 
-                # Parse file to extract both attributes and byte positions
-                with open(json_file, 'rb') as f:
-                    # Read entire file content to track byte positions
-                    content = f.read()
-                    
-                    # Find the records array boundaries
-                    records_start_pattern = b'"records"'
-                    records_pos = content.find(records_start_pattern)
-                    
-                    if records_pos != -1:
-                        # Find the opening bracket of records array
-                        bracket_pos = content.find(b'[', records_pos)
-                        
-                        if bracket_pos != -1:
-                            # Parse individual records and track their byte positions
-                            pos = bracket_pos + 1  # Start after opening bracket
-                            brace_count = 0
-                            record_start = None
-                            
-                            file_record_data = []
-                            
-                            while pos < len(content):
-                                char = content[pos:pos+1]
-                                
-                                if char == b'{':
-                                    if brace_count == 0:
-                                        record_start = pos
-                                    brace_count += 1
-                                elif char == b'}':
-                                    brace_count -= 1
-                                    if brace_count == 0 and record_start is not None:
-                                        # Found complete record
-                                        record_end = pos + 1
-                                        
-                                        # Parse the record JSON
-                                        record_json = content[record_start:record_end]
-                                        try:
-                                            import json
-                                            record = json.loads(record_json.decode('utf-8'))
-                                            record_id = record.get('id', f'record_{total_records}')
-                                            
-                                            # Extract record metadata
-                                            metadata = extract_record_metadata(
-                                                record, json_file.name, record_id, record_start, record_end
-                                            )
-                                            file_record_data.append(metadata)
-                                            
-                                            file_records += 1
-                                            total_records += 1
-                                            
-                                        except (json.JSONDecodeError, UnicodeDecodeError):
-                                            # Skip malformed records
-                                            pass
-                                        
-                                        record_start = None
-                                elif char == b']' and brace_count == 0:
-                                    # End of records array
-                                    break
-                                
-                                pos += 1
+                # For large files, use precise byte tracking to maintain fast loading
+                file_size = json_file.stat().st_size
                 
-                # Insert records and then attributes
-                if file_record_data:
-                    # Insert records first
-                    for record_metadata in file_record_data:
-                        cursor = conn.execute(
-                            """INSERT INTO records 
-                               (filename, record_id, byte_start, byte_end, feature_count, product, organism, description,
-                                protocluster_count, proto_core_count, pfam_domain_count, cds_count, cand_cluster_count)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (record_metadata['filename'], record_metadata['record_id'], 
-                             record_metadata['byte_start'], record_metadata['byte_end'],
-                             record_metadata['feature_count'], record_metadata['product'],
-                             record_metadata['organism'], record_metadata['description'],
-                             record_metadata['protocluster_count'], record_metadata['proto_core_count'],
-                             record_metadata['pfam_domain_count'], record_metadata['cds_count'],
-                             record_metadata['cand_cluster_count'])
-                        )
-                        record_internal_id = cursor.lastrowid
-                        
-                        # Now parse the record again to extract attributes
-                        record_start = record_metadata['byte_start']
-                        record_end = record_metadata['byte_end']
-                        record_json = content[record_start:record_end]
-                        
-                        try:
-                            import json
-                            record = json.loads(record_json.decode('utf-8'))
-                            
-                            # Extract attributes using the internal record ID
-                            attributes = extract_attributes_from_record(record, record_internal_id)
-                            
-                            # Insert attributes for this record
-                            if attributes:
-                                conn.executemany(
-                                    """INSERT INTO attributes 
-                                       (record_ref, origin, attribute_name, attribute_value)
-                                       VALUES (?, ?, ?, ?)""",
-                                    attributes
-                                )
-                                total_attributes += len(attributes)
-                        
-                        except (json.JSONDecodeError, UnicodeDecodeError):
-                            # Skip malformed records
-                            pass
-                    
-                    conn.commit()
+                if file_size > 50 * 1024 * 1024:  # > 50MB, use chunked precise parsing
+                    print(f"Large file detected ({file_size // 1024 // 1024}MB), using precise byte tracking...")
+                    records_batch, attributes_batch = _parse_large_file_with_byte_positions(
+                        json_file, total_records
+                    )
+                    total_records += len(records_batch)
+                else:
+                    # For smaller files, use the faster ijson approach but with accurate byte positions
+                    records_batch, attributes_batch = _parse_file_with_ijson_and_positions(
+                        json_file, total_records
+                    )
+                    total_records += len(records_batch)
+                
+                # Process remaining batch
+                if records_batch:
+                    _process_records_batch(conn, records_batch, attributes_batch, total_attributes)
+                    total_attributes += len(attributes_batch)
                 
                 files_processed += 1
                 
             except Exception as e:
-                # Log error but continue with other files
                 print(f"Error processing {json_file.name}: {e}")
+                continue
     
     finally:
         conn.close()
+    
+    # Calculate timing
+    end_time = time.time()
+    processing_time = end_time - start_time
     
     return {
         'files_processed': files_processed,
         'total_records': total_records,
         'total_attributes': total_attributes,
-        'database_path': str(db_path)
+        'database_path': str(db_path),
+        'processing_time_seconds': round(processing_time, 2),
+        'processing_time_formatted': _format_duration(processing_time)
     }

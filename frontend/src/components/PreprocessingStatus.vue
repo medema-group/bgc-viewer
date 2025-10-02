@@ -44,6 +44,7 @@
           <strong>Processing files...</strong>
           <div class="status-details">
             {{ progress.files_processed }} of {{ progress.total_files }} files processed
+            <span v-if="elapsedTime"> • {{ elapsedTime }} elapsed</span>
           </div>
         </div>
       </div>
@@ -79,6 +80,12 @@
         <strong>Preprocessing completed!</strong>
         <div class="status-details">
           {{ progress.files_processed }} files processed successfully
+          <span v-if="progress.processing_time_formatted"> 
+            in {{ progress.processing_time_formatted }}
+          </span>
+        </div>
+        <div v-if="progress.total_records" class="status-details">
+          {{ progress.total_records }} records, {{ progress.total_attributes }} attributes indexed
         </div>
       </div>
     </div>
@@ -115,7 +122,10 @@ export default {
       folder_path: null
     })
     
+    const elapsedTime = ref('')
+    const startTime = ref(null)
     let statusInterval = null
+    let timeInterval = null
 
     const isRunning = computed(() => progress.value.is_running)
     const hasError = computed(() => progress.value.status === 'error')
@@ -125,6 +135,40 @@ export default {
       if (progress.value.total_files === 0) return 0
       return Math.round((progress.value.files_processed / progress.value.total_files) * 100)
     })
+    
+    const formatElapsedTime = (seconds) => {
+      if (seconds < 60) {
+        return `${seconds}s`
+      } else if (seconds < 3600) {
+        const minutes = Math.floor(seconds / 60)
+        const secs = seconds % 60
+        return `${minutes}m ${secs}s`
+      } else {
+        const hours = Math.floor(seconds / 3600)
+        const minutes = Math.floor((seconds % 3600) / 60)
+        return `${hours}h ${minutes}m`
+      }
+    }
+    
+    const startElapsedTimer = () => {
+      startTime.value = Date.now()
+      elapsedTime.value = '0s'
+      
+      if (timeInterval) clearInterval(timeInterval)
+      timeInterval = setInterval(() => {
+        if (startTime.value) {
+          const elapsed = Math.floor((Date.now() - startTime.value) / 1000)
+          elapsedTime.value = formatElapsedTime(elapsed)
+        }
+      }, 1000)
+    }
+    
+    const stopElapsedTimer = () => {
+      if (timeInterval) {
+        clearInterval(timeInterval)
+        timeInterval = null
+      }
+    }
 
     const checkIndexStatus = async () => {
       if (!props.folderPath) return
@@ -160,6 +204,9 @@ export default {
     const startStatusPolling = () => {
       if (statusInterval) clearInterval(statusInterval)
       
+      // Start the elapsed time counter
+      startElapsedTimer()
+      
       statusInterval = setInterval(async () => {
         try {
           const response = await axios.get('/api/preprocessing-status')
@@ -169,6 +216,7 @@ export default {
           if (!response.data.is_running) {
             clearInterval(statusInterval)
             statusInterval = null
+            stopElapsedTimer()
             
             if (response.data.status === 'completed') {
               // Refresh index status
@@ -182,6 +230,7 @@ export default {
           console.error('Failed to get preprocessing status:', error)
           clearInterval(statusInterval)
           statusInterval = null
+          stopElapsedTimer()
         }
       }, 1000)
     }
@@ -214,6 +263,9 @@ export default {
       if (statusInterval) {
         clearInterval(statusInterval)
       }
+      if (timeInterval) {
+        clearInterval(timeInterval)
+      }
     })
 
     // Watch for folder path changes
@@ -225,6 +277,7 @@ export default {
       showStatus,
       indexStatus,
       progress,
+      elapsedTime,
       isRunning,
       hasError,
       isCompleted,
