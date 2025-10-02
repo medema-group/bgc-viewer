@@ -81,10 +81,10 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
         return load_specific_record_fallback(file_path, target_record_id)
     
     try:
-        # Query the attributes table for byte positions (get any row for this record)
+        # Query the records table for byte positions
         cursor = conn.execute(
-            """SELECT DISTINCT byte_start, byte_end FROM attributes 
-               WHERE filename = ? AND record_id = ? AND byte_start IS NOT NULL LIMIT 1""",
+            """SELECT byte_start, byte_end FROM records 
+               WHERE filename = ? AND record_id = ?""",
             (Path(file_path).name, target_record_id)
         )
         

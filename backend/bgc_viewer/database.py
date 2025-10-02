@@ -73,20 +73,21 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
     try:
         conn = sqlite3.connect(db_path)
         
-        # Build query to get distinct file+record combinations with additional stats
+        # Build query to get records with additional stats from attributes
         base_query = """
             SELECT 
-                filename, 
-                record_id,
-                COUNT(CASE WHEN attribute_name LIKE '%type' AND origin = 'annotations' THEN 1 END) as feature_count,
-                MAX(CASE WHEN attribute_name = 'organism' AND origin = 'source' THEN attribute_value END) as organism,
-                GROUP_CONCAT(DISTINCT CASE WHEN attribute_name LIKE '%product' AND origin = 'annotations' THEN attribute_value END) as products,
-                GROUP_CONCAT(DISTINCT CASE WHEN (attribute_name LIKE '%type' OR attribute_name LIKE '%category') AND origin = 'annotations' THEN attribute_value END) as cluster_types
-            FROM attributes 
+                r.filename, 
+                r.record_id,
+                r.feature_count,
+                COALESCE(r.organism, 'Unknown') as organism,
+                COALESCE(r.product, '') as product,
+                GROUP_CONCAT(DISTINCT CASE WHEN a.attribute_name LIKE '%type' OR a.attribute_name LIKE '%category' THEN a.attribute_value END) as cluster_types,
+                r.id
+            FROM records r
+            LEFT JOIN attributes a ON r.id = a.record_ref
         """
         count_query = """
-            SELECT COUNT(*) FROM (
-                SELECT DISTINCT filename, record_id FROM attributes
+            SELECT COUNT(*) FROM records r
         """
         
         params = []
@@ -94,15 +95,15 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         
         # Add search filter if provided
         if search:
-            # Search in filename, record_id, and attribute_value columns
-            where_clause = """ WHERE (filename LIKE ? OR record_id LIKE ? OR attribute_value LIKE ?)"""
+            # Search in filename, record_id, organism, product, and attribute values
+            where_clause = """ WHERE (r.filename LIKE ? OR r.record_id LIKE ? OR r.organism LIKE ? OR r.product LIKE ? 
+                               OR EXISTS (SELECT 1 FROM attributes a2 WHERE a2.record_ref = r.id AND a2.attribute_value LIKE ?))"""
             search_param = f"%{search}%"
-            params = [search_param, search_param, search_param]
+            params = [search_param, search_param, search_param, search_param, search_param]
             base_query += where_clause
             count_query += where_clause
         
-        # Complete the count query
-        count_query += ")"
+        # Count query is complete (no need to close parenthesis)
         
         # Get total count
         cursor = conn.execute(count_query, params)
@@ -114,8 +115,8 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         
         # Get paginated results
         query = base_query + """
-            GROUP BY filename, record_id
-            ORDER BY filename, record_id
+            GROUP BY r.id, r.filename, r.record_id, r.feature_count, r.organism, r.product
+            ORDER BY r.filename, r.record_id
             LIMIT ? OFFSET ?
         """
         
@@ -123,15 +124,20 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         entries = []
         
         for row in cursor.fetchall():
-            filename, record_id, feature_count, organism, products, cluster_types = row
+            filename, record_id, feature_count, organism, product, cluster_types, internal_id = row
+            
+            # Handle product - convert single product to list format for compatibility
+            products = [product] if product and product.strip() else []
+            
             entries.append({
                 "filename": filename,
                 "record_id": record_id,
                 "feature_count": feature_count or 0,
                 "organism": organism or "Unknown",
-                "products": products.split(',') if products else [],
+                "products": products,
                 "cluster_types": cluster_types.split(',') if cluster_types else [],
-                "id": f"{filename}:{record_id}"  # Unique identifier for frontend
+                "id": f"{filename}:{record_id}",  # Unique identifier for frontend
+                "internal_id": internal_id  # Internal database ID
             })
         
         conn.close()

@@ -17,29 +17,46 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     
     conn = sqlite3.connect(db_path)
     
-    # Create the attributes table with byte position columns
+    # Create the records table to store record metadata
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS attributes (
+        CREATE TABLE IF NOT EXISTS records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             filename TEXT NOT NULL,
             record_id TEXT NOT NULL,
-            origin TEXT NOT NULL,  -- 'annotations' or 'source'
+            byte_start INTEGER NOT NULL,
+            byte_end INTEGER NOT NULL,
+            feature_count INTEGER DEFAULT 0,
+            product TEXT,
+            organism TEXT,
+            description TEXT,
+            UNIQUE(filename, record_id)
+        )
+    """)
+    
+    # Create the attributes table with reference to records
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS attributes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_ref INTEGER NOT NULL,  -- Foreign key to records.id
+            origin TEXT NOT NULL,         -- 'annotations' or 'source'
             attribute_name TEXT NOT NULL,
             attribute_value TEXT NOT NULL,
-            byte_start INTEGER,  -- Start byte position of this record in the file
-            byte_end INTEGER     -- End byte position of this record in the file
+            FOREIGN KEY (record_ref) REFERENCES records (id) ON DELETE CASCADE
         )
     """)
     
     # Create indexes for efficient querying
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_filename ON attributes (filename)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_record_id ON attributes (record_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_origin ON attributes (origin)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_attribute_name ON attributes (attribute_name)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_attribute_value ON attributes (attribute_value)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_name_value ON attributes (attribute_name, attribute_value)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_filename_record_id ON attributes (filename, record_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_byte_positions ON attributes (filename, record_id, byte_start, byte_end)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_filename ON records (filename)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_record_id ON records (record_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_filename_record_id ON records (filename, record_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_product ON records (product)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_organism ON records (organism)")
+    
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_record_ref ON attributes (record_ref)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_origin ON attributes (origin)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_name ON attributes (attribute_name)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_value ON attributes (attribute_value)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_name_value ON attributes (attribute_name, attribute_value)")
     
     conn.commit()
     return conn
@@ -78,12 +95,57 @@ def flatten_complex_value(value: Any, prefix: str = "") -> List[tuple]:
     return results
 
 
-def extract_attributes_from_record(record: Dict[str, Any], filename: str, record_id: str, byte_start: int = None, byte_end: int = None) -> List[tuple]:
+def extract_record_metadata(record: Dict[str, Any], filename: str, record_id: str, byte_start: int, byte_end: int) -> Dict[str, Any]:
     """
-    Extract all attributes from a record for database storage.
+    Extract metadata from a record for the records table.
     
     Returns:
-        List of tuples: (filename, record_id, origin, attribute_name, attribute_value, byte_start, byte_end)
+        Dictionary with record metadata
+    """
+    metadata = {
+        'filename': filename,
+        'record_id': record_id,
+        'byte_start': byte_start,
+        'byte_end': byte_end,
+        'feature_count': 0,
+        'product': None,
+        'organism': None,
+        'description': record.get('description', None)
+    }
+    
+    # Count features
+    if 'features' in record and isinstance(record['features'], list):
+        metadata['feature_count'] = len(record['features'])
+    
+    # Extract organism from source features
+    if 'features' in record and isinstance(record['features'], list):
+        for feature in record['features']:
+            if feature.get('type') == 'source' and 'qualifiers' in feature:
+                qualifiers = feature['qualifiers']
+                if 'organism' in qualifiers:
+                    metadata['organism'] = qualifiers['organism'][0] if isinstance(qualifiers['organism'], list) else qualifiers['organism']
+                    break
+    
+    # Extract product from annotations (look for biosynthetic products)
+    if 'annotations' in record and isinstance(record['annotations'], dict):
+        for region_id, annotation_data in record['annotations'].items():
+            if isinstance(annotation_data, dict) and 'product' in annotation_data:
+                metadata['product'] = annotation_data['product']
+                break
+    
+    return metadata
+
+
+def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -> List[tuple]:
+    """
+    Extract all attributes from a record for the attributes table.
+    
+    Args:
+        record: The record dictionary
+        record_ref_id: The internal ID from the records table
+    
+    Returns:
+        List of tuples: (record_ref, origin, attribute_name, attribute_value)
     """
     attributes = []
     
@@ -95,13 +157,10 @@ def extract_attributes_from_record(record: Dict[str, Any], filename: str, record
                 # Prepend region_id to attribute name
                 full_attr_name = f"{region_id}_{attr_name}" if attr_name else region_id
                 attributes.append((
-                    filename,
-                    record_id,
+                    record_ref_id,
                     'annotations',
                     full_attr_name,
-                    attr_value,
-                    byte_start,
-                    byte_end
+                    attr_value
                 ))
     
     # Extract from source features
@@ -111,13 +170,10 @@ def extract_attributes_from_record(record: Dict[str, Any], filename: str, record
                 flattened = flatten_complex_value(feature['qualifiers'])
                 for attr_name, attr_value in flattened:
                     attributes.append((
-                        filename,
-                        record_id,
+                        record_ref_id,
                         'source',
                         attr_name,
-                        attr_value,
-                        byte_start,
-                        byte_end
+                        attr_value
                     ))
     
     return attributes
@@ -177,6 +233,8 @@ def preprocess_antismash_files(
                             brace_count = 0
                             record_start = None
                             
+                            file_record_data = []
+                            
                             while pos < len(content):
                                 char = content[pos:pos+1]
                                 
@@ -197,11 +255,12 @@ def preprocess_antismash_files(
                                             record = json.loads(record_json.decode('utf-8'))
                                             record_id = record.get('id', f'record_{total_records}')
                                             
-                                            # Extract attributes from this record with byte positions
-                                            attributes = extract_attributes_from_record(
+                                            # Extract record metadata
+                                            metadata = extract_record_metadata(
                                                 record, json_file.name, record_id, record_start, record_end
                                             )
-                                            file_attributes.extend(attributes)
+                                            file_record_data.append(metadata)
+                                            
                                             file_records += 1
                                             total_records += 1
                                             
@@ -216,18 +275,50 @@ def preprocess_antismash_files(
                                 
                                 pos += 1
                 
-                # Batch insert attributes for this file (now includes byte positions)
-                if file_attributes:
-                    conn.executemany(
-                        """INSERT INTO attributes 
-                           (filename, record_id, origin, attribute_name, attribute_value, byte_start, byte_end)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        file_attributes
-                    )
+                # Insert records and then attributes
+                if file_record_data:
+                    # Insert records first
+                    for record_metadata in file_record_data:
+                        cursor = conn.execute(
+                            """INSERT INTO records 
+                               (filename, record_id, byte_start, byte_end, feature_count, product, organism, description)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (record_metadata['filename'], record_metadata['record_id'], 
+                             record_metadata['byte_start'], record_metadata['byte_end'],
+                             record_metadata['feature_count'], record_metadata['product'],
+                             record_metadata['organism'], record_metadata['description'])
+                        )
+                        record_internal_id = cursor.lastrowid
+                        
+                        # Now parse the record again to extract attributes
+                        record_start = record_metadata['byte_start']
+                        record_end = record_metadata['byte_end']
+                        record_json = content[record_start:record_end]
+                        
+                        try:
+                            import json
+                            record = json.loads(record_json.decode('utf-8'))
+                            
+                            # Extract attributes using the internal record ID
+                            attributes = extract_attributes_from_record(record, record_internal_id)
+                            
+                            # Insert attributes for this record
+                            if attributes:
+                                conn.executemany(
+                                    """INSERT INTO attributes 
+                                       (record_ref, origin, attribute_name, attribute_value)
+                                       VALUES (?, ?, ?, ?)""",
+                                    attributes
+                                )
+                                total_attributes += len(attributes)
+                        
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            # Skip malformed records
+                            pass
+                    
                     conn.commit()
                 
                 files_processed += 1
-                total_attributes += len(file_attributes)
                 
             except Exception as e:
                 # Log error but continue with other files
