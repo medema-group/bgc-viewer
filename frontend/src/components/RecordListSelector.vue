@@ -6,16 +6,8 @@
       <p>No processed database found. Please select a folder and run preprocessing first.</p>
     </div>
     
-    <div v-else-if="loading && entriesData.length === 0" class="loading">
-      Loading entries...
-    </div>
-    
-    <div v-else-if="error" class="error">
-      {{ error }}
-    </div>
-    
     <div v-else class="entries-section">
-      <!-- Search and Controls -->
+      <!-- Search and Controls - Always visible -->
       <div class="controls-bar">
         <div class="search-container">
           <input
@@ -29,10 +21,10 @@
           <button v-if="searchQuery" @click="clearSearch" class="clear-search">×</button>
         </div>
         
-        <div class="pagination-controls">
+        <div class="pagination-controls" v-if="!loading || entriesData.length > 0">
           <button
             @click="goToPage(currentPage - 1)"
-            :disabled="currentPage <= 1"
+            :disabled="currentPage <= 1 || loading"
             class="page-btn"
           >
             ‹ Prev
@@ -44,7 +36,7 @@
           
           <button
             @click="goToPage(currentPage + 1)"
-            :disabled="currentPage >= totalPages"
+            :disabled="currentPage >= totalPages || loading"
             class="page-btn"
           >
             Next ›
@@ -52,54 +44,61 @@
         </div>
       </div>
       
+      <!-- Error State -->
+      <div v-if="error" class="error">
+        {{ error }}
+      </div>
+      
       <!-- Records List -->
-      <div v-if="entriesData.length === 0" class="no-records">
+      <div v-else-if="entriesData.length === 0 && !loading" class="no-records">
         <p v-if="searchQuery">No records found matching "{{ searchQuery }}"</p>
         <p v-else>No records available in the database.</p>
       </div>
       
-      <div v-else class="records-list">
-        <div
-          v-for="record in entriesData"
-          :key="record.id"
-          :class="['record-item', { 'selected': selectedRecordId === record.id, 'loading': loadingRecordId === record.id }]"
-          @click="selectAndLoadRecord(record)"
-        >
-          <div class="record-content">
-            <!-- First Line: Record ID -->
-            <div class="record-id-line">
-              {{ record.record_id }}
+      <div v-else-if="entriesData.length > 0" class="records-container">
+        <div class="records-list" :class="{ 'refreshing': loading, 'loading-state': loading }">
+          <div
+            v-for="record in entriesData"
+            :key="record.id"
+            :class="['record-item', { 'selected': selectedRecordId === record.id, 'loading': loadingRecordId === record.id }]"
+            @click="selectAndLoadRecord(record)"
+          >
+            <div class="record-content">
+              <!-- First Line: Record ID -->
+              <div class="record-id-line">
+                {{ record.record_id }}
+              </div>
+              
+              <!-- Second Line: All other attributes in dark gray -->
+              <div class="record-details-line">
+                <span class="detail-item">{{ record.filename }}</span>
+                <span class="detail-separator">•</span>
+                <span class="detail-item" v-if="record.organism">{{ record.organism }}</span>
+                <span class="detail-separator" v-if="record.organism">•</span>
+                <span class="detail-item" v-if="record.description">{{ record.description }}</span>
+                <span class="detail-separator" v-if="record.description">•</span>
+                <span class="detail-item">{{ record.feature_count }} features</span>
+                <span class="detail-separator" v-if="record.products && record.products.length > 0">•</span>
+                <span class="detail-item" v-if="record.products && record.products.length > 0">
+                  {{ record.products.slice(0, 2).join(', ') }}
+                </span>
+                <span class="detail-separator" v-if="record.cluster_types && record.cluster_types.length > 0">•</span>
+                <span class="detail-item" v-if="record.cluster_types && record.cluster_types.length > 0">
+                  {{ record.cluster_types.slice(0, 2).join(', ') }}
+                </span>
+              </div>
             </div>
-            
-            <!-- Second Line: All other attributes in dark gray -->
-            <div class="record-details-line">
-              <span class="detail-item">{{ record.filename }}</span>
-              <span class="detail-separator">•</span>
-              <span class="detail-item" v-if="record.organism">{{ record.organism }}</span>
-              <span class="detail-separator" v-if="record.organism">•</span>
-              <span class="detail-item" v-if="record.description">{{ record.description }}</span>
-              <span class="detail-separator" v-if="record.description">•</span>
-              <span class="detail-item">{{ record.feature_count }} features</span>
-              <span class="detail-separator" v-if="record.products && record.products.length > 0">•</span>
-              <span class="detail-item" v-if="record.products && record.products.length > 0">
-                {{ record.products.slice(0, 2).join(', ') }}
-              </span>
-              <span class="detail-separator" v-if="record.cluster_types && record.cluster_types.length > 0">•</span>
-              <span class="detail-item" v-if="record.cluster_types && record.cluster_types.length > 0">
-                {{ record.cluster_types.slice(0, 2).join(', ') }}
-              </span>
+            <div v-if="loadingRecordId === record.id" class="spinner-container">
+              <LoadingSpinner />
             </div>
-          </div>
-          <div v-if="loadingRecordId === record.id" class="spinner-container">
-            <LoadingSpinner />
           </div>
         </div>
-      </div>
-      
-      <!-- Bottom Pagination Info -->
-      <div class="pagination-info" v-if="entriesData.length > 0">
-        Showing {{ ((currentPage - 1) * perPage) + 1 }}-{{ Math.min(currentPage * perPage, total) }} 
-        of {{ total }} records
+        
+        <!-- Bottom Pagination Info -->
+        <div class="pagination-info">
+          Showing {{ ((currentPage - 1) * perPage) + 1 }}-{{ Math.min(currentPage * perPage, total) }} 
+          of {{ total }} records
+        </div>
       </div>
     </div>
   </section>
@@ -436,12 +435,25 @@ export default {
   border-radius: 4px;
 }
 
+.records-container {
+  position: relative;
+}
+
 .records-list {
   border: 1px solid #eee;
   border-radius: 4px;
   background: white;
   max-height: 300px;
   overflow-y: auto;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.records-list.refreshing {
+  opacity: 0.7;
+}
+
+.records-list.loading-state {
+  background-color: #f5f5f5;
 }
 
 .record-item {
