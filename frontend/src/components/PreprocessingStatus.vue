@@ -39,7 +39,7 @@
     <!-- Preprocessing Progress -->
     <div v-if="isRunning" class="preprocessing-progress">
       <div class="progress-header">
-        <div class="status-icon running">⟳</div>
+        <LoadingSpinner color="#004085" style="width: 24px; height: 24px; border-width: 3px;" />
         <div class="status-text">
           <strong>Processing files...</strong>
           <div class="status-details">
@@ -88,9 +88,13 @@
 <script>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import axios from 'axios'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 export default {
   name: 'PreprocessingStatus',
+  components: {
+    LoadingSpinner
+  },
   props: {
     folderPath: {
       type: String,
@@ -311,16 +315,7 @@ export default {
   color: #721c24;
 }
 
-.status-icon.running {
-  background: #cce5ff;
-  color: #004085;
-  animation: spin 2s linear infinite;
-}
 
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
 
 .status-text {
   flex: 1;

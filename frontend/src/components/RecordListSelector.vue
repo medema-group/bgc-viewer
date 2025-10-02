@@ -81,9 +81,7 @@
               </div>
             </div>
           </div>
-          <div v-if="loadingRecordId === record.id" class="loading-spinner">
-            ⟳
-          </div>
+          <LoadingSpinner v-if="loadingRecordId === record.id" style="margin-left: 10px;" />
         </div>
       </div>
       
@@ -99,9 +97,13 @@
 <script>
 import { ref, computed, onMounted, watch, toRefs } from 'vue'
 import axios from 'axios'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 export default {
   name: 'RecordListSelector',
+  components: {
+    LoadingSpinner
+  },
   props: {
     databaseFolder: {
       type: String,
@@ -540,17 +542,7 @@ export default {
   text-overflow: ellipsis;
 }
 
-.loading-spinner {
-  margin-left: 10px;
-  font-size: 16px;
-  animation: spin 1s linear infinite;
-  color: #1976d2;
-}
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
 
 .pagination-info {
   text-align: center;
