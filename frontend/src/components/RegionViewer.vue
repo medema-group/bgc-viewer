@@ -86,8 +86,9 @@
 <script>
 import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
-import './cluster-styling.css'
 import './cand-cluster-styling.css'
+import './cluster-styling.css'
+import './gene-type-styling.css'
 
 export default {
   name: 'RegionViewerComponent',
@@ -804,23 +805,6 @@ export default {
   padding: 10px;
   border-radius: 4px;
   margin: 10px 0;
-}
-
-/* Gene type styling classes for the RegionViewer */
-:global(.gene-type-biosynthetic) {
-  fill: #810e15;
-}
-:global(.gene-type-biosynthetic-additional) {
-  fill: #f16d75;
-}
-:global(.gene-type-regulatory) {
-  fill: seagreen;
-}
-:global(.gene-type-transport) {
-  fill: cornflowerblue;
-}
-:global(.gene-type-other) {
-  fill: gray;
 }
 
 :global(.feature-resistance) {
