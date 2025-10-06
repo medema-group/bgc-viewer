@@ -5,12 +5,23 @@
     </header>
 
     <main>
-      <!-- File Selector Section -->
-      <FileSelector @file-loaded="handleFileLoaded" />
+      <!-- Folder Selector Section -->
+      <FolderSelector 
+        @folder-selected="handleFolderSelected"
+        @folder-changed="handleFolderChanged"
+        @preprocessing-completed="handlePreprocessingCompleted"
+      />
+
+      <!-- Record List Selector Section -->
+      <RecordListSelector 
+        ref="recordListSelectorRef"
+        :database-folder="selectedDatabaseFolder"
+        @record-loaded="handleRecordLoaded" 
+      />
 
       <!-- Region Viewer Section -->
       <section class="region-section">
-        <h2>Region Visualization</h2>
+        <h2>Record Visualization</h2>
         <RegionViewerComponent ref="regionViewerRef" />
       </section>
 
@@ -29,25 +40,52 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import RegionViewerComponent from './components/RegionViewer.vue'
-import FileSelector from './components/FileSelector.vue'
+import FolderSelector from './components/FolderSelector.vue'
+import RecordListSelector from './components/RecordListSelector.vue'
 
 export default {
   name: 'App',
   components: {
     RegionViewerComponent,
-    FileSelector
+    FolderSelector,
+    RecordListSelector
   },
   setup() {
     const regionViewerRef = ref(null)
+    const recordListSelectorRef = ref(null)
     
     // Version information
     const appVersion = ref('')
     const appName = ref('BGC Viewer')
     
-    const handleFileLoaded = async (fileData) => {
-      // Refresh the RegionViewer component
+    // Database folder tracking
+    const selectedDatabaseFolder = ref('')
+    
+    const handleFolderSelected = async (folderPath) => {
+      // Update the selected database folder
+      selectedDatabaseFolder.value = folderPath
+    }
+
+    const handleFolderChanged = async (folderPath) => {
+      // Clear the record list immediately when folder changes
+      if (recordListSelectorRef.value) {
+        recordListSelectorRef.value.clearRecords()
+      }
+      // Update the selected database folder
+      selectedDatabaseFolder.value = folderPath
+    }
+
+    const handlePreprocessingCompleted = async (folderPath) => {
+      // Refresh the record list when preprocessing is completed
+      if (recordListSelectorRef.value) {
+        recordListSelectorRef.value.refreshEntries()
+      }
+    }
+
+    const handleRecordLoaded = async (recordData) => {
+      // Load the record into the RegionViewer component
       if (regionViewerRef.value) {
-        await regionViewerRef.value.refreshData()
+        await regionViewerRef.value.loadRecord(recordData)
       }
     }
     
@@ -69,9 +107,14 @@ export default {
     
     return {
       regionViewerRef,
+      recordListSelectorRef,
       appVersion,
       appName,
-      handleFileLoaded
+      selectedDatabaseFolder,
+      handleFolderSelected,
+      handleFolderChanged,
+      handlePreprocessingCompleted,
+      handleRecordLoaded
     }
   }
 }
@@ -121,13 +164,6 @@ header h1 {
   padding: 30px;
   margin-bottom: 30px;
   box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-.region-section h2 {
-  margin-top: 0;
-  color: #2c3e50;
-  border-bottom: 2px solid #3498db;
-  padding-bottom: 10px;
 }
 
 .app-footer {

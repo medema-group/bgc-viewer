@@ -224,7 +224,7 @@ The component generates SVG elements with CSS classes that can be styled:
 }
 
 /* Tooltip styling */
-.region-viewer-tooltip {
+.track-viewer-tooltip {
   background: white;
   border: 1px solid #ccc;
   padding: 4px 8px;

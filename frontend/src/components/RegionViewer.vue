@@ -1,102 +1,106 @@
 <template>
-  <div class="region-viewer-container">
-    <div class="controls">
-      <select v-model="selectedRecord" @change="onRecordChange" class="record-select">
-        <option value="">Select a record...</option>
-        <option v-for="record in records" :key="record.id" :value="record.id">
-          {{ record.id }} ({{ record.feature_count }} features)
-        </option>
-      </select>
-      
-      <select v-if="selectedRecord && regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
-        <option value="">Select a region...</option>
-        <option v-for="region in regions" :key="region.id" :value="region.id">
-          Region {{ region.region_number }} - {{ region.product.join(', ') }}
-        </option>
-      </select>
-      
-      <!-- Show message when no regions are available -->
-      <div v-if="selectedRecord && regions.length === 0 && !loading" class="no-regions-message">
-        No regions found - showing all features for this record
-      </div>
-      
-      <div v-if="selectedRecord && (selectedRegion || (regions.length === 0 && availableTracks.length > 0))" class="feature-controls">
-        <div class="multi-select-container">
-          <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
-            <div class="selected-display">
-              <span v-if="selectedTracks.length === availableTracks.length">
-                All tracks ({{ selectedTracks.length }})
-              </span>
-              <span v-else-if="selectedTracks.length === 0">
-                No tracks selected
-              </span>
-              <span v-else>
-                {{ selectedTracks.length }} tracks selected
-              </span>
-              <span class="dropdown-arrow">▼</span>
+  <!-- Region Selector (shown when record is loaded) -->
+  <div v-if="currentRecord" class="controls">
+    <select v-if="regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
+      <option value="">Show all features</option>
+      <option v-for="region in regions" :key="region.id" :value="region.id">
+        Region {{ region.region_number }} - {{ region.product.join(', ') }}
+      </option>
+    </select>
+
+    <!-- Show message when no regions are available -->
+    <div v-if="regions.length === 0 && !loading" class="no-regions-message">
+      No regions found - showing all features for this record
+    </div>
+    
+    <div v-if="availableTracks.length > 0" class="feature-controls">
+      <div class="multi-select-container">
+        <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
+          <div class="selected-display">
+            <span v-if="selectedTracks.length === availableTracks.length">
+              All tracks ({{ selectedTracks.length }})
+            </span>
+            <span v-else-if="selectedTracks.length === 0">
+              No tracks selected
+            </span>
+            <span v-else>
+              {{ selectedTracks.length }} tracks selected
+            </span>
+            <span class="dropdown-arrow">▼</span>
+          </div>
+          <div v-if="dropdownOpen" class="dropdown-options" @click.stop>
+            <div class="select-all-option">
+              <label>
+                <input 
+                  type="checkbox" 
+                  :checked="selectedTracks.length === availableTracks.length"
+                  :indeterminate="selectedTracks.length > 0 && selectedTracks.length < availableTracks.length"
+                  @change="toggleSelectAll"
+                >
+                Select All
+              </label>
             </div>
-            <div v-if="dropdownOpen" class="dropdown-options" @click.stop>
-              <div class="select-all-option">
-                <label>
-                  <input 
-                    type="checkbox" 
-                    :checked="selectedTracks.length === availableTracks.length"
-                    :indeterminate="selectedTracks.length > 0 && selectedTracks.length < availableTracks.length"
-                    @change="toggleSelectAll"
-                  >
-                  Select All
-                </label>
-              </div>
-              <div class="option-separator"></div>
-              <div 
-                v-for="track in availableTracks" 
-                :key="track.id" 
-                class="dropdown-option"
-              >
-                <label>
-                  <input 
-                    type="checkbox" 
-                    :value="track.id"
-                    v-model="selectedTracks"
-                    @change="updateViewer"
-                  >
-                  {{ track.label }} ({{ track.annotationCount }})
-                </label>
-              </div>
+            <div class="option-separator"></div>
+            <div 
+              v-for="track in availableTracks" 
+              :key="track.id" 
+              class="dropdown-option"
+            >
+              <label>
+                <input 
+                  type="checkbox" 
+                  :value="track.id"
+                  v-model="selectedTracks"
+                  @change="updateViewer"
+                >
+                {{ track.label }} ({{ track.annotationCount }})
+              </label>
             </div>
           </div>
         </div>
       </div>
     </div>
-    
-    <div ref="viewerContainer" class="viewer-container" v-show="selectedRecord"></div>
-    
-    <div v-if="loading" class="loading">
-      Loading region data...
+  </div>
+
+  <!-- Current Record Info -->
+  <div v-if="currentRecord" class="current-record-info">
+    <span>Current Record: {{ currentRecord.recordId }} ({{ currentRecord.filename }})</span>
+    <div class="record-details">
+      <span v-if="currentRecord.recordInfo.description" class="description">
+        {{ currentRecord.recordInfo.description }}
+      </span>
     </div>
-    
-    <div v-if="error" class="error">
-      {{ error }}
-    </div>
+  </div>
+  
+  <div ref="viewerContainer" class="viewer-container" v-show="currentRecord"></div>
+  
+  <div v-if="loading" class="loading">
+    Loading region data...
+  </div>
+  
+  <div v-if="error" class="error">
+    {{ error }}
   </div>
 </template>
 
 <script>
 import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
-import './cluster-styling.css'
 import './cand-cluster-styling.css'
+import './cluster-styling.css'
+import './gene-type-styling.css'
 
 export default {
   name: 'RegionViewerComponent',
-  setup() {
+  setup(props, { expose }) {
     const viewerContainer = ref(null)
-    const selectedRecord = ref('')
     const selectedRegion = ref('')
-    const records = ref([])
     const regions = ref([])
     const loading = ref(false)
     const error = ref('')
+    
+    // Current record info
+    const currentRecord = ref(null)
     
     // Track management
     const availableTracks = ref([])
@@ -110,13 +114,6 @@ export default {
     const pfam_colormap = {}
 
     onMounted(async () => {
-      try {
-        const response = await axios.get('/api/records')
-        records.value = response.data
-      } catch (err) {
-        error.value = `Failed to load records: ${err.message}`
-      }
-      
       // Load PFAM color mapping
       try {
         const colorResponse = await axios.get('/domain-colors.csv')
@@ -146,38 +143,33 @@ export default {
       document.removeEventListener('click', handleClickOutside)
     })
     
-    const onRecordChange = async () => {
+    const onRecordLoaded = async (recordInfo) => {
+      // Store current record info
+      currentRecord.value = recordInfo
       selectedRegion.value = ''
       regions.value = []
-      
-      if (!selectedRecord.value) {
-        if (regionViewer) {
-          regionViewer.destroy()
-          regionViewer = null
-        }
-        return
-      }
       
       loading.value = true
       error.value = ''
       
       try {
         // Load regions for the selected record
-        const response = await axios.get(`/api/records/${selectedRecord.value}/regions`)
+        const response = await axios.get(`/api/records/${recordInfo.recordId}/regions`)
         regions.value = response.data.regions
         
         console.log('Loaded regions:', regions.value.length)
         
-        // If no regions are available, load all features directly
-        if (!regions.value || regions.value.length === 0) {
-          console.log('No regions found, loading all features...')
-          await loadAllFeaturesForRecord()
+        // If regions are found, select the first one by default
+        if (regions.value.length > 0) {
+          selectedRegion.value = regions.value[0].id
+          await onRegionChange()
         } else {
-          console.log('Found', regions.value.length, 'regions')
+          // Load all features for this record if no regions found
+          await loadAllFeaturesForRecord()
         }
         
       } catch (err) {
-        error.value = `Failed to load regions: ${err.message}`
+        error.value = `Failed to load record data: ${err.message}`
       } finally {
         loading.value = false
       }
@@ -185,14 +177,15 @@ export default {
     
     const loadAllFeaturesForRecord = async () => {
       try {
-        console.log('Loading all features for record:', selectedRecord.value)
+        console.log('Loading all features for record:', currentRecord.value.recordId)
         // Load all features for the selected record (no region filtering)
-        const response = await axios.get(`/api/records/${selectedRecord.value}/features`)
+        // Since we loaded a specific record, we use the single record that was loaded
+        const response = await axios.get(`/api/records/${currentRecord.value.recordId}/features`)
         console.log('Features API response:', response.data)
         currentFeatures = response.data.features
         
         if (!currentFeatures || currentFeatures.length === 0) {
-          console.warn('No features found for record:', selectedRecord.value)
+          console.warn('No features found for record:', currentRecord.value.recordId)
           error.value = 'No features found for this record'
           return
         }
@@ -231,10 +224,10 @@ export default {
     }
     
     const onRegionChange = async () => {
-      if (!selectedRecord.value || !selectedRegion.value) {
-        if (regionViewer) {
-          regionViewer.destroy()
-          regionViewer = null
+      if (!currentRecord.value || !selectedRegion.value) {
+        // If no region selected, show all features
+        if (!selectedRegion.value && currentRecord.value) {
+          await loadAllFeaturesForRecord()
         }
         return
       }
@@ -244,7 +237,7 @@ export default {
       
       try {
         // Load features for the selected region
-        const response = await axios.get(`/api/records/${selectedRecord.value}/regions/${selectedRegion.value}/features`)
+        const response = await axios.get(`/api/records/${currentRecord.value.recordId}/regions/${selectedRegion.value}/features`)
         currentFeatures = response.data.features
         
         // Build all tracks from features
@@ -322,6 +315,7 @@ export default {
         // width is not specified, so it will be responsive
         height: 400,
         domain: [minPos - padding, maxPos + padding],
+        trackHeight: 40,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
         },
@@ -428,7 +422,7 @@ export default {
               trackId: trackId,
               type: 'box',
               classes: classes,
-              label: getFeatureLabel(feature),
+              label: pfamAccession || 'unknown',
               start: location.start,
               end: location.end,
               fill: domainColor,
@@ -487,8 +481,6 @@ export default {
               type: 'box',
               heightFraction: 0.3,
               classes: classes,
-              label: getFeatureLabel(feature),
-              showLabel: 'always',
               start: location.start,
               end: location.end,
               stroke: 'none',
@@ -502,7 +494,8 @@ export default {
                 type: 'box',
                 heightFraction: 0.35,
                 classes: [...classes, 'proto-core'],
-                label: '',
+                label: getFeatureLabel(feature),
+                showLabel: 'always',
                 start: core_location.start,
                 end: core_location.end,
                 stroke: 'black'
@@ -614,48 +607,26 @@ export default {
       }
     }
     
-    const refreshData = async () => {
-      try {
-        loading.value = true
-        const response = await axios.get('/api/records')
-        records.value = response.data
-        
-        // Clear the current selections since the data changed
-        selectedRecord.value = ''
-        selectedRegion.value = ''
-        regions.value = []
-        availableTracks.value = []
-        selectedTracks.value = []
-        dropdownOpen.value = false
-        allTrackData = {}
-        if (regionViewer) {
-          regionViewer.destroy()
-          regionViewer = null
-        }
-        
-        error.value = ''
-      } catch (err) {
-        error.value = `Failed to load records: ${err.message}`
-      } finally {
-        loading.value = false
-      }
-    }
+
     
+    // Expose methods for parent component
+    expose({
+      loadRecord: onRecordLoaded
+    })
+
     return {
       viewerContainer,
-      selectedRecord,
       selectedRegion,
-      records,
       regions,
       loading,
       error,
+      currentRecord,
       availableTracks,
       selectedTracks,
       dropdownOpen,
-      onRecordChange,
+      onRecordLoaded,
       onRegionChange,
       updateViewer,
-      refreshData,
       toggleDropdown,
       toggleSelectAll
     }
@@ -664,26 +635,32 @@ export default {
 </script>
 
 <style scoped>
-.region-viewer-container {
-  margin: 20px 0;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 20px;
+
+.current-record-info {
+  margin: 10px 0;
+  padding: 8px;
+}
+
+.record-details {
+  font-size: 14px;
+  color: #666;
+}
+
+.feature-count {
+  font-weight: 600;
+  color: #1976d2;
+}
+
+.description {
+  font-style: italic;
 }
 
 .controls {
   margin-bottom: 20px;
 }
 
-.record-select {
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 14px;
-  margin-right: 10px;
-}
-
 .region-select {
+  margin: 20px 0px 0px 0px;
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -830,23 +807,6 @@ export default {
   margin: 10px 0;
 }
 
-/* Gene type styling classes for the RegionViewer */
-:global(.gene-type-biosynthetic) {
-  fill: #810e15;
-}
-:global(.gene-type-biosynthetic-additional) {
-  fill: #f16d75;
-}
-:global(.gene-type-regulatory) {
-  fill: seagreen;
-}
-:global(.gene-type-transport) {
-  fill: cornflowerblue;
-}
-:global(.gene-type-other) {
-  fill: gray;
-}
-
 :global(.feature-resistance) {
   fill: #bbb;
 }
@@ -871,4 +831,35 @@ export default {
   fill: #757575;
   stroke: #424242;
 }
+
+/* TrackViewer font styles - using :global() to apply to dynamically created elements */
+:global(.track-viewer-tooltip) {
+  font-size: 14px;
+  font-family: sans-serif;
+}
+
+:global(.track-label) {
+  font-size: 14px;
+  font-family: sans-serif;
+}
+
+:global(.annotation-label) {
+  font-size: 13px;
+  font-family: sans-serif;
+  stroke: white;
+  stroke-width: 0.5px;
+  paint-order: stroke fill;
+  pointer-events: none;
+}
+
+:global(.axis-label) {
+  font-size: 14px;
+  font-family: sans-serif;
+}
+
+:global(.x-axis) {
+  font-size: 14px;
+  font-family: sans-serif;
+}
+
 </style>

@@ -2,13 +2,17 @@ from flask import Flask, render_template, jsonify, request, send_from_directory
 from flask_cors import CORS
 import json
 import os
-import re
+import threading
 from pathlib import Path
 from waitress import serve
 from dotenv import load_dotenv
 
 # Import version from package
 from . import __version__
+from .preprocessing import preprocess_antismash_files
+from .data_loader import load_antismash_data, load_json_file, load_specific_record
+from .file_utils import get_available_files, match_location
+from .database import check_database_exists, get_database_entries
 
 # Load environment variables from .env file
 load_dotenv()
@@ -30,29 +34,23 @@ CORS(app)
 ANTISMASH_DATA = None
 CURRENT_FILE = None
 
-def get_available_files():
-    """Get list of available JSON files in the data directory."""
-    data_dir = Path("data")
-    if not data_dir.exists():
-        return []
-    
-    json_files = []
-    for file_path in data_dir.glob("*.json"):
-        json_files.append(file_path.name)
-    
-    return sorted(json_files)
+# Global variable to store current database path
+CURRENT_DATABASE_PATH = None
 
-def load_antismash_data(filename=None):
-    """Load AntiSMASH JSON data from file."""
-    if filename is None:
-        # Default to Y16952.json if no file specified
-        filename = "Y16952.json"
-    
-    data_file = Path("data") / filename
-    if data_file.exists():
-        with open(data_file, 'r') as f:
-            return json.load(f)
-    return None
+# Global variables for preprocessing status
+PREPROCESSING_STATUS = {
+    'is_running': False,
+    'current_file': None,
+    'files_processed': 0,
+    'total_files': 0,
+    'status': 'idle',  # 'idle', 'running', 'completed', 'error'
+    'error_message': None,
+    'folder_path': None
+}
+
+
+
+
 
 def set_current_file(filename):
     """Set the current file and load its data."""
@@ -79,14 +77,7 @@ except Exception as e:
     ANTISMASH_DATA = None
     CURRENT_FILE = None
 
-def match_location(location):
-    """Match location string to extract start and end coordinates."""
-    location_match = re.match(r"\[<?(\d+):>?(\d+)\]", location)
-    if location_match:
-        start = int(location_match.group(1))
-        end = int(location_match.group(2))
-        return start, end
-    return None
+
 
 @app.route('/')
 def index():
@@ -252,10 +243,9 @@ def load_file_from_path():
         if not resolved_path.is_file() or resolved_path.suffix.lower() != '.json':
             return jsonify({"error": "Not a JSON file"}), 400
         
-        # Load the file
+        # Load the file using efficient parsing
         global ANTISMASH_DATA, CURRENT_FILE
-        with open(resolved_path, 'r') as f:
-            data = json.load(f)
+        data = load_json_file(resolved_path)
         
         ANTISMASH_DATA = data
         CURRENT_FILE = resolved_path.name
@@ -272,6 +262,69 @@ def load_file_from_path():
         return jsonify({"error": f"Invalid JSON file: {str(e)}"}), 400
     except Exception as e:
         return jsonify({"error": f"Failed to load file: {str(e)}"}), 500
+
+@app.route('/api/load-entry', methods=['POST'])
+def load_database_entry():
+    """Load a specific file+record entry from the database."""
+    global CURRENT_DATABASE_PATH
+    
+    data = request.get_json()
+    entry_id = data.get('id')  # Format: "filename:record_id"
+    
+    if not entry_id:
+        return jsonify({"error": "No entry ID provided"}), 400
+    
+    try:
+        # Parse entry ID
+        if ':' not in entry_id:
+            return jsonify({"error": "Invalid entry ID format"}), 400
+        
+        filename, record_id = entry_id.split(':', 1)
+        
+        # Determine the folder to look in
+        if CURRENT_DATABASE_PATH:
+            # Use the folder containing the current database
+            db_folder = Path(CURRENT_DATABASE_PATH).parent
+            file_path = db_folder / filename
+            data_dir = str(db_folder)
+        else:
+            # Fallback: Look for the file in the data directory
+            data_dir = "data"
+            file_path = Path(data_dir) / filename
+        
+        if not file_path.exists():
+            return jsonify({"error": f"File {filename} not found in database folder"}), 404
+        
+        # Load only the specific record for better performance
+        modified_data = load_specific_record(str(file_path), record_id, data_dir)
+        
+        if not modified_data:
+            return jsonify({"error": f"Record {record_id} not found in {filename}"}), 404
+        
+        # Set global data
+        global ANTISMASH_DATA, CURRENT_FILE
+        ANTISMASH_DATA = modified_data
+        CURRENT_FILE = f"{filename}:{record_id}"
+        
+        # Get the loaded record info
+        loaded_record = modified_data["records"][0] if modified_data["records"] else {}
+        
+        return jsonify({
+            "message": f"Successfully loaded {filename}:{record_id}",
+            "current_file": CURRENT_FILE,
+            "filename": filename,
+            "record_id": record_id,
+            "record_info": {
+                "id": loaded_record.get("id"),
+                "description": loaded_record.get("description"),
+                "feature_count": len(loaded_record.get("features", []))
+            }
+        })
+        
+    except json.JSONDecodeError as e:
+        return jsonify({"error": f"Invalid JSON file: {str(e)}"}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to load entry: {str(e)}"}), 500
 
 @app.route('/api/info')
 def get_info():
@@ -495,6 +548,171 @@ def get_version():
         "version": __version__,
         "name": "BGC Viewer"
     })
+
+@app.route('/api/check-index', methods=['POST'])
+def check_index_status():
+    """Check if an SQLite index exists for the given folder."""
+    data = request.get_json()
+    folder_path = data.get('path')
+    
+    if not folder_path:
+        return jsonify({"error": "No folder path provided"}), 400
+    
+    try:
+        has_index, db_path, result = check_database_exists(folder_path)
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to check index status: {str(e)}"}), 500
+
+@app.route('/api/set-database-path', methods=['POST'])
+def set_database_path():
+    """Set the current database path for queries."""
+    global CURRENT_DATABASE_PATH
+    
+    data = request.get_json()
+    folder_path = data.get('path')
+    
+    if not folder_path:
+        return jsonify({"error": "No folder path provided"}), 400
+    
+    try:
+        resolved_path = Path(folder_path).resolve()
+        
+        if not resolved_path.exists() or not resolved_path.is_dir():
+            return jsonify({"error": "Invalid folder path"}), 400
+        
+        # Check for attributes.db file
+        db_path = resolved_path / "attributes.db"
+        
+        if not db_path.exists():
+            return jsonify({"error": "No database found in the specified folder"}), 404
+        
+        CURRENT_DATABASE_PATH = str(db_path)
+        
+        return jsonify({
+            "message": "Database path set successfully",
+            "database_path": CURRENT_DATABASE_PATH
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to set database path: {str(e)}"}), 500
+
+@app.route('/api/database-entries')
+def get_database_entries_endpoint():
+    """Get paginated list of all file+record entries from the current database."""
+    global CURRENT_DATABASE_PATH
+    
+    # Get query parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
+    search = request.args.get('search', '').strip()
+    
+    # Try to find database path
+    db_path = CURRENT_DATABASE_PATH
+    if not db_path or not Path(db_path).exists():
+        # Fallback: Look for attributes.db in the data directory
+        data_dir = Path("data")
+        fallback_db_path = data_dir / "attributes.db"
+        if fallback_db_path.exists():
+            db_path = str(fallback_db_path)
+            CURRENT_DATABASE_PATH = db_path
+    
+    # Use the database module function
+    result = get_database_entries(db_path, page, per_page, search)
+    
+    if "error" in result:
+        return jsonify(result), 404 if "No database found" in result["error"] else 500
+    
+    return jsonify(result)
+
+@app.route('/api/preprocess-folder', methods=['POST'])
+def start_preprocessing():
+    """Start preprocessing a folder in a background thread."""
+    global PREPROCESSING_STATUS
+    
+    if PREPROCESSING_STATUS['is_running']:
+        return jsonify({"error": "Preprocessing is already running"}), 409
+    
+    data = request.get_json()
+    folder_path = data.get('path')
+    
+    if not folder_path:
+        return jsonify({"error": "No folder path provided"}), 400
+    
+    try:
+        resolved_path = Path(folder_path).resolve()
+        
+        if not resolved_path.exists() or not resolved_path.is_dir():
+            return jsonify({"error": "Invalid folder path"}), 400
+        
+        # Count JSON files
+        json_files = list(resolved_path.glob("*.json"))
+        if not json_files:
+            return jsonify({"error": "No JSON files found in the folder"}), 400
+        
+        # Reset status
+        PREPROCESSING_STATUS.update({
+            'is_running': True,
+            'current_file': None,
+            'files_processed': 0,
+            'total_files': len(json_files),
+            'status': 'running',
+            'error_message': None,
+            'folder_path': str(resolved_path)
+        })
+        
+        # Start preprocessing in background thread
+        thread = threading.Thread(target=run_preprocessing, args=(str(resolved_path),))
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            "message": "Preprocessing started",
+            "total_files": len(json_files),
+            "folder_path": str(resolved_path)
+        })
+        
+    except Exception as e:
+        PREPROCESSING_STATUS['is_running'] = False
+        return jsonify({"error": f"Failed to start preprocessing: {str(e)}"}), 500
+
+@app.route('/api/preprocessing-status')
+def get_preprocessing_status():
+    """Get the current preprocessing status."""
+    return jsonify(PREPROCESSING_STATUS)
+
+def run_preprocessing(folder_path):
+    """Run the preprocessing function in a background thread."""
+    global PREPROCESSING_STATUS
+    
+    def progress_callback(current_file, files_processed, total_files):
+        """Update preprocessing status with progress information."""
+        PREPROCESSING_STATUS.update({
+            'current_file': current_file,
+            'files_processed': files_processed,
+            'total_files': total_files
+        })
+    
+    try:
+        # Run the preprocessing function
+        results = preprocess_antismash_files(folder_path, progress_callback)
+        
+        # Update status on completion
+        PREPROCESSING_STATUS.update({
+            'is_running': False,
+            'status': 'completed',
+            'current_file': None,
+            'files_processed': results['files_processed'],
+            'total_files': results['files_processed']  # Final count
+        })
+            
+    except Exception as e:
+        PREPROCESSING_STATUS.update({
+            'is_running': False,
+            'status': 'error',
+            'error_message': str(e)
+        })
 
 @app.route('/api/debug/static-files')
 def debug_static_files():

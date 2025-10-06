@@ -6,12 +6,14 @@
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="dist/index.umd.js"></script>
   <style>
-    .region-viewer-tooltip {
+    /* Tooltip styling */
+    .track-viewer-tooltip {
       position: absolute;
       background: white;
       border: 1px solid #ccc;
       padding: 4px 8px;
-      font-size: 12px;
+      font-size: 14px;
+      font-family: sans-serif;
       pointer-events: none;
       display: none;
       z-index: 1000;
@@ -19,6 +21,34 @@
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
     
+    /* Track labels on the left side */
+    .track-label {
+      font-size: 14px;
+      font-family: sans-serif;
+    }
+
+    /* Annotation labels on features */
+    .annotation-label {
+      font-size: 14px;
+      font-family: sans-serif;
+      stroke: white;
+      stroke-width: 0.5px;
+      paint-order: stroke fill;
+      pointer-events: none;
+    }
+
+    /* X-axis labels */
+    .axis-label {
+      font-size: 14px;
+      font-family: sans-serif;
+    }
+
+    /* Optional: Style the x-axis class as well */
+    .x-axis {
+      font-size: 14px;
+      font-family: sans-serif;
+    }
+
     .controls {
       margin-bottom: 20px;
     }

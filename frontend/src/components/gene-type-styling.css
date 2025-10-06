@@ -1,0 +1,16 @@
+/* Gene type styling classes for the RegionViewer */
+.gene-type-biosynthetic {
+  fill: #810e15;
+}
+.gene-type-biosynthetic-additional {
+  fill: #f16d75;
+}
+.gene-type-regulatory {
+  fill: seagreen;
+}
+.gene-type-transport {
+  fill: cornflowerblue;
+}
+.gene-type-other {
+  fill: gray;
+}
