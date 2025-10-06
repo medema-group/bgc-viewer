@@ -107,7 +107,7 @@ def extract_record_metadata(record: Dict[str, Any], filename: str, record_id: st
     Returns:
         Dictionary with record metadata
     """
-    metadata = {
+    metadata: Dict[str, Any] = {
         'filename': filename,
         'record_id': record_id,
         'byte_start': byte_start,
@@ -235,7 +235,7 @@ def preprocess_antismash_files(
                 if progress_callback:
                     progress_callback(json_file.name, files_processed, len(json_files))
                 
-                file_attributes = []
+                file_attributes: List[tuple] = []
                 file_records = 0
                 
                 # Parse file to extract both attributes and byte positions
@@ -317,6 +317,10 @@ def preprocess_antismash_files(
                              record_metadata['cand_cluster_count'])
                         )
                         record_internal_id = cursor.lastrowid
+                        
+                        # Skip if we couldn't get the record ID
+                        if record_internal_id is None:
+                            continue
                         
                         # Now parse the record again to extract attributes
                         record_start = record_metadata['byte_start']

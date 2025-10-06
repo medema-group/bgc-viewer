@@ -216,7 +216,7 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
             }
         else:
             # Group by filename
-            files = {}
+            files: Dict[str, list] = {}
             for row in results:
                 file_name = row[0]  # filename
                 record_id = row[1]  # record_id
