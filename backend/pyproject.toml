@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "bgc-viewer"
 version = "0.1.5"
-description = "A Flask server for Biosynthetic Gene Cluster analysis"
+description = "A viewer to explore and visualize Biosynthetic Gene Cluster data"
 authors = [
     {name = "Petek Kok"},
 ]
