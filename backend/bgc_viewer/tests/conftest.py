@@ -58,6 +58,25 @@ def sample_antismash_data():
                             "gene": "testA",
                             "product": "test protein A"
                         }
+                    },
+                    {
+                        "type": "protocluster",
+                        "location": "[100:800]",
+                        "qualifiers": {
+                            "protocluster_number": "1",
+                            "category": "PKS",
+                            "product": "polyketide",
+                            "core_location": "[200:600]"
+                        }
+                    },
+                    {
+                        "type": "CDS",
+                        "location": "[150:400]",
+                        "qualifiers": {
+                            "gene_kind": "biosynthetic",
+                            "gene": "pksA",
+                            "product": "polyketide synthase"
+                        }
                     }
                 ]
             },
@@ -78,6 +97,25 @@ def sample_antismash_data():
                         "qualifiers": {
                             "organism": "Bacillus subtilis",
                             "strain": "168"
+                        }
+                    },
+                    {
+                        "type": "protocluster",
+                        "location": "[200:1200]",
+                        "qualifiers": {
+                            "protocluster_number": "1",
+                            "category": "NRPS",
+                            "product": "NRPS",
+                            "core_location": "[300:900]"
+                        }
+                    },
+                    {
+                        "type": "CDS",
+                        "location": "[250:800]",
+                        "qualifiers": {
+                            "gene_kind": "biosynthetic",
+                            "gene": "nrpsA",
+                            "product": "nonribosomal peptide synthetase"
                         }
                     }
                 ]

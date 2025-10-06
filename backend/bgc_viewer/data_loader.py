@@ -194,15 +194,15 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
         if filename:
             # Get records for specific file
             cursor = conn.execute(
-                """SELECT DISTINCT record_id FROM attributes 
-                   WHERE filename = ? AND byte_start IS NOT NULL ORDER BY record_id""",
+                """SELECT record_id FROM records 
+                   WHERE filename = ? ORDER BY record_id""",
                 (filename,)
             )
         else:
             # Get all records grouped by file
             cursor = conn.execute(
-                """SELECT DISTINCT filename, record_id FROM attributes 
-                   WHERE byte_start IS NOT NULL ORDER BY filename, record_id"""
+                """SELECT filename, record_id FROM records 
+                   ORDER BY filename, record_id"""
             )
         
         results = cursor.fetchall()
@@ -212,16 +212,17 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
             # Return records for specific file
             return {
                 "filename": filename,
-                "records": [{"id": row["record_id"]} for row in results]
+                "records": [{"id": row[0]} for row in results]
             }
         else:
             # Group by filename
             files = {}
             for row in results:
-                file_name = row["filename"]
+                file_name = row[0]  # filename
+                record_id = row[1]  # record_id
                 if file_name not in files:
                     files[file_name] = []
-                files[file_name].append({"id": row["record_id"]})
+                files[file_name].append({"id": record_id})
             return {"files": files}
     
     except Exception as e:
@@ -248,8 +249,8 @@ def get_record_metadata_from_index(filename: str, record_id: str, data_dir: str 
     
     try:
         cursor = conn.execute(
-            """SELECT DISTINCT filename, record_id, byte_start, byte_end FROM attributes 
-               WHERE filename = ? AND record_id = ? AND byte_start IS NOT NULL LIMIT 1""",
+            """SELECT filename, record_id, byte_start, byte_end FROM records 
+               WHERE filename = ? AND record_id = ? LIMIT 1""",
             (filename, record_id)
         )
         
@@ -258,11 +259,11 @@ def get_record_metadata_from_index(filename: str, record_id: str, data_dir: str 
         
         if result:
             return {
-                "filename": result["filename"],
-                "record_id": result["record_id"],
-                "byte_start": result["byte_start"],
-                "byte_end": result["byte_end"],
-                "size_bytes": result["byte_end"] - result["byte_start"]
+                "filename": result[0],
+                "record_id": result[1], 
+                "byte_start": result[2],
+                "byte_end": result[3],
+                "size_bytes": result[3] - result[2]
             }
         return None
     

@@ -74,19 +74,18 @@ class TestExtractAttributesFromRecord:
             ]
         }
         
-        attributes = extract_attributes_from_record(sample_record, "test.json", "record1", 0, 100)
+        attributes = extract_attributes_from_record(sample_record, 1)  # record_ref_id = 1
         
         # Should have attributes from both annotations and source features
         assert len(attributes) > 0
         
-        # Check structure - each should be (filename, record_id, origin, attr_name, attr_value, byte_start, byte_end)
+        # Check structure - each should be (record_ref, origin, attr_name, attr_value)
         for attr in attributes:
-            assert len(attr) == 7
-            assert attr[0] == "test.json"  # filename
-            assert attr[1] == "record1"    # record_id
-            assert attr[2] in ["annotations", "source"]  # origin
-            assert attr[5] == 0  # byte_start
-            assert attr[6] == 100  # byte_end
+            assert len(attr) == 4
+            assert attr[0] == 1  # record_ref
+            assert attr[1] in ["annotations", "source"]  # origin
+            assert isinstance(attr[2], str)  # attr_name
+            assert isinstance(attr[3], str)  # attr_value
 
 
 class TestDatabaseCreation:
@@ -104,7 +103,14 @@ class TestDatabaseCreation:
         # Check table structure
         cursor = conn.execute("PRAGMA table_info(attributes)")
         columns = [row[1] for row in cursor.fetchall()]
-        expected_columns = ['id', 'filename', 'record_id', 'origin', 'attribute_name', 'attribute_value', 'byte_start', 'byte_end']
+        expected_columns = ['id', 'record_ref', 'origin', 'attribute_name', 'attribute_value']
+        for col in expected_columns:
+            assert col in columns
+        
+        # Check records table structure  
+        cursor = conn.execute("PRAGMA table_info(records)")
+        columns = [row[1] for row in cursor.fetchall()]
+        expected_columns = ['id', 'filename', 'record_id', 'byte_start', 'byte_end']
         for col in expected_columns:
             assert col in columns
         
@@ -192,12 +198,12 @@ class TestPreprocessingPipeline:
         assert "annotations" in origins
         assert "source" in origins
         
-        cursor = conn.execute("SELECT DISTINCT filename FROM attributes")
+        cursor = conn.execute("SELECT DISTINCT filename FROM records")
         files = [row[0] for row in cursor.fetchall()]
         assert "test_sample.json" in files
         
-        # Check byte positions are set
-        cursor = conn.execute("SELECT COUNT(*) FROM attributes WHERE byte_start IS NOT NULL")
+        # Check byte positions are set in records table
+        cursor = conn.execute("SELECT COUNT(*) FROM records WHERE byte_start IS NOT NULL")
         byte_indexed_count = cursor.fetchone()[0]
         assert byte_indexed_count > 0
         

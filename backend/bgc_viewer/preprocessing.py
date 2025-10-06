@@ -223,8 +223,8 @@ def preprocess_antismash_files(
     db_path = input_path / "attributes.db"
     conn = create_attributes_database(db_path)
     
-    # Process first 100 JSON files only
-    json_files = list(input_path.glob("*.json"))[:100]
+    # Process first 5000 JSON files only
+    json_files = list(input_path.glob("*.json"))[:5000]
     total_records = 0
     total_attributes = 0
     files_processed = 0
@@ -353,6 +353,9 @@ def preprocess_antismash_files(
                 print(f"Error processing {json_file.name}: {e}")
     
     finally:
+        # Final progress callback
+        if progress_callback:
+            progress_callback("", files_processed, len(json_files))
         conn.close()
     
     return {
