@@ -113,8 +113,6 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
             base_query += where_clause
             count_query += where_clause
         
-        # Count query is complete (no need to close parenthesis)
-        
         # Get total count
         cursor = conn.execute(count_query, params)
         total = cursor.fetchone()[0]

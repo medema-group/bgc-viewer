@@ -198,7 +198,7 @@ export default {
         })
         
         emit('record-loaded', {
-          recordId: record.id,
+          entryId: record.id,
           filename: response.data.filename,
           recordId: response.data.record_id,
           recordInfo: response.data.record_info

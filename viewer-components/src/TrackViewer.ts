@@ -311,7 +311,6 @@ export class TrackViewer {
       .data(d => [d])
       .join('text')
       .attr('class', 'track-label')
-      .attr('class', 'track-label')
       .attr('x', -10)
       .attr('y', (d) => this.getTrackHeight(d) / 2)
       .attr('dy', '0.35em')
