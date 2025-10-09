@@ -3,7 +3,6 @@ Preprocessing module for AntiSMASH JSON files.
 Extracts attributes into SQLite database.
 """
 
-import ijson
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable
@@ -223,8 +222,8 @@ def preprocess_antismash_files(
     db_path = input_path / "attributes.db"
     conn = create_attributes_database(db_path)
     
-    # Process first 5000 JSON files only
-    json_files = list(input_path.glob("*.json"))[:5000]
+    # Process first 5000 JSON files only - scan recursively in subdirectories
+    json_files = list(input_path.glob("**/*.json"))[:5000]
     total_records = 0
     total_attributes = 0
     files_processed = 0
@@ -233,7 +232,8 @@ def preprocess_antismash_files(
         for json_file in json_files:
             try:
                 if progress_callback:
-                    progress_callback(json_file.name, files_processed, len(json_files))
+                    relative_path = json_file.relative_to(input_path)
+                    progress_callback(str(relative_path), files_processed, len(json_files))
                 
                 file_attributes: List[tuple] = []
                 file_records = 0
@@ -279,9 +279,10 @@ def preprocess_antismash_files(
                                             record = json.loads(record_json.decode('utf-8'))
                                             record_id = record.get('id', f'record_{total_records}')
                                             
-                                            # Extract record metadata
+                                            # Extract record metadata - use relative path to avoid filename collisions
+                                            relative_path = json_file.relative_to(input_path)
                                             metadata = extract_record_metadata(
-                                                record, json_file.name, record_id, record_start, record_end
+                                                record, str(relative_path), record_id, record_start, record_end
                                             )
                                             file_record_data.append(metadata)
                                             

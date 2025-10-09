@@ -19,8 +19,8 @@ def check_database_exists(folder_path):
         db_path = resolved_path / "attributes.db"
         has_index = db_path.exists()
         
-        # Count JSON files in the folder
-        json_files = list(resolved_path.glob("*.json"))
+        # Count JSON files in the folder (recursively in subdirectories)
+        json_files = list(resolved_path.glob("**/*.json"))
         json_count = len(json_files)
         
         result = {
