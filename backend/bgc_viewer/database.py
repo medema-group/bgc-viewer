@@ -35,17 +35,19 @@ def check_database_exists(folder_path):
         if has_index:
             try:
                 conn = sqlite3.connect(db_path)
-                cursor = conn.execute("SELECT COUNT(*) FROM attributes")
-                total_attributes = cursor.fetchone()[0]
                 
-                cursor = conn.execute("SELECT COUNT(DISTINCT filename) FROM attributes")
+                # Count distinct files and total records from records table
+                cursor = conn.execute("SELECT COUNT(DISTINCT filename) FROM records")
                 indexed_files = cursor.fetchone()[0]
+                
+                cursor = conn.execute("SELECT COUNT(*) FROM records")
+                total_records = cursor.fetchone()[0]
                 
                 conn.close()
                 
                 result["index_stats"] = {
-                    "total_attributes": total_attributes,
-                    "indexed_files": indexed_files
+                    "indexed_files": indexed_files,
+                    "total_records": total_records
                 }
             except Exception:
                 result["index_stats"] = None

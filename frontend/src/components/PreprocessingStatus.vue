@@ -13,7 +13,7 @@
           <strong>Index found</strong>
           <div class="status-details">
             {{ indexStatus.index_stats?.indexed_files || 0 }} files indexed, 
-            {{ indexStatus.index_stats?.total_attributes || 0 }} attributes
+            {{ indexStatus.index_stats?.total_records || 0 }} records
           </div>
         </div>
       </div>
