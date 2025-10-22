@@ -224,56 +224,6 @@ if not PUBLIC_MODE:
         except Exception as e:
             return jsonify({"error": f"Failed to scan folder: {str(e)}"}), 500
 
-@app.route('/api/load-file', methods=['POST'])
-def load_file_from_path():
-    """API endpoint to load a JSON file from a specific path."""
-    data = request.get_json()
-    file_path = data.get('path')
-    
-    if not file_path:
-        return jsonify({"error": "No file path provided"}), 400
-    
-    try:
-        # Resolve the path
-        resolved_path = Path(file_path).resolve()
-        
-        # In public mode, restrict access to DATA_DIRECTORY
-        if PUBLIC_MODE:
-            if DATA_DIRECTORY is None:
-                return jsonify({"error": "Data directory not configured"}), 500
-            
-            # Check if the resolved path is within the allowed data directory
-            try:
-                resolved_path.relative_to(DATA_DIRECTORY)
-            except ValueError:
-                return jsonify({"error": "Access denied: File must be within the data directory"}), 403
-        
-        if not resolved_path.exists():
-            return jsonify({"error": "File does not exist"}), 404
-            
-        if not resolved_path.is_file() or resolved_path.suffix.lower() != '.json':
-            return jsonify({"error": "Not a JSON file"}), 400
-        
-        # Load the file using efficient parsing
-        global ANTISMASH_DATA, CURRENT_FILE
-        data = load_json_file(resolved_path)
-        
-        ANTISMASH_DATA = data
-        CURRENT_FILE = resolved_path.name
-        
-        return jsonify({
-            "message": f"Successfully loaded {resolved_path.name}",
-            "current_file": CURRENT_FILE,
-            "file_path": str(resolved_path)
-        })
-        
-    except PermissionError:
-        return jsonify({"error": "Permission denied"}), 403
-    except json.JSONDecodeError as e:
-        return jsonify({"error": f"Invalid JSON file: {str(e)}"}), 400
-    except Exception as e:
-        return jsonify({"error": f"Failed to load file: {str(e)}"}), 500
-
 @app.route('/api/load-entry', methods=['POST'])
 def load_database_entry():
     """Load a specific file+record entry from the database."""
