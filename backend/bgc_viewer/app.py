@@ -4,6 +4,7 @@ import json
 import os
 import threading
 from pathlib import Path
+from typing import Optional
 from waitress import serve
 from dotenv import load_dotenv
 
@@ -55,6 +56,7 @@ CURRENT_FILE = None #TODO: check if we are using this, and whether it stores ses
 CURRENT_DATABASE_PATH = None
 
 # Define the data directory based on mode
+DATA_DIRECTORY: Optional[Path]
 if PUBLIC_MODE:
     # In public mode, use a fixed data directory (can be configured)
     DATA_DIRECTORY = Path(os.getenv('BGCV_DATA_DIR', 'data')).resolve()
