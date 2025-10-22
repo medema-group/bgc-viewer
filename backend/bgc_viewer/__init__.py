@@ -8,7 +8,7 @@ try:
     __version__ = version("bgc-viewer")
 except ImportError:
     # Fallback for development/uninstalled package
-    __version__ = "0.1.8-dev"
+    __version__ = "0.1.9-dev"
 
 __author__ = "Your Name"
 __email__ = "your.email@example.com"
