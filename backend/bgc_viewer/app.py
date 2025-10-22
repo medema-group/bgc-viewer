@@ -21,7 +21,7 @@ load_dotenv()
 # Configuration: Determine if running in public or local mode
 # PUBLIC mode (default): Restricted access, no filesystem browsing, fixed data directory
 # LOCAL mode: Full access to filesystem, preprocessing, etc.
-PUBLIC_MODE = os.getenv('BGCV_PUBLIC_MODE', 'true').lower() == 'true'
+PUBLIC_MODE = os.getenv('BGCV_PUBLIC_MODE', 'false').lower() == 'true'
 
 # Get the directory where this module is installed
 app_dir = Path(__file__).parent
