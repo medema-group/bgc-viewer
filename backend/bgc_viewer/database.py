@@ -95,11 +95,6 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         params = []
         where_conditions = []
         
-        # Always filter for records with relevant cluster types
-        # TODO: Later we will move this to a user-selectable filter
-        cluster_filter = "(r.protocluster_count > 0 OR r.proto_core_count > 0 OR r.cand_cluster_count > 0)"
-        where_conditions.append(cluster_filter)
-        
         # Add search filter if provided
         if search:
             # Search in filename, record_id, organism, product, and attribute values
