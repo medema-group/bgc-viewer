@@ -58,11 +58,18 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
         return load_specific_record_fallback(file_path, target_record_id)
     
     try:
+        # Calculate relative path from data_dir to match database entries
+        try:
+            relative_path = str(Path(file_path).resolve().relative_to(Path(data_dir).resolve()))
+        except ValueError:
+            # If file is not within data_dir, just use the filename
+            relative_path = Path(file_path).name
+        
         # Query the records table for byte positions
         cursor = conn.execute(
             """SELECT byte_start, byte_end FROM records 
                WHERE filename = ? AND record_id = ?""",
-            (Path(file_path).name, target_record_id)
+            (relative_path, target_record_id)
         )
         
         result = cursor.fetchone()
