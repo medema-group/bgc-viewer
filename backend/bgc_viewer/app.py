@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 # Import version from package
 from . import __version__
 from .preprocessing import preprocess_antismash_files
-from .data_loader import load_antismash_data, load_json_file, load_specific_record
-from .file_utils import get_available_files, match_location
+from .data_loader import load_json_file, load_specific_record
+from .file_utils import match_location
 from .database import check_database_exists, get_database_entries
 
 # Load environment variables from .env file
@@ -49,7 +49,7 @@ else:
 
 # Global variable to store currently loaded data
 ANTISMASH_DATA = None
-CURRENT_FILE = None
+CURRENT_FILE = None #TODO: check if we are using this, and whether it stores session-related data
 
 # Global variable to store current database path
 CURRENT_DATABASE_PATH = None
@@ -72,35 +72,6 @@ PREPROCESSING_STATUS = {
     'error_message': None,
     'folder_path': None
 }
-
-
-
-
-
-def set_current_file(filename):
-    """Set the current file and load its data."""
-    global ANTISMASH_DATA, CURRENT_FILE
-    data = load_antismash_data(filename)
-    if data is not None:
-        ANTISMASH_DATA = data
-        CURRENT_FILE = filename
-        return True
-    return False
-
-# Load the default data at startup
-# Try to load a default file if it exists, but don't fail if it doesn't
-try:
-    if not set_current_file("Y16952.json"):
-        # Try to load any available JSON file from data directory
-        available_files = get_available_files()
-        if available_files:
-            set_current_file(available_files[0])
-        else:
-            print("No JSON files found in data directory. Application will start without loaded data.")
-except Exception as e:
-    print(f"Warning: Could not load default data on startup: {e}")
-    ANTISMASH_DATA = None
-    CURRENT_FILE = None
 
 
 
@@ -800,11 +771,6 @@ def not_found(error):
 def internal_error(error):
     """Handle 500 errors."""
     return jsonify({"error": "Internal server error"}), 500
-
-def load_custom_data():
-    """Load custom data from a file or database."""
-    # This function is deprecated - now using ANTISMASH_DATA
-    return load_antismash_data()
 
 def main():
     """Main entry point for the application."""

@@ -11,29 +11,6 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 
-def load_antismash_data(filename=None, data_dir="data"):
-    """Load AntiSMASH JSON data from file using ijson for better performance."""
-    if filename is None:
-        # Default to Y16952.json if no file specified
-        filename = "Y16952.json"
-    
-    data_file = Path(data_dir) / filename
-    if data_file.exists():
-        try:
-            # Use ijson for efficient parsing
-            with open(data_file, 'rb') as f:
-                # Parse the entire structure efficiently
-                parser = ijson.parse(f)
-                data = _build_data_structure(parser)
-                return data
-        except Exception as e:
-            # Fallback to regular json if ijson fails
-            print(f"ijson parsing failed for {filename}, falling back to json: {e}")
-            with open(data_file, 'r') as f:
-                return json.load(f)
-    return None
-
-
 def load_json_file(file_path):
     """Load a JSON file using ijson with fallback to standard json."""
     try:
