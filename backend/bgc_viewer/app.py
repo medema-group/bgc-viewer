@@ -17,6 +17,11 @@ from .database import check_database_exists, get_database_entries
 # Load environment variables from .env file
 load_dotenv()
 
+# Configuration: Determine if running in public or local mode
+# PUBLIC mode (default): Restricted access, no filesystem browsing, fixed data directory
+# LOCAL mode: Full access to filesystem, preprocessing, etc.
+PUBLIC_MODE = os.getenv('BGCV_PUBLIC_MODE', 'true').lower() == 'true'
+
 # Get the directory where this module is installed
 app_dir = Path(__file__).parent
 # Look for frontend build directory (in development: ../../frontend/build, in package: static)
@@ -28,7 +33,19 @@ if not frontend_build_dir.exists():
 app = Flask(__name__, 
            static_folder=str(frontend_build_dir),
            static_url_path='/static')
-CORS(app)
+
+# Configure CORS based on mode
+if PUBLIC_MODE:
+    # In public mode, restrict CORS to specific origins
+    allowed_origins = os.getenv('BGCV_ALLOWED_ORIGINS', '*')
+    if allowed_origins == '*':
+        CORS(app)
+    else:
+        origins_list = [origin.strip() for origin in allowed_origins.split(',')]
+        CORS(app, resources={r"/api/*": {"origins": origins_list}})
+else:
+    # In local mode, allow all origins
+    CORS(app)
 
 # Global variable to store currently loaded data
 ANTISMASH_DATA = None
@@ -36,6 +53,14 @@ CURRENT_FILE = None
 
 # Global variable to store current database path
 CURRENT_DATABASE_PATH = None
+
+# Define the data directory based on mode
+if PUBLIC_MODE:
+    # In public mode, use a fixed data directory (can be configured)
+    DATA_DIRECTORY = Path(os.getenv('BGCV_DATA_DIR', 'data')).resolve()
+else:
+    # In local mode, no fixed directory restriction
+    DATA_DIRECTORY = None
 
 # Global variables for preprocessing status
 PREPROCESSING_STATUS = {
@@ -110,119 +135,123 @@ def get_status():
     return jsonify({
         "current_file": CURRENT_FILE if CURRENT_FILE else None,
         "has_loaded_data": ANTISMASH_DATA is not None,
-        "data_directory_exists": Path("data").exists()
+        "data_directory_exists": Path("data").exists(),
+        "public_mode": PUBLIC_MODE
     })
 
-@app.route('/api/browse')
-def browse_filesystem():
-    """API endpoint to browse the server's filesystem."""
-    path = request.args.get('path', '.')
-    
-    try:
-        # Resolve the path
-        resolved_path = Path(path).resolve()
+# Filesystem browsing endpoint - only available in local mode
+if not PUBLIC_MODE:
+    @app.route('/api/browse')
+    def browse_filesystem():
+        """API endpoint to browse the server's filesystem."""
+        path = request.args.get('path', '.')
         
-        if not resolved_path.exists():
-            return jsonify({"error": "Path does not exist"}), 404
-            
-        if not resolved_path.is_dir():
-            return jsonify({"error": "Path is not a directory"}), 400
-        
-        items = []
-        
-        # Add parent directory option (except for filesystem root)
-        if resolved_path.parent != resolved_path:  # Not at filesystem root
-            items.append({
-                "name": "..",
-                "type": "directory",
-                "path": str(resolved_path.parent)
-            })
-        
-        # List directory contents
-        for item in sorted(resolved_path.iterdir()):
-            try:
-                if item.is_dir():
-                    items.append({
-                        "name": item.name,
-                        "type": "directory", 
-                        "path": str(item)
-                    })
-                elif item.suffix.lower() == '.json':
-                    items.append({
-                        "name": item.name,
-                        "type": "file",
-                        "path": str(item),
-                        "size": item.stat().st_size
-                    })
-            except (OSError, PermissionError):
-                # Skip items we can't access
-                continue
-        
-        return jsonify({
-            "current_path": str(resolved_path),
-            "items": items
-        })
-        
-    except PermissionError:
-        return jsonify({"error": "Permission denied"}), 403
-    except Exception as e:
-        return jsonify({"error": f"Failed to browse directory: {str(e)}"}), 500
-
-@app.route('/api/scan-folder', methods=['POST'])
-def scan_folder_for_json():
-    """API endpoint to scan a folder recursively for JSON files."""
-    data = request.get_json()
-    folder_path = data.get('path')
-    
-    if not folder_path:
-        return jsonify({"error": "No folder path provided"}), 400
-    
-    try:
-        # Resolve the path
-        resolved_path = Path(folder_path).resolve()
-        
-        if not resolved_path.exists():
-            return jsonify({"error": "Folder does not exist"}), 404
-            
-        if not resolved_path.is_dir():
-            return jsonify({"error": "Path is not a directory"}), 400
-        
-        # Scan recursively for JSON files
-        json_files = []
         try:
-            # Use rglob to recursively find all JSON files
-            for json_file in resolved_path.rglob('*.json'):
+            # Resolve the path
+            resolved_path = Path(path).resolve()
+            
+            if not resolved_path.exists():
+                return jsonify({"error": "Path does not exist"}), 404
+                
+            if not resolved_path.is_dir():
+                return jsonify({"error": "Path is not a directory"}), 400
+            
+            items = []
+            
+            # Add parent directory option (except for filesystem root)
+            if resolved_path.parent != resolved_path:  # Not at filesystem root
+                items.append({
+                    "name": "..",
+                    "type": "directory",
+                    "path": str(resolved_path.parent)
+                })
+            
+            # List directory contents
+            for item in sorted(resolved_path.iterdir()):
                 try:
-                    if json_file.is_file():
-                        # Calculate relative path from the base folder for display
-                        relative_path = json_file.relative_to(resolved_path)
-                        json_files.append({
-                            "name": json_file.name,
-                            "path": str(json_file),
-                            "relative_path": str(relative_path),
-                            "size": json_file.stat().st_size,
-                            "directory": str(json_file.parent.relative_to(resolved_path)) if json_file.parent != resolved_path else "."
+                    if item.is_dir():
+                        items.append({
+                            "name": item.name,
+                            "type": "directory", 
+                            "path": str(item)
+                        })
+                    elif item.suffix.lower() == '.json':
+                        items.append({
+                            "name": item.name,
+                            "type": "file",
+                            "path": str(item),
+                            "size": item.stat().st_size
                         })
                 except (OSError, PermissionError):
-                    # Skip files we can't access
+                    # Skip items we can't access
                     continue
+            
+            return jsonify({
+                "current_path": str(resolved_path),
+                "items": items
+            })
+            
         except PermissionError:
-            return jsonify({"error": "Permission denied to read folder"}), 403
+            return jsonify({"error": "Permission denied"}), 403
+        except Exception as e:
+            return jsonify({"error": f"Failed to browse directory: {str(e)}"}), 500
+
+if not PUBLIC_MODE:
+    @app.route('/api/scan-folder', methods=['POST'])
+    def scan_folder_for_json():
+        """API endpoint to scan a folder recursively for JSON files."""
+        data = request.get_json()
+        folder_path = data.get('path')
         
-        # Sort by relative path for better organization
-        json_files.sort(key=lambda x: x['relative_path'])
+        if not folder_path:
+            return jsonify({"error": "No folder path provided"}), 400
         
-        return jsonify({
-            "folder_path": str(resolved_path),
-            "json_files": json_files,
-            "count": len(json_files),
-            "scan_type": "recursive"
-        })
-        
-    except PermissionError:
-        return jsonify({"error": "Permission denied"}), 403
-    except Exception as e:
-        return jsonify({"error": f"Failed to scan folder: {str(e)}"}), 500
+        try:
+            # Resolve the path
+            resolved_path = Path(folder_path).resolve()
+            
+            if not resolved_path.exists():
+                return jsonify({"error": "Folder does not exist"}), 404
+                
+            if not resolved_path.is_dir():
+                return jsonify({"error": "Path is not a directory"}), 400
+            
+            # Scan recursively for JSON files
+            json_files = []
+            try:
+                # Use rglob to recursively find all JSON files
+                for json_file in resolved_path.rglob('*.json'):
+                    try:
+                        if json_file.is_file():
+                            # Calculate relative path from the base folder for display
+                            relative_path = json_file.relative_to(resolved_path)
+                            json_files.append({
+                                "name": json_file.name,
+                                "path": str(json_file),
+                                "relative_path": str(relative_path),
+                                "size": json_file.stat().st_size,
+                                "directory": str(json_file.parent.relative_to(resolved_path)) if json_file.parent != resolved_path else "."
+                            })
+                    except (OSError, PermissionError):
+                        # Skip files we can't access
+                        continue
+            except PermissionError:
+                return jsonify({"error": "Permission denied to read folder"}), 403
+            
+            # Sort by relative path for better organization
+            json_files.sort(key=lambda x: x['relative_path'])
+            
+            return jsonify({
+                "folder_path": str(resolved_path),
+                "json_files": json_files,
+                "count": len(json_files),
+                "scan_type": "recursive"
+            })
+            
+        except PermissionError:
+            return jsonify({"error": "Permission denied"}), 403
+        except Exception as e:
+            return jsonify({"error": f"Failed to scan folder: {str(e)}"}), 500
 
 @app.route('/api/load-file', methods=['POST'])
 def load_file_from_path():
@@ -236,6 +265,17 @@ def load_file_from_path():
     try:
         # Resolve the path
         resolved_path = Path(file_path).resolve()
+        
+        # In public mode, restrict access to DATA_DIRECTORY
+        if PUBLIC_MODE:
+            if DATA_DIRECTORY is None:
+                return jsonify({"error": "Data directory not configured"}), 500
+            
+            # Check if the resolved path is within the allowed data directory
+            try:
+                resolved_path.relative_to(DATA_DIRECTORY)
+            except ValueError:
+                return jsonify({"error": "Access denied: File must be within the data directory"}), 403
         
         if not resolved_path.exists():
             return jsonify({"error": "File does not exist"}), 404
@@ -289,8 +329,18 @@ def load_database_entry():
             data_dir = str(db_folder)
         else:
             # Fallback: Look for the file in the data directory
-            data_dir = "data"
+            if PUBLIC_MODE and DATA_DIRECTORY:
+                data_dir = str(DATA_DIRECTORY)
+            else:
+                data_dir = "data"
             file_path = Path(data_dir) / filename
+        
+        # In public mode, ensure file is within allowed directory
+        if PUBLIC_MODE and DATA_DIRECTORY:
+            try:
+                file_path.resolve().relative_to(DATA_DIRECTORY)
+            except ValueError:
+                return jsonify({"error": "Access denied: File must be within the data directory"}), 403
         
         if not file_path.exists():
             return jsonify({"error": f"File {filename} not found in database folder"}), 404
@@ -549,54 +599,57 @@ def get_version():
         "name": "BGC Viewer"
     })
 
-@app.route('/api/check-index', methods=['POST'])
-def check_index_status():
-    """Check if an SQLite index exists for the given folder."""
-    data = request.get_json()
-    folder_path = data.get('path')
-    
-    if not folder_path:
-        return jsonify({"error": "No folder path provided"}), 400
-    
-    try:
-        has_index, db_path, result = check_database_exists(folder_path)
-        return jsonify(result)
+# Database management endpoints - only available in local mode
+if not PUBLIC_MODE:
+    @app.route('/api/check-index', methods=['POST'])
+    def check_index_status():
+        """Check if an SQLite index exists for the given folder."""
+        data = request.get_json()
+        folder_path = data.get('path')
         
-    except Exception as e:
-        return jsonify({"error": f"Failed to check index status: {str(e)}"}), 500
+        if not folder_path:
+            return jsonify({"error": "No folder path provided"}), 400
+        
+        try:
+            has_index, db_path, result = check_database_exists(folder_path)
+            return jsonify(result)
+            
+        except Exception as e:
+            return jsonify({"error": f"Failed to check index status: {str(e)}"}), 500
 
-@app.route('/api/set-database-path', methods=['POST'])
-def set_database_path():
-    """Set the current database path for queries."""
-    global CURRENT_DATABASE_PATH
-    
-    data = request.get_json()
-    folder_path = data.get('path')
-    
-    if not folder_path:
-        return jsonify({"error": "No folder path provided"}), 400
-    
-    try:
-        resolved_path = Path(folder_path).resolve()
+if not PUBLIC_MODE:
+    @app.route('/api/set-database-path', methods=['POST'])
+    def set_database_path():
+        """Set the current database path for queries."""
+        global CURRENT_DATABASE_PATH
         
-        if not resolved_path.exists() or not resolved_path.is_dir():
-            return jsonify({"error": "Invalid folder path"}), 400
+        data = request.get_json()
+        folder_path = data.get('path')
         
-        # Check for attributes.db file
-        db_path = resolved_path / "attributes.db"
+        if not folder_path:
+            return jsonify({"error": "No folder path provided"}), 400
         
-        if not db_path.exists():
-            return jsonify({"error": "No database found in the specified folder"}), 404
-        
-        CURRENT_DATABASE_PATH = str(db_path)
-        
-        return jsonify({
-            "message": "Database path set successfully",
-            "database_path": CURRENT_DATABASE_PATH
-        })
-        
-    except Exception as e:
-        return jsonify({"error": f"Failed to set database path: {str(e)}"}), 500
+        try:
+            resolved_path = Path(folder_path).resolve()
+            
+            if not resolved_path.exists() or not resolved_path.is_dir():
+                return jsonify({"error": "Invalid folder path"}), 400
+            
+            # Check for attributes.db file
+            db_path = resolved_path / "attributes.db"
+            
+            if not db_path.exists():
+                return jsonify({"error": "No database found in the specified folder"}), 404
+            
+            CURRENT_DATABASE_PATH = str(db_path)
+            
+            return jsonify({
+                "message": "Database path set successfully",
+                "database_path": CURRENT_DATABASE_PATH
+            })
+            
+        except Exception as e:
+            return jsonify({"error": f"Failed to set database path: {str(e)}"}), 500
 
 @app.route('/api/database-entries')
 def get_database_entries_endpoint():
@@ -612,7 +665,10 @@ def get_database_entries_endpoint():
     db_path = CURRENT_DATABASE_PATH
     if not db_path or not Path(db_path).exists():
         # Fallback: Look for attributes.db in the data directory
-        data_dir = Path("data")
+        if PUBLIC_MODE and DATA_DIRECTORY:
+            data_dir = DATA_DIRECTORY
+        else:
+            data_dir = Path("data")
         fallback_db_path = data_dir / "attributes.db"
         if fallback_db_path.exists():
             db_path = str(fallback_db_path)
@@ -626,56 +682,58 @@ def get_database_entries_endpoint():
     
     return jsonify(result)
 
-@app.route('/api/preprocess-folder', methods=['POST'])
-def start_preprocessing():
-    """Start preprocessing a folder in a background thread."""
-    global PREPROCESSING_STATUS
-    
-    if PREPROCESSING_STATUS['is_running']:
-        return jsonify({"error": "Preprocessing is already running"}), 409
-    
-    data = request.get_json()
-    folder_path = data.get('path')
-    
-    if not folder_path:
-        return jsonify({"error": "No folder path provided"}), 400
-    
-    try:
-        resolved_path = Path(folder_path).resolve()
+# Preprocessing endpoint - only available in local mode
+if not PUBLIC_MODE:
+    @app.route('/api/preprocess-folder', methods=['POST'])
+    def start_preprocessing():
+        """Start preprocessing a folder in a background thread."""
+        global PREPROCESSING_STATUS
         
-        if not resolved_path.exists() or not resolved_path.is_dir():
-            return jsonify({"error": "Invalid folder path"}), 400
+        if PREPROCESSING_STATUS['is_running']:
+            return jsonify({"error": "Preprocessing is already running"}), 409
         
-        # Count JSON files
-        json_files = list(resolved_path.glob("*.json"))
-        if not json_files:
-            return jsonify({"error": "No JSON files found in the folder"}), 400
+        data = request.get_json()
+        folder_path = data.get('path')
         
-        # Reset status
-        PREPROCESSING_STATUS.update({
-            'is_running': True,
-            'current_file': None,
-            'files_processed': 0,
-            'total_files': len(json_files),
-            'status': 'running',
-            'error_message': None,
-            'folder_path': str(resolved_path)
-        })
+        if not folder_path:
+            return jsonify({"error": "No folder path provided"}), 400
         
-        # Start preprocessing in background thread
-        thread = threading.Thread(target=run_preprocessing, args=(str(resolved_path),))
-        thread.daemon = True
-        thread.start()
-        
-        return jsonify({
-            "message": "Preprocessing started",
-            "total_files": len(json_files),
-            "folder_path": str(resolved_path)
-        })
-        
-    except Exception as e:
-        PREPROCESSING_STATUS['is_running'] = False
-        return jsonify({"error": f"Failed to start preprocessing: {str(e)}"}), 500
+        try:
+            resolved_path = Path(folder_path).resolve()
+            
+            if not resolved_path.exists() or not resolved_path.is_dir():
+                return jsonify({"error": "Invalid folder path"}), 400
+            
+            # Count JSON files
+            json_files = list(resolved_path.glob("*.json"))
+            if not json_files:
+                return jsonify({"error": "No JSON files found in the folder"}), 400
+            
+            # Reset status
+            PREPROCESSING_STATUS.update({
+                'is_running': True,
+                'current_file': None,
+                'files_processed': 0,
+                'total_files': len(json_files),
+                'status': 'running',
+                'error_message': None,
+                'folder_path': str(resolved_path)
+            })
+            
+            # Start preprocessing in background thread
+            thread = threading.Thread(target=run_preprocessing, args=(str(resolved_path),))
+            thread.daemon = True
+            thread.start()
+            
+            return jsonify({
+                "message": "Preprocessing started",
+                "total_files": len(json_files),
+                "folder_path": str(resolved_path)
+            })
+            
+        except Exception as e:
+            PREPROCESSING_STATUS['is_running'] = False
+            return jsonify({"error": f"Failed to start preprocessing: {str(e)}"}), 500
 
 @app.route('/api/preprocessing-status')
 def get_preprocessing_status():
@@ -752,6 +810,11 @@ def main():
     """Main entry point for the application."""
 
     print(f"Starting BGC Viewer version {__version__}")
+    print(f"Running in {'PUBLIC' if PUBLIC_MODE else 'LOCAL'} mode")
+    
+    if PUBLIC_MODE:
+        print(f"Data directory: {DATA_DIRECTORY}")
+        print("Restricted endpoints: /api/browse, /api/scan-folder, /api/preprocess-folder, /api/check-index, /api/set-database-path")
 
     host = os.environ.get('BGCV_HOST', 'localhost')
     port = int(os.environ.get('BGCV_PORT', 5005))
