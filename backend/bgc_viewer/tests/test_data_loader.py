@@ -11,7 +11,6 @@ from bgc_viewer.data_loader import (
     load_specific_record_fallback,
     list_available_records,
     get_record_metadata_from_index,
-    load_antismash_data,
     load_json_file
 )
 
@@ -87,22 +86,6 @@ class TestDataLoading:
         assert "records" in data
         assert len(data["records"]) == 2
         assert data["version"] == "1.0"
-    
-    def test_load_antismash_data_existing_file(self, sample_json_file):
-        """Test loading AntiSMASH data from existing file."""
-        # Copy file to expected location for this test
-        data_dir = sample_json_file.parent
-        
-        data = load_antismash_data("test_sample.json", str(data_dir))
-        
-        assert data is not None
-        assert "records" in data
-        assert len(data["records"]) == 2
-    
-    def test_load_antismash_data_nonexistent_file(self, temp_dir):
-        """Test loading AntiSMASH data from non-existent file."""
-        data = load_antismash_data("nonexistent.json", str(temp_dir))
-        assert data is None
 
 
 class TestPerformanceComparison:

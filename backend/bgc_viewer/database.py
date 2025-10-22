@@ -97,12 +97,16 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         
         # Add search filter if provided
         if search:
-            # Search in filename, record_id, organism, product, and attribute values
-            search_condition = """(r.filename LIKE ? OR r.record_id LIKE ? OR r.organism LIKE ? OR r.product LIKE ? 
-                               OR EXISTS (SELECT 1 FROM attributes a2 WHERE a2.record_ref = r.id AND a2.attribute_value LIKE ?))"""
-            where_conditions.append(search_condition)
-            search_param = f"%{search}%"
-            params = [search_param, search_param, search_param, search_param, search_param]
+            # Split search into multiple terms by space and apply AND logic
+            search_terms = search.strip().split()
+            
+            for term in search_terms:
+                # Each term must match at least one field
+                search_condition = """(r.filename LIKE ? OR r.record_id LIKE ? OR r.organism LIKE ? OR r.product LIKE ? 
+                                   OR EXISTS (SELECT 1 FROM attributes a2 WHERE a2.record_ref = r.id AND a2.attribute_value LIKE ?))"""
+                where_conditions.append(search_condition)
+                term_param = f"%{term}%"
+                params.extend([term_param, term_param, term_param, term_param, term_param])
         
         # Build WHERE clause
         if where_conditions:

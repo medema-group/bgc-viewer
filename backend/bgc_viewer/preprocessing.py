@@ -199,6 +199,33 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
                         attr_value
                     ))
     
+    # Extract PFAM domains (avoid duplicates)
+    if 'features' in record and isinstance(record['features'], list):
+        pfam_domains = set()  # Use set to avoid duplicates
+        
+        for feature in record['features']:
+            if feature.get('type') == 'PFAM_domain' and 'qualifiers' in feature:
+                qualifiers = feature['qualifiers']
+                if 'db_xref' in qualifiers:
+                    db_xrefs = qualifiers['db_xref']
+                    # Handle both list and single value
+                    if not isinstance(db_xrefs, list):
+                        db_xrefs = [db_xrefs]
+                    
+                    for db_xref in db_xrefs:
+                        # Extract part before the period (e.g., "PF00457.13" -> "PF00457")
+                        pfam_id = str(db_xref).split('.')[0]
+                        pfam_domains.add(pfam_id)
+        
+        # Add unique PFAM domains as attributes
+        for pfam_id in pfam_domains:
+            attributes.append((
+                record_ref_id,
+                'pfam',
+                'pfam',
+                pfam_id
+            ))
+    
     return attributes
 
 

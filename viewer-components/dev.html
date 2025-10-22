@@ -103,8 +103,8 @@
       fill: #FF9800;
     }
 
-    .annotation-terminator {
-      fill: #F44336;
+    .annotation-triangle {
+      fill: darkblue;
     }
 
     .annotation-default {
@@ -188,13 +188,13 @@
         { id: "dom3", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain3", start: 65, end: 75, heightFraction: 0.7 },
 
         // Regulatory track annotations - mix of custom and default heights
-        { id: "prom1", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "promoter", start: 5, end: 12, heightFraction: 0.8, stroke: 'green' },
-        { id: "term1", trackId: "regulatory", type: "circle", classes: ["annotation-terminator"], label: "terminator", start: 82, end: 90, opacity: 0.5 },
-        { id: "term2", trackId: "regulatory", type: "circle", classes: ["annotation-terminator"], label: "terminator", start: 50, end: 50, fy: 0.75, heightFraction: 0.5 },
-        { id: "term3", trackId: "regulatory", type: "triangle", classes: [], label: "terminator", start: 55, end: 55},
-        { id: "term4", trackId: "regulatory", type: "triangle", classes: [], label: "terminator", start: 65, end: 65, fy: 0.4, heightFraction: 0.35},
-        { id: "term5", trackId: "regulatory", type: "pin", classes: [], start: 60, end: 60, heightFraction: 0.4 },
-        { id: "term6", trackId: "regulatory", type: "pin", classes: [], start: 59, end: 59 }
+        { id: "prom1", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "", start: 5, end: 12, heightFraction: 0.8, stroke: 'green' },
+        { id: "term1", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "circle", start: 82, end: 90, opacity: 0.5 },
+        { id: "term2", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "circle", start: 50, end: 50, fy: 0.75, heightFraction: 0.5 },
+        { id: "term3", trackId: "regulatory", type: "triangle", classes: [], label: "triangle", start: 55, end: 55},
+        { id: "term4", trackId: "regulatory", type: "triangle", classes: [], label: "triangle", start: 65, end: 65, fy: 0.4, heightFraction: 0.35},
+        { id: "term5", trackId: "regulatory", type: "pin", classes: [], label: "binding site", start: 60, end: 60, heightFraction: 0.4 },
+        { id: "term6", trackId: "regulatory", type: "pin", classes: [], label: "binding site", start: 59, end: 59 }
       ],
       primitives: [
         // Background

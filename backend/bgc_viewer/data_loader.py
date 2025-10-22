@@ -11,29 +11,6 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 
-def load_antismash_data(filename=None, data_dir="data"):
-    """Load AntiSMASH JSON data from file using ijson for better performance."""
-    if filename is None:
-        # Default to Y16952.json if no file specified
-        filename = "Y16952.json"
-    
-    data_file = Path(data_dir) / filename
-    if data_file.exists():
-        try:
-            # Use ijson for efficient parsing
-            with open(data_file, 'rb') as f:
-                # Parse the entire structure efficiently
-                parser = ijson.parse(f)
-                data = _build_data_structure(parser)
-                return data
-        except Exception as e:
-            # Fallback to regular json if ijson fails
-            print(f"ijson parsing failed for {filename}, falling back to json: {e}")
-            with open(data_file, 'r') as f:
-                return json.load(f)
-    return None
-
-
 def load_json_file(file_path):
     """Load a JSON file using ijson with fallback to standard json."""
     try:
@@ -81,11 +58,18 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
         return load_specific_record_fallback(file_path, target_record_id)
     
     try:
+        # Calculate relative path from data_dir to match database entries
+        try:
+            relative_path = str(Path(file_path).resolve().relative_to(Path(data_dir).resolve()))
+        except ValueError:
+            # If file is not within data_dir, just use the filename
+            relative_path = Path(file_path).name
+        
         # Query the records table for byte positions
         cursor = conn.execute(
             """SELECT byte_start, byte_end FROM records 
                WHERE filename = ? AND record_id = ?""",
-            (Path(file_path).name, target_record_id)
+            (relative_path, target_record_id)
         )
         
         result = cursor.fetchone()

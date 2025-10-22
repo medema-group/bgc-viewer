@@ -14,8 +14,8 @@
             v-model="searchQuery"
             @input="debouncedSearch"
             type="text"
-            placeholder="Search files, records, or attributes..."
-            title="Search across filenames, record IDs, and all attribute values (organisms, products, descriptions, etc.)"
+            placeholder="Search (e.g., 'PF00457 organism')"
+            title="Search across filenames, record IDs, organisms, products, and all attribute values. Multiple space-separated terms will be combined with AND logic (all terms must match)."
             class="search-input"
           />
           <button v-if="searchQuery" @click="clearSearch" class="clear-search">×</button>

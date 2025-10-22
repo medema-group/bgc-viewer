@@ -5,8 +5,9 @@
     </header>
 
     <main>
-      <!-- Folder Selector Section -->
+      <!-- Folder Selector Section - Only shown in local mode -->
       <FolderSelector 
+        v-if="!isPublicMode"
         @folder-selected="handleFolderSelected"
         @folder-changed="handleFolderChanged"
         @preprocessing-completed="handlePreprocessingCompleted"
@@ -58,6 +59,9 @@ export default {
     const appVersion = ref('')
     const appName = ref('BGC Viewer')
     
+    // Mode information
+    const isPublicMode = ref(true) // Default to true for safety
+    
     // Database folder tracking
     const selectedDatabaseFolder = ref('')
     
@@ -100,9 +104,22 @@ export default {
       }
     }
     
-    // Fetch application version on component mount
+    const fetchStatus = async () => {
+      try {
+        const response = await axios.get('/api/status')
+        isPublicMode.value = response.data.public_mode
+        console.log('Running in', isPublicMode.value ? 'PUBLIC' : 'LOCAL', 'mode')
+      } catch (error) {
+        console.warn('Failed to fetch status:', error)
+        // Default to public mode for safety if fetch fails
+        isPublicMode.value = true
+      }
+    }
+    
+    // Fetch application version and status on component mount
     onMounted(() => {
       fetchVersion()
+      fetchStatus()
     })
     
     return {
@@ -110,6 +127,7 @@ export default {
       recordListSelectorRef,
       appVersion,
       appName,
+      isPublicMode,
       selectedDatabaseFolder,
       handleFolderSelected,
       handleFolderChanged,
