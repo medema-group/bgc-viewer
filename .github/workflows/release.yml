@@ -1,0 +1,230 @@
+name: Release to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  contents: read
+  id-token: write  # For trusted publishing to PyPI
+
+jobs:
+  build:
+    name: Build distribution packages
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        fetch-tags: true  # Ensure tags are fetched
+        submodules: recursive
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        enable-cache: true
+    
+    - name: Verify git state
+      run: |
+        git describe --tags --always --dirty
+        echo "Current tag: $(git describe --tags --exact-match 2>/dev/null || echo 'No exact tag')"
+    
+    - name: Extract version from tag
+      id: get_version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/v* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION="0.0.0.dev0"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Expected version: $VERSION"
+    
+    - name: Update version in pyproject.toml
+      working-directory: backend
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+        echo "Updated version in pyproject.toml:"
+        grep "^version = " pyproject.toml
+    
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Install viewer-components dependencies
+      working-directory: viewer-components
+      run: |
+        rm -rf node_modules package-lock.json
+        npm install
+    
+    - name: Build viewer-components
+      working-directory: viewer-components
+      run: npm run build
+    
+    - name: Install frontend dependencies
+      working-directory: frontend
+      run: |
+        rm -rf node_modules package-lock.json
+        npm install
+    
+    - name: Build frontend
+      working-directory: frontend
+      run: npm run build
+    
+    - name: Copy viewer-components and frontend assets to backend
+      run: |
+        mkdir -p backend/bgc_viewer/static
+        # Copy viewer components build
+        cp viewer-components/dist/index.umd.js backend/bgc_viewer/static/viewer-components.umd.js
+        cp viewer-components/dist/index.umd.js.map backend/bgc_viewer/static/viewer-components.umd.js.map
+        # Copy frontend build
+        cp -r frontend/build/* backend/bgc_viewer/static/
+    
+    - name: Build Python package
+      working-directory: backend
+      run: |
+        uv build
+    
+    - name: Check distribution packages
+      working-directory: backend
+      run: |
+        uv tool run twine check dist/*
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist-packages
+        path: backend/dist/
+        retention-days: 7
+
+  test-install:
+    name: Test installation
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.11', '3.12']
+    
+    steps:
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: dist-packages
+        path: dist/
+    
+    - name: Test wheel installation
+      run: |
+        uv pip install --system dist/*.whl
+        python -c "import bgc_viewer; print(f'Successfully imported bgc_viewer version {bgc_viewer.__version__}')"
+        python -c "from bgc_viewer.app import app; print('Flask app imported successfully')"
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [build, test-install]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/bgc-viewer
+    permissions:
+      id-token: write  # mandatory for trusted publishing
+
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: dist-packages
+        path: dist/
+    
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+
+  create-github-release:
+    name: Create GitHub Release
+    needs: [build, test-install]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: dist-packages
+        path: dist/
+    
+    - name: Extract release notes
+      id: extract-notes
+      run: |
+        # Extract version from tag
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+        # Create release notes
+        cat > release_notes.md << EOF
+        ## BGC Viewer Release $VERSION
+        
+        A viewer to explore and visualize Biosynthetic Gene Cluster data from antiSMASH JSON files.
+        
+        ### What's Changed
+        - Package built with Python 3.11
+        - See [CHANGELOG.md](CHANGELOG.md) for detailed changes
+        
+        ### Installation
+        \`\`\`bash
+        pip install bgc-viewer==$VERSION
+        \`\`\`
+        
+        Or with uv:
+        \`\`\`bash
+        uv pip install bgc-viewer==$VERSION
+        \`\`\`
+        
+        ### Usage
+        \`\`\`bash
+        # Run the viewer
+        bgc_viewer
+        
+        # Or with uv
+        uv run bgc_viewer
+        \`\`\`
+        
+        ### Files
+        - \`bgc_viewer-$VERSION.tar.gz\` - Source distribution
+        - \`bgc_viewer-$VERSION-py3-none-any.whl\` - Universal wheel
+        EOF
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Release v${{ steps.extract-notes.outputs.version }}
+        body_path: release_notes.md
+        files: |
+          dist/*.tar.gz
+          dist/*.whl
+        draft: false
+        prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
