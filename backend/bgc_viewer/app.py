@@ -50,7 +50,6 @@ else:
 
 # Global variable to store currently loaded data
 ANTISMASH_DATA = None
-CURRENT_FILE = None #TODO: check if we are using this, and whether it stores session-related data
 
 # Global variable to store current database path
 CURRENT_DATABASE_PATH = None
@@ -106,7 +105,6 @@ def spa_fallback(path):
 def get_status():
     """API endpoint to get current file and data loading status."""
     return jsonify({
-        "current_file": CURRENT_FILE if CURRENT_FILE else None,
         "has_loaded_data": ANTISMASH_DATA is not None,
         "data_directory_exists": Path("data").exists(),
         "public_mode": PUBLIC_MODE
@@ -275,16 +273,14 @@ def load_database_entry():
             return jsonify({"error": f"Record {record_id} not found in {filename}"}), 404
         
         # Set global data
-        global ANTISMASH_DATA, CURRENT_FILE
+        global ANTISMASH_DATA
         ANTISMASH_DATA = modified_data
-        CURRENT_FILE = f"{filename}:{record_id}"
         
         # Get the loaded record info
         loaded_record = modified_data["records"][0] if modified_data["records"] else {}
         
         return jsonify({
             "message": f"Successfully loaded {filename}:{record_id}",
-            "current_file": CURRENT_FILE,
             "filename": filename,
             "record_id": record_id,
             "record_info": {
@@ -306,8 +302,7 @@ def get_info():
         return jsonify({
             "error": "No AntiSMASH data loaded",
             "version": None,
-            "total_records": 0,
-            "current_file": None
+            "total_records": 0
         }), 200
     
     return jsonify({
@@ -315,8 +310,7 @@ def get_info():
         "input_file": ANTISMASH_DATA.get("input_file"),
         "taxon": ANTISMASH_DATA.get("taxon"),
         "total_records": len(ANTISMASH_DATA.get("records", [])),
-        "schema": ANTISMASH_DATA.get("schema"),
-        "current_file": CURRENT_FILE
+        "schema": ANTISMASH_DATA.get("schema")
     })
 
 @app.route('/api/records')
