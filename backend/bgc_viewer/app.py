@@ -54,14 +54,16 @@ ANTISMASH_DATA = None
 # Global variable to store current database path
 CURRENT_DATABASE_PATH = None
 
-# Define the data directory based on mode
-DATA_DIRECTORY: Optional[Path]
+# Define the restricted data directory based on mode
+# In PUBLIC mode: Path object restricting access to a specific directory
+# In LOCAL mode: None indicates unrestricted filesystem access
+RESTRICTED_DATA_DIRECTORY: Optional[Path]
 if PUBLIC_MODE:
     # In public mode, use a fixed data directory (can be configured)
-    DATA_DIRECTORY = Path(os.getenv('BGCV_DATA_DIR', 'data')).resolve()
+    RESTRICTED_DATA_DIRECTORY = Path(os.getenv('BGCV_DATA_DIR', 'data')).resolve()
 else:
-    # In local mode, no fixed directory restriction
-    DATA_DIRECTORY = None
+    # In local mode, no directory restriction - users can access any path
+    RESTRICTED_DATA_DIRECTORY = None
 
 # Global variables for preprocessing status
 PREPROCESSING_STATUS = {
@@ -104,9 +106,18 @@ def spa_fallback(path):
 @app.route('/api/status')
 def get_status():
     """API endpoint to get current file and data loading status."""
+    # Determine the current data directory
+    current_data_dir = None
+    if CURRENT_DATABASE_PATH:
+        # Use the folder containing the current database
+        current_data_dir = str(Path(CURRENT_DATABASE_PATH).parent)
+    elif PUBLIC_MODE and RESTRICTED_DATA_DIRECTORY:
+        # In public mode, use the configured data directory
+        current_data_dir = str(RESTRICTED_DATA_DIRECTORY)
+    
     return jsonify({
         "has_loaded_data": ANTISMASH_DATA is not None,
-        "data_directory_exists": Path("data").exists(),
+        "current_data_directory": current_data_dir,
         "public_mode": PUBLIC_MODE
     })
 
@@ -250,16 +261,16 @@ def load_database_entry():
             data_dir = str(db_folder)
         else:
             # Fallback: Look for the file in the data directory
-            if PUBLIC_MODE and DATA_DIRECTORY:
-                data_dir = str(DATA_DIRECTORY)
+            if PUBLIC_MODE and RESTRICTED_DATA_DIRECTORY:
+                data_dir = str(RESTRICTED_DATA_DIRECTORY)
             else:
                 data_dir = "data"
             file_path = Path(data_dir) / filename
         
         # In public mode, ensure file is within allowed directory
-        if PUBLIC_MODE and DATA_DIRECTORY:
+        if PUBLIC_MODE and RESTRICTED_DATA_DIRECTORY:
             try:
-                file_path.resolve().relative_to(DATA_DIRECTORY)
+                file_path.resolve().relative_to(RESTRICTED_DATA_DIRECTORY)
             except ValueError:
                 return jsonify({"error": "Access denied: File must be within the data directory"}), 403
         
@@ -493,8 +504,8 @@ def get_database_entries_endpoint():
     db_path = CURRENT_DATABASE_PATH
     if not db_path or not Path(db_path).exists():
         # Fallback: Look for attributes.db in the data directory
-        if PUBLIC_MODE and DATA_DIRECTORY:
-            data_dir = DATA_DIRECTORY
+        if PUBLIC_MODE and RESTRICTED_DATA_DIRECTORY:
+            data_dir = RESTRICTED_DATA_DIRECTORY
         else:
             data_dir = Path("data")
         fallback_db_path = data_dir / "attributes.db"
@@ -635,7 +646,7 @@ def main():
     print(f"Running in {'PUBLIC' if PUBLIC_MODE else 'LOCAL'} mode")
     
     if PUBLIC_MODE:
-        print(f"Data directory: {DATA_DIRECTORY}")
+        print(f"Data directory: {RESTRICTED_DATA_DIRECTORY}")
         print("Restricted endpoints: /api/browse, /api/scan-folder, /api/preprocess-folder, /api/check-index, /api/set-database-path")
 
     host = os.environ.get('BGCV_HOST', 'localhost')
