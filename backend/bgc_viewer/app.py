@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 # Import version from package
 from . import __version__
 from .preprocessing import preprocess_antismash_files
-from .data_loader import load_json_file, load_specific_record
+from .data_loader import load_specific_record
 from .file_utils import match_location
 from .database import check_database_exists, get_database_entries
 
@@ -295,52 +295,6 @@ def load_database_entry():
     except Exception as e:
         return jsonify({"error": f"Failed to load entry: {str(e)}"}), 500
 
-@app.route('/api/info')
-def get_info():
-    """API endpoint to get basic information about the dataset."""
-    if not ANTISMASH_DATA:
-        return jsonify({
-            "error": "No AntiSMASH data loaded",
-            "version": None,
-            "total_records": 0
-        }), 200
-    
-    return jsonify({
-        "version": ANTISMASH_DATA.get("version"),
-        "input_file": ANTISMASH_DATA.get("input_file"),
-        "taxon": ANTISMASH_DATA.get("taxon"),
-        "total_records": len(ANTISMASH_DATA.get("records", [])),
-        "schema": ANTISMASH_DATA.get("schema")
-    })
-
-@app.route('/api/records')
-def get_records():
-    """API endpoint to get list of all records (regions)."""
-    if not ANTISMASH_DATA:
-        return jsonify({"error": "AntiSMASH data not found"}), 404
-    
-    records = []
-    for record in ANTISMASH_DATA.get("records", []):
-        records.append({
-            "id": record.get("id"),
-            "description": record.get("description"),
-            "gc_content": record.get("gc_content"),
-            "feature_count": len(record.get("features", []))
-        })
-    
-    return jsonify(records)
-
-@app.route('/api/records/<record_id>')
-def get_record(record_id):
-    """API endpoint to get a specific record."""
-    if not ANTISMASH_DATA:
-        return jsonify({"error": "AntiSMASH data not found"}), 404
-    
-    record = next((r for r in ANTISMASH_DATA.get("records", []) if r.get("id") == record_id), None)
-    if record:
-        return jsonify(record)
-    return jsonify({"error": "Record not found"}), 404
-
 @app.route('/api/records/<record_id>/regions')
 def get_record_regions(record_id):
     """API endpoint to get all regions for a specific record."""
@@ -464,49 +418,6 @@ def get_record_features(record_id):
         "count": len(features),
         "features": features
     })
-
-@app.route('/api/feature-types')
-def get_feature_types():
-    """API endpoint to get all available feature types across all records."""
-    if not ANTISMASH_DATA:
-        return jsonify({"error": "AntiSMASH data not found"}), 404
-    
-    feature_types = set()
-    for record in ANTISMASH_DATA.get("records", []):
-        for feature in record.get("features", []):
-            if "type" in feature:
-                feature_types.add(feature["type"])
-    
-    return jsonify(sorted(list(feature_types)))
-
-@app.route('/api/stats')
-def get_stats():
-    """API endpoint to get statistics about the dataset."""
-    if not ANTISMASH_DATA:
-        return jsonify({"error": "AntiSMASH data not found"}), 404
-    
-    # Calculate statistics
-    records = ANTISMASH_DATA.get("records", [])
-    total_features = sum(len(r.get("features", [])) for r in records)
-    
-    feature_type_counts = {}
-    for record in records:
-        for feature in record.get("features", []):
-            ftype = feature.get("type", "unknown")
-            feature_type_counts[ftype] = feature_type_counts.get(ftype, 0) + 1
-    
-    return jsonify({
-        "total_records": len(records),
-        "total_features": total_features,
-        "feature_types": feature_type_counts,
-        "version": ANTISMASH_DATA.get("version"),
-        "schema": ANTISMASH_DATA.get("schema")
-    })
-
-@app.route('/api/health')
-def health_check():
-    """Health check endpoint."""
-    return jsonify({"status": "healthy", "message": "Server is running"})
 
 @app.route('/api/version')
 def get_version():
@@ -688,25 +599,6 @@ def run_preprocessing(folder_path):
             'status': 'error',
             'error_message': str(e)
         })
-
-@app.route('/api/debug/static-files')
-def debug_static_files():
-    """Debug endpoint to check what static files are available."""
-    static_dir = Path(app.static_folder)
-    
-    result = {
-        "static_folder": str(static_dir),
-        "static_folder_exists": static_dir.exists(),
-        "files": []
-    }
-    
-    if static_dir.exists():
-        for file_path in static_dir.rglob('*'):
-            if file_path.is_file():
-                result["files"].append(str(file_path.relative_to(static_dir)))
-    
-    result["files"] = sorted(result["files"])
-    return jsonify(result)
 
 @app.errorhandler(404)
 def not_found(error):
