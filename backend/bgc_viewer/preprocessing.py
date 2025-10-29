@@ -16,6 +16,14 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     
     conn = sqlite3.connect(db_path)
     
+    # Create the metadata table for storing preprocessing metadata
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    
     # Create the records table to store record metadata
     conn.execute("""
         CREATE TABLE IF NOT EXISTS records (
@@ -64,6 +72,37 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     
     conn.commit()
     return conn
+
+
+def populate_metadata_table(conn: sqlite3.Connection, db_path: Path) -> None:
+    """
+    Populate the metadata table with preprocessing information.
+    
+    Args:
+        conn: SQLite database connection
+        db_path: Path to the database file
+    """
+    metadata_entries = []
+    
+    # Get package version
+    try:
+        from importlib.metadata import version
+        package_version = version("bgc-viewer")
+    except ImportError:
+        package_version = "unknown"
+    
+    metadata_entries.append(('version', package_version))
+    
+    # Store the absolute path of the database root
+    db_root = str(db_path.parent.absolute())
+    metadata_entries.append(('db_root', db_root))
+    
+    # Insert metadata entries
+    conn.executemany(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+        metadata_entries
+    )
+    conn.commit()
 
 
 def flatten_complex_value(value: Any, prefix: str = "") -> List[tuple]:
@@ -199,12 +238,43 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
                         attr_value
                     ))
     
+    # Extract PFAM domains (avoid duplicates)
+    if 'features' in record and isinstance(record['features'], list):
+        pfam_domains = set()  # Use set to avoid duplicates
+        
+        for feature in record['features']:
+            if feature.get('type') == 'PFAM_domain' and 'qualifiers' in feature:
+                qualifiers = feature['qualifiers']
+                if 'db_xref' in qualifiers:
+                    db_xrefs = qualifiers['db_xref']
+                    # Handle both list and single value
+                    if not isinstance(db_xrefs, list):
+                        db_xrefs = [db_xrefs]
+                    
+                    for db_xref in db_xrefs:
+                        # Only process if it looks like a PFAM identifier (starts with 'PF')
+                        db_xref_str = str(db_xref)
+                        if db_xref_str.startswith('PF'):
+                            # Extract part before the period (e.g., "PF00457.13" -> "PF00457")
+                            pfam_id = db_xref_str.split('.')[0]
+                            pfam_domains.add(pfam_id)
+        
+        # Add unique PFAM domains as attributes
+        for pfam_id in pfam_domains:
+            attributes.append((
+                record_ref_id,
+                'pfam',
+                'pfam',
+                pfam_id
+            ))
+    
     return attributes
 
 
 def preprocess_antismash_files(
     input_directory: str, 
-    progress_callback: Optional[Callable[[str, int, int], None]] = None
+    progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    json_files: Optional[List[Path]] = None
 ) -> Dict[str, Any]:
     """
     Preprocess antiSMASH JSON files and store attributes in SQLite database.
@@ -212,6 +282,7 @@ def preprocess_antismash_files(
     Args:
         input_directory: Directory containing JSON files to process
         progress_callback: Optional callback function called with (current_file, files_processed, total_files)
+        json_files: Optional list of specific JSON file paths to process. If None, all files in directory are processed.
         
     Returns:
         Dict with processing statistics
@@ -222,18 +293,27 @@ def preprocess_antismash_files(
     db_path = input_path / "attributes.db"
     conn = create_attributes_database(db_path)
     
-    # Process first 5000 JSON files only - scan recursively in subdirectories
-    json_files = list(input_path.glob("**/*.json"))[:5000]
+    # Populate metadata table
+    populate_metadata_table(conn, db_path)
+    
+    # Determine which files to process
+    if json_files is not None:
+        # Use the provided list of files
+        files_to_process = json_files
+    else:
+        # Process first 5000 JSON files only - scan recursively in subdirectories
+        files_to_process = list(input_path.rglob("*.json"))[:5000]
+    
     total_records = 0
     total_attributes = 0
     files_processed = 0
     
     try:
-        for json_file in json_files:
+        for json_file in files_to_process:
             try:
                 if progress_callback:
                     relative_path = json_file.relative_to(input_path)
-                    progress_callback(str(relative_path), files_processed, len(json_files))
+                    progress_callback(str(relative_path), files_processed, len(files_to_process))
                 
                 file_attributes: List[tuple] = []
                 file_records = 0
@@ -360,7 +440,7 @@ def preprocess_antismash_files(
     finally:
         # Final progress callback
         if progress_callback:
-            progress_callback("", files_processed, len(json_files))
+            progress_callback("", files_processed, len(files_to_process))
         conn.close()
     
     return {

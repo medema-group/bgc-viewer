@@ -3,20 +3,6 @@ File system browsing and utility functions for BGC Viewer.
 """
 
 import re
-from pathlib import Path
-
-
-def get_available_files(data_dir="data"):
-    """Get list of available JSON files in the data directory."""
-    data_dir = Path(data_dir)
-    if not data_dir.exists():
-        return []
-    
-    json_files = []
-    for file_path in data_dir.glob("*.json"):
-        json_files.append(file_path.name)
-    
-    return sorted(json_files)
 
 
 def match_location(location):

@@ -18,30 +18,64 @@
 
     <PreprocessingStatus 
       :folder-path="currentFolderPath"
+      :selected-files="selectedFiles"
       @preprocessing-completed="handlePreprocessingCompleted"
+      @need-file-selection="handleNeedFileSelection"
+      ref="preprocessingStatusRef"
+    />
+    
+    <div v-if="isLoadingFiles" class="loading-files">
+      <LoadingSpinner color="#1976d2" style="width: 32px; height: 32px; border-width: 3px;" />
+      <span class="loading-text">Loading file list...</span>
+    </div>
+    
+    <FileSelector 
+      v-if="showFileSelector"
+      :json-files="availableFiles"
+      @files-selected="handleFilesSelected"
     />
   </section>
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import axios from 'axios'
 import FolderSelectionDialog from './FolderSelectionDialog.vue'
 import PreprocessingStatus from './PreprocessingStatus.vue'
+import FileSelector from './FileSelector.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 export default {
   name: 'FolderSelector',
   components: {
     FolderSelectionDialog,
-    PreprocessingStatus
+    PreprocessingStatus,
+    FileSelector,
+    LoadingSpinner
   },
   emits: ['folder-selected', 'folder-changed', 'preprocessing-completed'],
   setup(_, { emit }) {
     const currentFolderPath = ref('')
     const showDialog = ref(false)
     const folderRestoredFromMemory = ref(false)
+    const showFileSelector = ref(false)
+    const isLoadingFiles = ref(false)
+    const availableFiles = ref([])
+    const selectedFiles = ref([])
+    const preprocessingStatusRef = ref(null)
     
     const STORAGE_KEY = 'bgc-viewer-last-folder'
+    
+    // Watch for folder path changes to reset file selector
+    watch(currentFolderPath, (newValue, oldValue) => {
+      if (newValue !== oldValue) {
+        // Hide file selector when folder changes
+        showFileSelector.value = false
+        isLoadingFiles.value = false
+        availableFiles.value = []
+        selectedFiles.value = []
+      }
+    })
     
     const saveLastFolder = (folderPath) => {
       try {
@@ -145,9 +179,45 @@ export default {
 
     
     const handlePreprocessingCompleted = () => {
-      console.log('Preprocessing completed')
+      // Clear file selection
+      showFileSelector.value = false
+      selectedFiles.value = []
+      availableFiles.value = []
       // Emit event that preprocessing is completed
       emit('preprocessing-completed', currentFolderPath.value)
+    }
+    
+    const handleNeedFileSelection = async (indexStatusData) => {
+      // Fetch the list of JSON files from the API
+      isLoadingFiles.value = true
+      try {
+        const response = await axios.post('/api/scan-folder', {
+          path: currentFolderPath.value
+        })
+        
+        if (response.data.json_files && response.data.json_files.length > 0) {
+          availableFiles.value = response.data.json_files
+          showFileSelector.value = true
+        } else {
+          alert('No JSON files found in the selected folder')
+        }
+      } catch (error) {
+        console.error('Failed to fetch JSON files:', error)
+        alert(`Failed to fetch file list: ${error.response?.data?.error || error.message}`)
+      } finally {
+        isLoadingFiles.value = false
+      }
+    }
+    
+    const handleFilesSelected = (files) => {
+      selectedFiles.value = files
+      showFileSelector.value = false
+      
+      // Trigger preprocessing with selected files
+      if (preprocessingStatusRef.value) {
+        const filePaths = files.map(f => f.path)
+        preprocessingStatusRef.value.startPreprocessing(filePaths)
+      }
     }
     
     // Try to load default folder on component mount
@@ -162,7 +232,14 @@ export default {
       showFolderDialog,
       handleDialogClose,
       handleFolderSelected,
-      handlePreprocessingCompleted
+      handlePreprocessingCompleted,
+      handleNeedFileSelection,
+      handleFilesSelected,
+      showFileSelector,
+      isLoadingFiles,
+      availableFiles,
+      selectedFiles,
+      preprocessingStatusRef
     }
   }
 }
@@ -214,5 +291,21 @@ export default {
 
 .browse-button:hover {
   background: #1565c0;
+}
+
+.loading-files {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  margin: 20px 0;
+}
+
+.loading-text {
+  color: #495057;
+  font-size: 14px;
 }
 </style>
