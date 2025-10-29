@@ -67,12 +67,14 @@ export default {
     const STORAGE_KEY = 'bgc-viewer-last-folder'
     
     // Watch for folder path changes to reset file selector
-    watch(currentFolderPath, () => {
-      // Hide file selector when folder changes
-      showFileSelector.value = false
-      isLoadingFiles.value = false
-      availableFiles.value = []
-      selectedFiles.value = []
+    watch(currentFolderPath, (newValue, oldValue) => {
+      if (newValue !== oldValue) {
+        // Hide file selector when folder changes
+        showFileSelector.value = false
+        isLoadingFiles.value = false
+        availableFiles.value = []
+        selectedFiles.value = []
+      }
     })
     
     const saveLastFolder = (folderPath) => {
