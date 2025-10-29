@@ -23,7 +23,6 @@
             <input 
               type="checkbox" 
               v-model="selectedFiles[file.path]"
-              @change="updateSelection"
             />
             <span class="file-info">
               <span class="file-path">{{ file.relative_path }}</span>
@@ -91,11 +90,6 @@ export default {
       })
     }
     
-    const updateSelection = () => {
-      // This is triggered by checkbox changes
-      // The reactive binding handles the update automatically
-    }
-    
     const confirmSelection = () => {
       const selected = props.jsonFiles.filter(file => selectedFiles.value[file.path])
       
@@ -119,7 +113,6 @@ export default {
       selectedCount,
       selectAll,
       deselectAll,
-      updateSelection,
       confirmSelection,
       formatFileSize
     }
