@@ -16,6 +16,14 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     
     conn = sqlite3.connect(db_path)
     
+    # Create the metadata table for storing preprocessing metadata
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    
     # Create the records table to store record metadata
     conn.execute("""
         CREATE TABLE IF NOT EXISTS records (
@@ -64,6 +72,37 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     
     conn.commit()
     return conn
+
+
+def populate_metadata_table(conn: sqlite3.Connection, db_path: Path) -> None:
+    """
+    Populate the metadata table with preprocessing information.
+    
+    Args:
+        conn: SQLite database connection
+        db_path: Path to the database file
+    """
+    metadata_entries = []
+    
+    # Get package version
+    try:
+        from importlib.metadata import version
+        package_version = version("bgc-viewer")
+    except ImportError:
+        package_version = "unknown"
+    
+    metadata_entries.append(('version', package_version))
+    
+    # Store the absolute path of the database root
+    db_root = str(db_path.parent.absolute())
+    metadata_entries.append(('db_root', db_root))
+    
+    # Insert metadata entries
+    conn.executemany(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+        metadata_entries
+    )
+    conn.commit()
 
 
 def flatten_complex_value(value: Any, prefix: str = "") -> List[tuple]:
@@ -251,6 +290,9 @@ def preprocess_antismash_files(
     db_path = input_path / "attributes.db"
     conn = create_attributes_database(db_path)
     
+    # Populate metadata table
+    populate_metadata_table(conn, db_path)
+    
     # Determine which files to process
     if json_files is not None:
         # Use the provided list of files
@@ -395,7 +437,7 @@ def preprocess_antismash_files(
     finally:
         # Final progress callback
         if progress_callback:
-            progress_callback("", files_processed, len(json_files))
+            progress_callback("", files_processed, len(files_to_process))
         conn.close()
     
     return {
