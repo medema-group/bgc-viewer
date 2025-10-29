@@ -522,6 +522,7 @@ if not PUBLIC_MODE:
         
         data = request.get_json()
         folder_path = data.get('path')
+        selected_files = data.get('files')  # Optional list of file paths
         
         if not folder_path:
             return jsonify({"error": "No folder path provided"}), 400
@@ -532,30 +533,42 @@ if not PUBLIC_MODE:
             if not resolved_path.exists() or not resolved_path.is_dir():
                 return jsonify({"error": "Invalid folder path"}), 400
             
-            # Count JSON files
-            json_files = list(resolved_path.glob("*.json"))
-            if not json_files:
-                return jsonify({"error": "No JSON files found in the folder"}), 400
+            # Determine which files to process
+            json_files_to_process = None
+            
+            if selected_files and len(selected_files) > 0:
+                # Use the selected files
+                json_files_to_process = [Path(f) for f in selected_files if Path(f).suffix == '.json' and Path(f).exists()]
+                if not json_files_to_process:
+                    return jsonify({"error": "None of the selected files are valid JSON files"}), 400
+                total_count = len(json_files_to_process)
+            else:
+                # Fallback to all JSON files in the folder (recursive scan)
+                all_json_files = list(resolved_path.rglob("*.json"))[:5000]
+                if not all_json_files:
+                    return jsonify({"error": "No JSON files found in the folder"}), 400
+                json_files_to_process = all_json_files
+                total_count = len(all_json_files)
             
             # Reset status
             PREPROCESSING_STATUS.update({
                 'is_running': True,
                 'current_file': None,
                 'files_processed': 0,
-                'total_files': len(json_files),
+                'total_files': total_count,
                 'status': 'running',
                 'error_message': None,
                 'folder_path': str(resolved_path)
             })
             
             # Start preprocessing in background thread
-            thread = threading.Thread(target=run_preprocessing, args=(str(resolved_path),))
+            thread = threading.Thread(target=run_preprocessing, args=(str(resolved_path), json_files_to_process))
             thread.daemon = True
             thread.start()
             
             return jsonify({
                 "message": "Preprocessing started",
-                "total_files": len(json_files),
+                "total_files": total_count,
                 "folder_path": str(resolved_path)
             })
             
@@ -568,8 +581,13 @@ def get_preprocessing_status():
     """Get the current preprocessing status."""
     return jsonify(PREPROCESSING_STATUS)
 
-def run_preprocessing(folder_path):
-    """Run the preprocessing function in a background thread."""
+def run_preprocessing(folder_path, json_files=None):
+    """Run the preprocessing function in a background thread.
+    
+    Args:
+        folder_path: Path to the folder to preprocess
+        json_files: Optional list of specific JSON file paths to process
+    """
     global PREPROCESSING_STATUS
     
     def progress_callback(current_file, files_processed, total_files):
@@ -582,7 +600,7 @@ def run_preprocessing(folder_path):
     
     try:
         # Run the preprocessing function
-        results = preprocess_antismash_files(folder_path, progress_callback)
+        results = preprocess_antismash_files(folder_path, progress_callback, json_files)
         
         # Update status on completion
         PREPROCESSING_STATUS.update({

@@ -26,13 +26,6 @@
             {{ indexStatus.json_files_count }} JSON files available for preprocessing
           </div>
         </div>
-        <button 
-          @click="startPreprocessing" 
-          class="preprocess-button"
-          :disabled="!indexStatus.can_preprocess"
-        >
-          Create Index
-        </button>
       </div>
     </div>
 
@@ -99,9 +92,13 @@ export default {
     folderPath: {
       type: String,
       default: null
+    },
+    selectedFiles: {
+      type: Array,
+      default: null
     }
   },
-  emits: ['preprocessing-completed'],
+  emits: ['preprocessing-completed', 'need-file-selection'],
   setup(props, { emit }) {
     const showStatus = ref(false)
     const indexStatus = ref(null)
@@ -135,18 +132,35 @@ export default {
         })
         indexStatus.value = response.data
         showStatus.value = true
+        
+        // Automatically show file selection if no index exists
+        if (!response.data.has_index && response.data.can_preprocess) {
+          showFileSelection()
+        }
       } catch (error) {
         console.error('Failed to check index status:', error)
       }
     }
 
-    const startPreprocessing = async () => {
+    const showFileSelection = () => {
+      // Emit event to parent to show file selection dialog
+      emit('need-file-selection', indexStatus.value)
+    }
+
+    const startPreprocessing = async (filePaths = null) => {
       if (!props.folderPath) return
       
       try {
-        await axios.post('/api/preprocess-folder', {
+        const requestData = {
           path: props.folderPath
-        })
+        }
+        
+        // Include selected file paths if provided
+        if (filePaths && filePaths.length > 0) {
+          requestData.files = filePaths
+        }
+        
+        await axios.post('/api/preprocess-folder', requestData)
         
         // Start polling for status updates
         startStatusPolling()
@@ -189,7 +203,12 @@ export default {
     const retryPreprocessing = () => {
       progress.value.status = 'idle'
       progress.value.error_message = null
-      startPreprocessing()
+      if (props.selectedFiles && props.selectedFiles.length > 0) {
+        const filePaths = props.selectedFiles.map(f => f.path)
+        startPreprocessing(filePaths)
+      } else {
+        startPreprocessing()
+      }
     }
 
     const closeStatus = () => {
@@ -229,6 +248,7 @@ export default {
       hasError,
       isCompleted,
       progressPercentage,
+      showFileSelection,
       startPreprocessing,
       retryPreprocessing,
       closeStatus

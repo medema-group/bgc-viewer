@@ -231,7 +231,8 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
 
 def preprocess_antismash_files(
     input_directory: str, 
-    progress_callback: Optional[Callable[[str, int, int], None]] = None
+    progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    json_files: Optional[List[Path]] = None
 ) -> Dict[str, Any]:
     """
     Preprocess antiSMASH JSON files and store attributes in SQLite database.
@@ -239,6 +240,7 @@ def preprocess_antismash_files(
     Args:
         input_directory: Directory containing JSON files to process
         progress_callback: Optional callback function called with (current_file, files_processed, total_files)
+        json_files: Optional list of specific JSON file paths to process. If None, all files in directory are processed.
         
     Returns:
         Dict with processing statistics
@@ -249,18 +251,24 @@ def preprocess_antismash_files(
     db_path = input_path / "attributes.db"
     conn = create_attributes_database(db_path)
     
-    # Process first 5000 JSON files only - scan recursively in subdirectories
-    json_files = list(input_path.glob("**/*.json"))[:5000]
+    # Determine which files to process
+    if json_files is not None:
+        # Use the provided list of files
+        files_to_process = json_files
+    else:
+        # Process first 5000 JSON files only - scan recursively in subdirectories
+        files_to_process = list(input_path.rglob("*.json"))[:5000]
+    
     total_records = 0
     total_attributes = 0
     files_processed = 0
     
     try:
-        for json_file in json_files:
+        for json_file in files_to_process:
             try:
                 if progress_callback:
                     relative_path = json_file.relative_to(input_path)
-                    progress_callback(str(relative_path), files_processed, len(json_files))
+                    progress_callback(str(relative_path), files_processed, len(files_to_process))
                 
                 file_attributes: List[tuple] = []
                 file_records = 0
