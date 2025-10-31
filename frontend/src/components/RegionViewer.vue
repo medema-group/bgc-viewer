@@ -414,15 +414,17 @@ export default {
             const pfamId = feature.qualifiers?.db_xref?.[0]?.replace('PFAM:', '') || 
                            feature.qualifiers?.inference?.[0]?.match(/PFAM:([^,\s]+)/)?.[1] ||
                            feature.qualifiers?.note?.[0]?.match(/PF\d+/)?.[0]
-            const [pfamAccession, pfamVersion] = pfamId ? pfamId.split('.') : [null, null];
+            const [pfamAccession, pfamVersion] = pfamId ? pfamId.split('.') : ['', ''];
             const domainColor = pfamAccession && pfam_colormap[pfamAccession] ? pfam_colormap[pfamAccession] : null
-            
+            const pfamDescription = feature.qualifiers?.description?.[0] || ''
+            const pfamLabel = `${pfamAccession} ${pfamDescription}`.trim()
+
             const annotation = {
               id: `${feature.type}-${location.start}-${location.end}`,
               trackId: trackId,
               type: 'box',
               classes: classes,
-              label: pfamAccession || 'unknown',
+              label: pfamLabel || 'unknown',
               start: location.start,
               end: location.end,
               fill: domainColor,

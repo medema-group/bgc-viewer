@@ -258,7 +258,12 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
                             # Extract part before the period (e.g., "PF00457.13" -> "PF00457")
                             pfam_id = db_xref_str.split('.')[0]
                             pfam_domains.add(pfam_id)
-        
+                if 'description' in qualifiers:
+                    description = qualifiers['description']
+                    if isinstance(description, list):
+                        description = description[0]
+                    pfam_domains.add(description)
+
         # Add unique PFAM domains as attributes
         for pfam_id in pfam_domains:
             attributes.append((
