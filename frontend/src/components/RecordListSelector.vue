@@ -242,8 +242,12 @@ export default {
       }
     }
     
-    const refreshEntries = () => {
-      loadEntries(currentPage.value, searchQuery.value)
+    const refreshEntries = async () => {
+      // Ensure data root is set before reloading entries
+      if (dataRoot.value) {
+        await setDataRoot(dataRoot.value)
+      }
+      await loadEntries(currentPage.value, searchQuery.value)
     }
     
     const clearRecords = () => {
