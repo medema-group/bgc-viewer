@@ -16,7 +16,7 @@
       <!-- Record List Selector Section -->
       <RecordListSelector 
         ref="recordListSelectorRef"
-        :database-folder="selectedDatabaseFolder"
+        :data-root="selectedDataRoot"
         @record-loaded="handleRecordLoaded" 
       />
 
@@ -62,12 +62,12 @@ export default {
     // Mode information
     const isPublicMode = ref(true) // Default to true for safety
     
-    // Database folder tracking
-    const selectedDatabaseFolder = ref('')
+    // Data root tracking
+    const selectedDataRoot = ref('')
     
     const handleFolderSelected = async (folderPath) => {
-      // Update the selected database folder
-      selectedDatabaseFolder.value = folderPath
+      // Update the selected data root
+      selectedDataRoot.value = folderPath
     }
 
     const handleFolderChanged = async (folderPath) => {
@@ -75,11 +75,13 @@ export default {
       if (recordListSelectorRef.value) {
         recordListSelectorRef.value.clearRecords()
       }
-      // Update the selected database folder
-      selectedDatabaseFolder.value = folderPath
+      // Update the selected data root
+      selectedDataRoot.value = folderPath
     }
 
     const handlePreprocessingCompleted = async (folderPath) => {
+      // Update the data root to ensure it's in sync
+      selectedDataRoot.value = folderPath
       // Refresh the record list when preprocessing is completed
       if (recordListSelectorRef.value) {
         recordListSelectorRef.value.refreshEntries()
@@ -128,7 +130,7 @@ export default {
       appVersion,
       appName,
       isPublicMode,
-      selectedDatabaseFolder,
+      selectedDataRoot,
       handleFolderSelected,
       handleFolderChanged,
       handlePreprocessingCompleted,

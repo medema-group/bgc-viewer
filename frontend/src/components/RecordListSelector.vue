@@ -115,14 +115,14 @@ export default {
     LoadingSpinner
   },
   props: {
-    databaseFolder: {
+    dataRoot: {
       type: String,
       default: ''
     }
   },
   emits: ['record-loaded'],
   setup(props, { emit }) {
-    const { databaseFolder } = toRefs(props)
+    const { dataRoot } = toRefs(props)
     
     const entriesData = ref([])
     const loading = ref(false)
@@ -257,23 +257,25 @@ export default {
       hasDatabase.value = false
     }
     
-    // Watch for database folder changes
-    watch(databaseFolder, async (newFolder) => {
+    // Watch for data root changes
+    watch(dataRoot, async (newFolder, oldFolder) => {
       if (newFolder) {
         await setDataRoot(newFolder)
         // Reload entries after setting the data root
-        loadEntries(1, '')
-      }
-    }, { immediate: true })
-    
-    onMounted(() => {
-      // If we already have a database folder, set it and load entries
-      if (databaseFolder.value) {
-        setDataRoot(databaseFolder.value).then(() => {
-          loadEntries()
-        })
+        await loadEntries(1, '')
       } else {
-        loadEntries()
+        // Clear records if folder is cleared
+        clearRecords()
+      }
+    }, { immediate: false })
+    
+    onMounted(async () => {
+      // If we already have a data root, set it and load entries
+      if (dataRoot.value) {
+        await setDataRoot(dataRoot.value)
+        await loadEntries()
+      } else {
+        await loadEntries()
       }
     })
     
