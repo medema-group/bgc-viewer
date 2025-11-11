@@ -79,7 +79,7 @@ export default {
     FileSelector,
     LoadingSpinner
   },
-  emits: ['folder-selected', 'folder-changed', 'preprocessing-completed'],
+  emits: ['folder-selected', 'folder-changed', 'index-changed'],
   setup(_, { emit }) {
     const currentFolderPath = ref('')
     const showDialog = ref(false)
@@ -227,8 +227,8 @@ export default {
       if (folderData.isDatabaseSelection) {
         const stats = folderData.indexStats
         alert(`Index file selected: ${stats.indexed_files} file${stats.indexed_files === 1 ? '' : 's'}, ${stats.total_records} record${stats.total_records === 1 ? '' : 's'}\nData root: ${folderData.folderPath}`)
-        // For index file selections, trigger preprocessing completed immediately
-        emit('preprocessing-completed', folderData.folderPath)
+        // For index file selections, trigger index changed immediately
+        emit('index-changed', folderData.folderPath)
       } else {
         // Handle folder selection
         const count = folderData.count
@@ -239,6 +239,10 @@ export default {
         } else {
           alert(`Found ${count} JSON file${count === 1 ? '' : 's'} in the selected folder (${scanType} scan)`)
         }
+        
+        // Emit index changed to refresh the record list
+        // This will trigger checking if an index exists
+        emit('index-changed', folderData.folderPath)
       }
     }
     
@@ -249,8 +253,8 @@ export default {
       needsPreprocessing.value = false
       selectedFiles.value = []
       availableFiles.value = []
-      // Emit event that preprocessing is completed
-      emit('preprocessing-completed', currentFolderPath.value)
+      // Emit event that index has changed after preprocessing
+      emit('index-changed', currentFolderPath.value)
     }
     
     const handleIndexStatusChanged = (indexStatusData) => {

@@ -10,7 +10,7 @@
         v-if="!isPublicMode"
         @folder-selected="handleFolderSelected"
         @folder-changed="handleFolderChanged"
-        @preprocessing-completed="handlePreprocessingCompleted"
+        @index-changed="handleIndexChanged"
       />
 
       <!-- Record List Selector Section -->
@@ -79,12 +79,12 @@ export default {
       selectedDataRoot.value = folderPath
     }
 
-    const handlePreprocessingCompleted = async (folderPath) => {
+    const handleIndexChanged = async (folderPath) => {
       // Update the data root to ensure it's in sync
       selectedDataRoot.value = folderPath
-      // Refresh the record list when preprocessing is completed
+      // Refresh the record list when index has changed
       if (recordListSelectorRef.value) {
-        recordListSelectorRef.value.refreshEntries()
+        await recordListSelectorRef.value.refreshEntries()
       }
     }
 
@@ -133,7 +133,7 @@ export default {
       selectedDataRoot,
       handleFolderSelected,
       handleFolderChanged,
-      handlePreprocessingCompleted,
+      handleIndexChanged,
       handleRecordLoaded
     }
   }
