@@ -7,13 +7,6 @@
       </div>
       
       <div class="modal-body">
-        <div class="quick-nav">
-          <strong>Quick Navigation:</strong>
-          <button @click="browsePath('/')" class="quick-nav-button">Root (/)</button>
-          <button @click="browsePath('/Users')" class="quick-nav-button">Users</button>
-          <button @click="browsePath('.')" class="quick-nav-button">Application dir</button>
-        </div>
-        
         <div class="current-path">
           <strong>Current path:</strong> {{ currentBrowserPath || '.' }}
         </div>
@@ -62,6 +55,10 @@ export default {
     show: {
       type: Boolean,
       default: false
+    },
+    initialPath: {
+      type: String,
+      default: ''
     }
   },
   emits: ['close', 'folder-selected'],
@@ -161,7 +158,9 @@ export default {
     // Initialize folder browser when dialog is shown
     watch(() => props.show, (newValue) => {
       if (newValue) {
-        browsePath('.')
+        // Use initial path if provided, otherwise use current directory
+        const pathToOpen = props.initialPath || '.'
+        browsePath(pathToOpen)
       }
     })
     

@@ -12,6 +12,7 @@
 
     <FolderSelectionDialog 
       :show="showDialog"
+      :initial-path="currentFolderPath"
       @close="handleDialogClose"
       @folder-selected="handleFolderSelected"
     />
