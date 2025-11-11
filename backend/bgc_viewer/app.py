@@ -13,13 +13,13 @@ from . import __version__
 from .preprocessing import preprocess_antismash_files
 from .data_loader import load_specific_record
 from .file_utils import match_location
-from .database import check_database_exists, get_database_entries
+from .database import check_database_exists, get_database_entries, get_database_info
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Configuration: Determine if running in public or local mode
-# PUBLIC mode: Restricted access, no filesystem browsing, fixed data directory
+# PUBLIC mode: Restricted access, no filesystem browsing, fixed data directory or index file.
 # LOCAL mode (default): Full access to filesystem, preprocessing, etc.
 PUBLIC_MODE = os.getenv('BGCV_PUBLIC_MODE', 'false').lower() == 'true'
 
@@ -161,6 +161,13 @@ if not PUBLIC_MODE:
                         items.append({
                             "name": item.name,
                             "type": "file",
+                            "path": str(item),
+                            "size": item.stat().st_size
+                        })
+                    elif item.suffix.lower() == '.db':
+                        items.append({
+                            "name": item.name,
+                            "type": "database",
                             "path": str(item),
                             "size": item.stat().st_size
                         })
@@ -457,9 +464,38 @@ if not PUBLIC_MODE:
             return jsonify({"error": f"Failed to check index status: {str(e)}"}), 500
 
 if not PUBLIC_MODE:
-    @app.route('/api/set-database-path', methods=['POST'])
-    def set_database_path():
-        """Set the current database path for queries."""
+    @app.route('/api/select-database', methods=['POST'])
+    def select_database():
+        """Select a database file and extract its data_root from metadata."""
+        global CURRENT_DATABASE_PATH
+        
+        data = request.get_json()
+        db_file_path = data.get('path')
+        
+        if not db_file_path:
+            return jsonify({"error": "No database file path provided"}), 400
+        
+        # Use the database module function to get database info
+        result = get_database_info(db_file_path)
+        
+        if "error" in result:
+            status_code = 404 if "does not exist" in result["error"] else 400
+            return jsonify(result), status_code
+        
+        # Set the current database path
+        CURRENT_DATABASE_PATH = result["database_path"]
+        
+        return jsonify({
+            "message": "Database selected successfully",
+            "database_path": result["database_path"],
+            "data_root": result["data_root"],
+            "index_stats": result["index_stats"]
+        })
+
+if not PUBLIC_MODE:
+    @app.route('/api/set-data-root', methods=['POST'])
+    def set_data_root():
+        """Set the data root path and corresponding database for queries."""
         global CURRENT_DATABASE_PATH
         
         data = request.get_json()
@@ -483,12 +519,12 @@ if not PUBLIC_MODE:
             CURRENT_DATABASE_PATH = str(db_path)
             
             return jsonify({
-                "message": "Database path set successfully",
+                "message": "Data root set successfully",
                 "database_path": CURRENT_DATABASE_PATH
             })
             
         except Exception as e:
-            return jsonify({"error": f"Failed to set database path: {str(e)}"}), 500
+            return jsonify({"error": f"Failed to set data root: {str(e)}"}), 500
 
 @app.route('/api/database-entries')
 def get_database_entries_endpoint():
@@ -534,6 +570,7 @@ if not PUBLIC_MODE:
         data = request.get_json()
         folder_path = data.get('path')
         selected_files = data.get('files')  # Optional list of file paths
+        index_path = data.get('index_path')  # Optional custom index file path
         
         if not folder_path:
             return jsonify({"error": "No folder path provided"}), 400
@@ -543,6 +580,17 @@ if not PUBLIC_MODE:
             
             if not resolved_path.exists() or not resolved_path.is_dir():
                 return jsonify({"error": "Invalid folder path"}), 400
+            
+            # Validate index path if provided
+            resolved_index_path = None
+            if index_path:
+                resolved_index_path = Path(index_path).resolve()
+                # Ensure parent directory exists
+                if not resolved_index_path.parent.exists():
+                    try:
+                        resolved_index_path.parent.mkdir(parents=True, exist_ok=True)
+                    except Exception as e:
+                        return jsonify({"error": f"Failed to create index directory: {str(e)}"}), 400
             
             # Determine which files to process
             json_files_to_process = None
@@ -573,7 +621,10 @@ if not PUBLIC_MODE:
             })
             
             # Start preprocessing in background thread
-            thread = threading.Thread(target=run_preprocessing, args=(str(resolved_path), json_files_to_process))
+            thread = threading.Thread(
+                target=run_preprocessing, 
+                args=(str(resolved_path), json_files_to_process, str(resolved_index_path) if resolved_index_path else None)
+            )
             thread.daemon = True
             thread.start()
             
@@ -592,12 +643,13 @@ def get_preprocessing_status():
     """Get the current preprocessing status."""
     return jsonify(PREPROCESSING_STATUS)
 
-def run_preprocessing(folder_path, json_files=None):
+def run_preprocessing(folder_path, json_files=None, index_path=None):
     """Run the preprocessing function in a background thread.
     
     Args:
         folder_path: Path to the folder to preprocess
         json_files: Optional list of specific JSON file paths to process
+        index_path: Optional full path to the index database file
     """
     global PREPROCESSING_STATUS
     
@@ -611,7 +663,12 @@ def run_preprocessing(folder_path, json_files=None):
     
     try:
         # Run the preprocessing function
-        results = preprocess_antismash_files(folder_path, progress_callback, json_files)
+        results = preprocess_antismash_files(
+            folder_path, 
+            progress_callback, 
+            json_files,
+            index_path
+        )
         
         # Update status on completion
         PREPROCESSING_STATUS.update({
@@ -647,7 +704,7 @@ def main():
     
     if PUBLIC_MODE:
         print(f"Data directory: {RESTRICTED_DATA_DIRECTORY}")
-        print("Restricted endpoints: /api/browse, /api/scan-folder, /api/preprocess-folder, /api/check-index, /api/set-database-path")
+        print("Restricted endpoints: /api/browse, /api/scan-folder, /api/preprocess-folder, /api/check-index, /api/set-data-root")
 
     host = os.environ.get('BGCV_HOST', 'localhost')
     port = int(os.environ.get('BGCV_PORT', 5005))

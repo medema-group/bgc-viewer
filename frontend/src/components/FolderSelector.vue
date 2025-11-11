@@ -1,9 +1,9 @@
 <template>
   <section class="folder-selector-section">
-    <h2>Folder Selection</h2>
+    <h2>Folder or Index File Selection</h2>
     <div class="folder-selector">
       <button @click="showFolderDialog" class="browse-button">
-        Select Folder
+        Select Folder or Index File
       </button>
       <span v-if="currentFolderPath" class="current-folder">
         Current folder: <strong>{{ currentFolderPath }}</strong>
@@ -15,13 +15,38 @@
       @close="handleDialogClose"
       @folder-selected="handleFolderSelected"
     />
-
+    
     <PreprocessingStatus 
-      :folder-path="currentFolderPath"
-      :selected-files="selectedFiles"
-      @preprocessing-completed="handlePreprocessingCompleted"
-      @need-file-selection="handleNeedFileSelection"
-      ref="preprocessingStatusRef"
+    :folder-path="currentFolderPath"
+    :selected-files="selectedFiles"
+    :index-path="indexPath"
+    @preprocessing-completed="handlePreprocessingCompleted"
+    @need-file-selection="handleNeedFileSelection"
+    @index-status-changed="handleIndexStatusChanged"
+    ref="preprocessingStatusRef"
+    />
+    
+    <div v-if="currentFolderPath && needsPreprocessing" class="index-location-section">
+      <h3>Index File Location</h3>
+      <div class="index-location-row">
+        <label class="index-label">Index file path:</label>
+        <input 
+          v-model="indexPath" 
+          type="text" 
+          class="index-path-input"
+          @blur="validateIndexPath"
+          :placeholder="`${currentFolderPath}/attributes.db`"
+        />
+        <button @click="showIndexPathDialog" class="change-button">
+          Browse
+        </button>
+      </div>
+    </div>
+
+    <FolderSelectionDialog 
+      :show="showIndexPathDialogFlag"
+      @close="handleIndexPathDialogClose"
+      @folder-selected="handleIndexPathSelected"
     />
     
     <div v-if="isLoadingFiles" class="loading-files">
@@ -30,7 +55,7 @@
     </div>
     
     <FileSelector 
-      v-if="showFileSelector"
+      v-if="needsPreprocessing"
       :json-files="availableFiles"
       @files-selected="handleFilesSelected"
     />
@@ -58,11 +83,13 @@ export default {
     const currentFolderPath = ref('')
     const showDialog = ref(false)
     const folderRestoredFromMemory = ref(false)
-    const showFileSelector = ref(false)
     const isLoadingFiles = ref(false)
     const availableFiles = ref([])
     const selectedFiles = ref([])
     const preprocessingStatusRef = ref(null)
+    const showIndexPathDialogFlag = ref(false)
+    const indexPath = ref('')
+    const needsPreprocessing = ref(false)
     
     const STORAGE_KEY = 'bgc-viewer-last-folder'
     
@@ -70,12 +97,41 @@ export default {
     watch(currentFolderPath, (newValue, oldValue) => {
       if (newValue !== oldValue) {
         // Hide file selector when folder changes
-        showFileSelector.value = false
+        needsPreprocessing.value = false
         isLoadingFiles.value = false
         availableFiles.value = []
         selectedFiles.value = []
+        // Reset index path to use data root by default
+        indexPath.value = ''
       }
     })
+    
+    const validateIndexPath = () => {
+      // Ensure path ends with .db
+      if (indexPath.value && !indexPath.value.endsWith('.db')) {
+        indexPath.value = indexPath.value + '.db'
+      }
+    }
+    
+    const showIndexPathDialog = () => {
+      showIndexPathDialogFlag.value = true
+    }
+    
+    const handleIndexPathDialogClose = () => {
+      showIndexPathDialogFlag.value = false
+    }
+    
+    const handleIndexPathSelected = (folderData) => {
+      // Only accept folder selections for index path, not database files
+      if (!folderData.isDatabaseSelection) {
+        // Set the index path to the selected folder + /attributes.db
+        indexPath.value = `${folderData.folderPath}/attributes.db`
+        showIndexPathDialogFlag.value = false
+        console.log('Index path set to:', indexPath.value)
+      } else {
+        alert('Please select a folder for the index location, not a database file.')
+      }
+    }
     
     const saveLastFolder = (folderPath) => {
       try {
@@ -166,13 +222,22 @@ export default {
       // Emit the folder selection event to parent
       emit('folder-selected', folderData.folderPath)
       
-      const count = folderData.count
-      const scanType = folderData.scanType
-      
-      if (count === 0) {
-        alert(`No JSON files found in the selected folder and its subdirectories`)
+      // Handle index file selection
+      if (folderData.isDatabaseSelection) {
+        const stats = folderData.indexStats
+        alert(`Index file selected: ${stats.indexed_files} file${stats.indexed_files === 1 ? '' : 's'}, ${stats.total_records} record${stats.total_records === 1 ? '' : 's'}\nData root: ${folderData.folderPath}`)
+        // For index file selections, trigger preprocessing completed immediately
+        emit('preprocessing-completed', folderData.folderPath)
       } else {
-        alert(`Found ${count} JSON file${count === 1 ? '' : 's'} in the selected folder (${scanType} scan)`)
+        // Handle folder selection
+        const count = folderData.count
+        const scanType = folderData.scanType
+        
+        if (count === 0) {
+          alert(`No JSON files found in the selected folder and its subdirectories`)
+        } else {
+          alert(`Found ${count} JSON file${count === 1 ? '' : 's'} in the selected folder (${scanType} scan)`)
+        }
       }
     }
     
@@ -180,14 +245,22 @@ export default {
     
     const handlePreprocessingCompleted = () => {
       // Clear file selection
-      showFileSelector.value = false
+      needsPreprocessing.value = false
       selectedFiles.value = []
       availableFiles.value = []
       // Emit event that preprocessing is completed
       emit('preprocessing-completed', currentFolderPath.value)
     }
     
+    const handleIndexStatusChanged = (indexStatusData) => {
+      // Update needsPreprocessing based on index status
+      needsPreprocessing.value = !indexStatusData.has_index
+    }
+    
     const handleNeedFileSelection = async (indexStatusData) => {
+      // Update preprocessing status
+      needsPreprocessing.value = !indexStatusData.has_index
+      
       // Fetch the list of JSON files from the API
       isLoadingFiles.value = true
       try {
@@ -197,7 +270,6 @@ export default {
         
         if (response.data.json_files && response.data.json_files.length > 0) {
           availableFiles.value = response.data.json_files
-          showFileSelector.value = true
         } else {
           alert('No JSON files found in the selected folder')
         }
@@ -211,7 +283,6 @@ export default {
     
     const handleFilesSelected = (files) => {
       selectedFiles.value = files
-      showFileSelector.value = false
       
       // Trigger preprocessing with selected files
       if (preprocessingStatusRef.value) {
@@ -235,11 +306,18 @@ export default {
       handlePreprocessingCompleted,
       handleNeedFileSelection,
       handleFilesSelected,
-      showFileSelector,
       isLoadingFiles,
       availableFiles,
       selectedFiles,
-      preprocessingStatusRef
+      preprocessingStatusRef,
+      showIndexPathDialogFlag,
+      indexPath,
+      showIndexPathDialog,
+      handleIndexPathDialogClose,
+      handleIndexPathSelected,
+      validateIndexPath,
+      needsPreprocessing,
+      handleIndexStatusChanged
     }
   }
 }
@@ -307,5 +385,63 @@ export default {
 .loading-text {
   color: #495057;
   font-size: 14px;
+}
+
+.index-location-section {
+  margin-top: 20px;
+  padding: 15px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+}
+
+.index-location-section h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #495057;
+  font-size: 16px;
+}
+
+.index-location-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.index-label {
+  font-weight: 500;
+  color: #495057;
+  min-width: 120px;
+  font-size: 14px;
+}
+
+.index-path-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.index-path-input:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
+}
+
+.change-button {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.change-button:hover {
+  background: #5a6268;
 }
 </style>

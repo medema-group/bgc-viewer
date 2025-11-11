@@ -96,9 +96,13 @@ export default {
     selectedFiles: {
       type: Array,
       default: null
+    },
+    indexPath: {
+      type: String,
+      default: null
     }
   },
-  emits: ['preprocessing-completed', 'need-file-selection'],
+  emits: ['preprocessing-completed', 'need-file-selection', 'index-status-changed'],
   setup(props, { emit }) {
     const showStatus = ref(false)
     const indexStatus = ref(null)
@@ -133,6 +137,9 @@ export default {
         indexStatus.value = response.data
         showStatus.value = true
         
+        // Emit index status to parent
+        emit('index-status-changed', response.data)
+        
         // Automatically show file selection if no index exists
         if (!response.data.has_index && response.data.can_preprocess) {
           showFileSelection()
@@ -158,6 +165,11 @@ export default {
         // Include selected file paths if provided
         if (filePaths && filePaths.length > 0) {
           requestData.files = filePaths
+        }
+        
+        // Include custom index path if specified
+        if (props.indexPath) {
+          requestData.index_path = props.indexPath
         }
         
         await axios.post('/api/preprocess-folder', requestData)

@@ -93,9 +93,9 @@ def populate_metadata_table(conn: sqlite3.Connection, db_path: Path) -> None:
     
     metadata_entries.append(('version', package_version))
     
-    # Store the absolute path of the database root
-    db_root = str(db_path.parent.absolute())
-    metadata_entries.append(('db_root', db_root))
+    # Store the absolute path of the data root directory
+    data_root = str(db_path.parent.absolute())
+    metadata_entries.append(('data_root', data_root))
     
     # Insert metadata entries
     conn.executemany(
@@ -279,7 +279,8 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
 def preprocess_antismash_files(
     input_directory: str, 
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
-    json_files: Optional[List[Path]] = None
+    json_files: Optional[List[Path]] = None,
+    index_path: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Preprocess antiSMASH JSON files and store attributes in SQLite database.
@@ -288,14 +289,26 @@ def preprocess_antismash_files(
         input_directory: Directory containing JSON files to process
         progress_callback: Optional callback function called with (current_file, files_processed, total_files)
         json_files: Optional list of specific JSON file paths to process. If None, all files in directory are processed.
+        index_path: Optional full path to the index database file. If None, creates "attributes.db" in input_directory.
         
     Returns:
         Dict with processing statistics
     """
     input_path = Path(input_directory)
     
-    # Create database in the input directory
-    db_path = input_path / "attributes.db"
+    # Determine database path
+    if index_path:
+        db_path = Path(index_path)
+        # Ensure the directory exists
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure .db extension
+        if not db_path.suffix == '.db':
+            db_path = db_path.with_suffix('.db')
+    else:
+        # Default to attributes.db in the input directory
+        db_path = input_path / "attributes.db"
+    
+    # Create database at the specified path
     conn = create_attributes_database(db_path)
     
     # Populate metadata table

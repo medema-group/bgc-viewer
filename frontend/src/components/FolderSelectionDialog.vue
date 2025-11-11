@@ -2,7 +2,7 @@
   <div v-if="show" class="modal-overlay" @click="handleOverlayClick">
     <div class="modal-dialog" @click.stop>
       <div class="modal-header">
-        <h3>Select Folder</h3>
+        <h3>Select Folder or Index File</h3>
         <button class="close-button" @click="closeDialog">&times;</button>
       </div>
       
@@ -29,7 +29,7 @@
               @click="handleBrowserItemClick(item)"
             >
               <span class="item-icon">
-                {{ item.type === 'directory' ? '📁' : '📄' }}
+                {{ item.type === 'directory' ? '📁' : item.type === 'database' ? '💾' : '📄' }}
               </span>
               <span class="item-name">{{ item.name }}</span>
               <span v-if="item.size" class="item-size">
@@ -93,6 +93,9 @@ export default {
     const handleBrowserItemClick = async (item) => {
       if (item.type === 'directory') {
         await browsePath(item.path)
+      } else if (item.type === 'database') {
+        // Handle database file selection
+        await selectDatabaseFile(item.path)
       }
     }
     
@@ -126,6 +129,27 @@ export default {
       }
     }
     
+    const selectDatabaseFile = async (dbPath) => {
+      try {
+        const response = await axios.post('/api/select-database', {
+          path: dbPath
+        })
+        
+        // Emit database selection with data_root as the folder path
+        emit('folder-selected', {
+          folderPath: response.data.data_root,
+          databasePath: response.data.database_path,
+          indexStats: response.data.index_stats,
+          isDatabaseSelection: true
+        })
+        
+        closeDialog()
+        
+      } catch (error) {
+        alert(`Failed to select database: ${error.response?.data?.error || error.message}`)
+      }
+    }
+    
     const formatFileSize = (bytes) => {
       if (bytes === 0) return '0 B'
       const k = 1024
@@ -151,6 +175,7 @@ export default {
       closeDialog,
       handleOverlayClick,
       selectCurrentFolder,
+      selectDatabaseFile,
       formatFileSize
     }
   }
@@ -300,6 +325,11 @@ export default {
 
 .browser-item.directory {
   font-weight: 500;
+}
+
+.browser-item.database {
+  font-weight: 500;
+  color: #1976d2;
 }
 
 .browser-item.file {

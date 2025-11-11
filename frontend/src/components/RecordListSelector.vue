@@ -229,16 +229,16 @@ export default {
       loadEntries(1, '')
     }
     
-    const setDatabasePath = async (folderPath) => {
+    const setDataRoot = async (folderPath) => {
       if (!folderPath) return
       
       try {
-        await axios.post('/api/set-database-path', {
+        await axios.post('/api/set-data-root', {
           path: folderPath
         })
-        console.log('Database path set to:', folderPath)
+        console.log('Data root set to:', folderPath)
       } catch (err) {
-        console.warn('Failed to set database path:', err.response?.data?.error || err.message)
+        console.warn('Failed to set data root:', err.response?.data?.error || err.message)
       }
     }
     
@@ -260,8 +260,8 @@ export default {
     // Watch for database folder changes
     watch(databaseFolder, async (newFolder) => {
       if (newFolder) {
-        await setDatabasePath(newFolder)
-        // Reload entries after setting the database path
+        await setDataRoot(newFolder)
+        // Reload entries after setting the data root
         loadEntries(1, '')
       }
     }, { immediate: true })
@@ -269,7 +269,7 @@ export default {
     onMounted(() => {
       // If we already have a database folder, set it and load entries
       if (databaseFolder.value) {
-        setDatabasePath(databaseFolder.value).then(() => {
+        setDataRoot(databaseFolder.value).then(() => {
           loadEntries()
         })
       } else {
