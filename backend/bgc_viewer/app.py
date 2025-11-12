@@ -127,20 +127,26 @@ PREPROCESSING_STATUS = {
 
 # LRU cache for loaded AntiSMASH data to support multiple users efficiently
 @lru_cache(maxsize=100)
-def load_cached_entry(entry_id: str, db_folder: str, data_dir: str):
+def load_cached_entry(entry_id: str, db_path: str, data_dir: str):
     """
     Load and cache AntiSMASH entry data.
     
     Args:
         entry_id: Entry ID in format "filename:record_id"
-        db_folder: Folder containing the database
+        db_path: Full path to the database file (used as cache key)
         data_dir: Data directory path
     
     Returns:
         Loaded AntiSMASH data for the specified entry
+    
+    Note:
+        The cache key includes db_path to ensure cache invalidation when
+        the database changes (important for LOCAL_MODE where users can
+        switch between different databases).
     """
     filename, record_id = entry_id.split(':', 1)
-    file_path = Path(db_folder) / filename
+    db_folder = Path(db_path).parent
+    file_path = db_folder / filename
     return load_specific_record(str(file_path), record_id, data_dir)
 
 def get_current_entry_data():
@@ -177,9 +183,9 @@ def get_current_entry_data():
         # Fallback to db_folder if metadata can't be read
         data_dir = str(db_folder)
     
-    # Load from cache
+    # Load from cache (using db_path as part of cache key)
     try:
-        data = load_cached_entry(entry_id, str(db_folder), data_dir)
+        data = load_cached_entry(entry_id, str(db_path), data_dir)
         return data, db_folder, data_dir
     except Exception:
         return None, None, None
@@ -431,8 +437,8 @@ def load_database_entry():
             'record_id': record_id
         }
         
-        # Pre-cache the data for this session
-        load_cached_entry(entry_id, str(db_folder), data_dir)
+        # Pre-cache the data for this session (using db_path as part of cache key)
+        load_cached_entry(entry_id, str(db_path), data_dir)
         
         # Get the loaded record info
         loaded_record = modified_data["records"][0] if modified_data["records"] else {}
