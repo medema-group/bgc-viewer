@@ -5,9 +5,14 @@
       <button @click="showFolderDialog" class="browse-button">
         Select folder or index file
       </button>
-      <span v-if="currentFolderPath" class="current-folder">
-        Current folder: <strong>{{ currentFolderPath }}</strong>
-      </span>
+      <div>
+        <span v-if="currentIndexPath" class="current-index">
+          Index file: <strong>{{ currentIndexPath }}</strong>
+        </span><br />
+        <span v-if="currentFolderPath" class="current-folder">
+          Data root: <strong>{{ currentFolderPath }}</strong>
+        </span>
+      </div>
     </div>
 
     <FolderSelectionDialog 
@@ -89,6 +94,7 @@ export default {
     const preprocessingStatusRef = ref(null)
     const showIndexPathDialogFlag = ref(false)
     const indexPath = ref('')
+    const currentIndexPath = ref('')
     const needsPreprocessing = ref(false)
     
     const STORAGE_KEY = 'bgc-viewer-last-folder'
@@ -103,6 +109,7 @@ export default {
         selectedFiles.value = []
         // Reset index path to use data root by default
         indexPath.value = ''
+        currentIndexPath.value = ''
       }
     })
     
@@ -218,6 +225,8 @@ export default {
       // Handle index file selection
       if (folderData.isDatabaseSelection) {
         const stats = folderData.indexStats
+        // Set current index path to the selected database file
+        currentIndexPath.value = folderData.folderPath
         // For index file selections, trigger index changed immediately
         emit('index-changed', folderData.folderPath)
       } else {
@@ -242,6 +251,14 @@ export default {
       needsPreprocessing.value = false
       selectedFiles.value = []
       availableFiles.value = []
+      
+      // Set current index path based on indexPath or default
+      if (indexPath.value) {
+        currentIndexPath.value = indexPath.value
+      } else {
+        currentIndexPath.value = `${currentFolderPath.value}/attributes.db`
+      }
+      
       // Emit event that index has changed after preprocessing
       emit('index-changed', currentFolderPath.value)
     }
@@ -249,6 +266,13 @@ export default {
     const handleIndexStatusChanged = (indexStatusData) => {
       // Update needsPreprocessing based on index status
       needsPreprocessing.value = !indexStatusData.has_index
+      
+      // Update current index path if an index exists
+      if (indexStatusData.has_index && indexStatusData.database_path) {
+        currentIndexPath.value = indexStatusData.database_path
+      } else {
+        currentIndexPath.value = ''
+      }
     }
     
     const handleNeedFileSelection = async (indexStatusData) => {
@@ -292,6 +316,7 @@ export default {
     
     return {
       currentFolderPath,
+      currentIndexPath,
       showDialog,
       folderRestoredFromMemory,
       showFolderDialog,
@@ -339,6 +364,12 @@ export default {
 
 .current-folder {
   color: #2e7d32;
+  font-size: 14px;
+  margin-left: 15px;
+}
+
+.current-index {
+  color: #1976d2;
   font-size: 14px;
   margin-left: 15px;
 }
