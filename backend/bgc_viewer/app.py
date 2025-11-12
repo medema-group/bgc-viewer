@@ -81,26 +81,27 @@ else:
     # In local mode, allow all origins
     CORS(app, supports_credentials=True)
 
-# Define the restricted data directory based on mode
-# In PUBLIC mode: Path object restricting access to a specific directory (required)
-# In LOCAL mode: None indicates unrestricted filesystem access
-RESTRICTED_DATA_DIRECTORY: Optional[Path] = None
+# Define the database path based on mode
+# In PUBLIC mode: Fixed database path (index file) - required for multi-user deployment
+# In LOCAL mode: None - each session has its own database path
+PUBLIC_DATABASE_PATH: Optional[Path] = None
 
 if PUBLIC_MODE:
-    # In public mode, data directory is REQUIRED
-    data_dir_env = os.getenv('BGCV_DATA_DIR', 'data')
-    RESTRICTED_DATA_DIRECTORY = Path(data_dir_env).resolve()
+    # In public mode, database path (index file) is REQUIRED
+    db_path_env = os.getenv('BGCV_DATABASE_PATH', 'data/attributes.db')
+    PUBLIC_DATABASE_PATH = Path(db_path_env).resolve()
     
-    # Verify the data directory exists
-    if not RESTRICTED_DATA_DIRECTORY.exists():
+    # Verify the database file exists
+    if not PUBLIC_DATABASE_PATH.exists():
         raise RuntimeError(
-            f"PUBLIC_MODE is enabled but data directory does not exist: {RESTRICTED_DATA_DIRECTORY}. "
-            f"Set BGCV_DATA_DIR environment variable or create the directory."
+            f"PUBLIC_MODE is enabled but database file does not exist: {PUBLIC_DATABASE_PATH}. "
+            f"Set BGCV_DATABASE_PATH environment variable or create the database. "
+            f"Use the preprocessing tool to create an index database."
         )
     
-    if not RESTRICTED_DATA_DIRECTORY.is_dir():
+    if not PUBLIC_DATABASE_PATH.is_file():
         raise RuntimeError(
-            f"PUBLIC_MODE is enabled but BGCV_DATA_DIR is not a directory: {RESTRICTED_DATA_DIRECTORY}"
+            f"PUBLIC_MODE is enabled but BGCV_DATABASE_PATH is not a file: {PUBLIC_DATABASE_PATH}"
         )
 
 # Global variables for preprocessing status (only used in LOCAL_MODE)
@@ -143,16 +144,27 @@ def get_current_entry_data():
     if not entry_id:
         return None, None, None
     
-    # Determine database folder based on mode
+    # Determine database path based on mode
     if PUBLIC_MODE:
-        db_folder = RESTRICTED_DATA_DIRECTORY
-        data_dir = str(RESTRICTED_DATA_DIRECTORY)
+        db_path = PUBLIC_DATABASE_PATH
     else:
         # In LOCAL_MODE, get from session
         db_path = session.get('current_database_path')
         if not db_path:
             return None, None, None
-        db_folder = Path(db_path).parent
+        db_path = Path(db_path)
+    
+    # Get database folder and data directory
+    db_folder = db_path.parent
+    
+    # Load data_root from database metadata
+    try:
+        db_info = get_database_info(str(db_path))
+        if "error" in db_info:
+            return None, None, None
+        data_dir = db_info.get('data_root', str(db_folder))
+    except Exception:
+        # Fallback to db_folder if metadata can't be read
         data_dir = str(db_folder)
     
     # Load from cache
@@ -196,13 +208,24 @@ def get_status():
     current_data_dir = None
     
     if PUBLIC_MODE:
-        # In public mode, use the configured data directory (shared across users)
-        current_data_dir = str(RESTRICTED_DATA_DIRECTORY)
+        # In public mode, read data_root from database metadata
+        try:
+            db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
+            if "error" not in db_info:
+                current_data_dir = db_info.get('data_root')
+        except Exception:
+            pass
     else:
         # In local mode, check session database path
         db_path = session.get('current_database_path')
         if db_path:
-            current_data_dir = str(Path(db_path).parent)
+            try:
+                db_info = get_database_info(db_path)
+                if "error" not in db_info:
+                    current_data_dir = db_info.get('data_root')
+            except Exception:
+                # Fallback to parent directory
+                current_data_dir = str(Path(db_path).parent)
     
     # Check if this session has loaded data
     has_loaded_data = session.get('loaded_entry_id') is not None
@@ -350,31 +373,37 @@ def load_database_entry():
         
         filename, record_id = entry_id.split(':', 1)
         
-        # Determine the folder to look in based on mode
+        # Determine the database path and folders based on mode
         if PUBLIC_MODE:
-            # In PUBLIC_MODE, always use the restricted directory
-            db_folder = RESTRICTED_DATA_DIRECTORY
-            data_dir = str(RESTRICTED_DATA_DIRECTORY)
-            file_path = db_folder / filename
+            db_path = PUBLIC_DATABASE_PATH
         else:
             # In LOCAL_MODE, use session database path
-            db_path = session.get('current_database_path')
-            if db_path:
-                db_folder = Path(db_path).parent
-                file_path = db_folder / filename
-                data_dir = str(db_folder)
+            db_path_str = session.get('current_database_path')
+            if db_path_str:
+                db_path = Path(db_path_str)
             else:
                 # Fallback to data directory
-                data_dir = "data"
-                file_path = Path(data_dir) / filename
-                db_folder = Path(data_dir)
+                db_path = Path("data") / "attributes.db"
         
-        # In public mode, ensure file is within allowed directory
+        db_folder = db_path.parent
+        file_path = db_folder / filename
+        
+        # Get data_root from database metadata
+        try:
+            db_info = get_database_info(str(db_path))
+            if "error" not in db_info:
+                data_dir = db_info.get('data_root', str(db_folder))
+            else:
+                data_dir = str(db_folder)
+        except Exception:
+            data_dir = str(db_folder)
+        
+        # In public mode, ensure file is within the database folder (security check)
         if PUBLIC_MODE:
             try:
-                file_path.resolve().relative_to(RESTRICTED_DATA_DIRECTORY)
+                file_path.resolve().relative_to(db_folder.resolve())
             except ValueError:
-                return jsonify({"error": "Access denied: File must be within the data directory"}), 403
+                return jsonify({"error": "Access denied: File must be within the database folder"}), 403
         
         if not file_path.exists():
             return jsonify({"error": f"File {filename} not found in database folder"}), 404
@@ -644,7 +673,7 @@ def get_database_entries_endpoint():
     # Determine database path based on mode
     if PUBLIC_MODE:
         # In PUBLIC_MODE, use fixed database
-        db_path = str(RESTRICTED_DATA_DIRECTORY / "attributes.db")
+        db_path = str(PUBLIC_DATABASE_PATH)
     else:
         # In LOCAL_MODE, get from session
         db_path = session.get('current_database_path')
@@ -847,8 +876,14 @@ def main():
     print(f"Session storage: {session_type}")
     
     if PUBLIC_MODE:
-        print(f"Data directory: {RESTRICTED_DATA_DIRECTORY}")
-        print(f"Database path: {RESTRICTED_DATA_DIRECTORY / 'attributes.db'}")
+        print(f"Database path: {PUBLIC_DATABASE_PATH}")
+        # Read and display data_root from database metadata
+        try:
+            db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
+            if "error" not in db_info:
+                print(f"Data root (from database metadata): {db_info.get('data_root')}")
+        except Exception:
+            pass
         print("Restricted endpoints: /api/browse, /api/scan-folder, /api/preprocess-folder, /api/check-index, /api/set-data-root")
         print("Multi-user session support: ENABLED")
     else:
