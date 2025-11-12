@@ -271,7 +271,7 @@ export default {
         // Clear records if folder is cleared
         clearRecords()
       }
-    }, { immediate: false })
+    }, { immediate: true })
     
     onMounted(async () => {
       // If we already have a data root, set it and load entries
