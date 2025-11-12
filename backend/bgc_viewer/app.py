@@ -38,7 +38,13 @@ app = Flask(__name__,
            static_url_path='/static')
 
 # Configure session management
-app.config['SECRET_KEY'] = os.getenv('BGCV_SECRET_KEY', os.urandom(24))
+if PUBLIC_MODE:
+    secret_key = os.getenv('BGCV_SECRET_KEY')
+    if not secret_key:
+        raise RuntimeError("BGCV_SECRET_KEY environment variable must be set in PUBLIC_MODE.")
+    app.config['SECRET_KEY'] = secret_key
+else:
+    app.config['SECRET_KEY'] = os.getenv('BGCV_SECRET_KEY', os.urandom(24))
 
 if PUBLIC_MODE:
     # Use Redis for production multi-user deployment
