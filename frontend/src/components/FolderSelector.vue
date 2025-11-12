@@ -35,7 +35,6 @@
           v-model="indexPath" 
           type="text" 
           class="index-path-input"
-          @blur="validateIndexPath"
           :placeholder="`${currentFolderPath}/attributes.db`"
         />
         <button @click="showIndexPathDialog" class="change-button">
@@ -106,13 +105,6 @@ export default {
         indexPath.value = ''
       }
     })
-    
-    const validateIndexPath = () => {
-      // Ensure path ends with .db
-      if (indexPath.value && !indexPath.value.endsWith('.db')) {
-        indexPath.value = indexPath.value + '.db'
-      }
-    }
     
     const showIndexPathDialog = () => {
       showIndexPathDialogFlag.value = true
@@ -318,7 +310,6 @@ export default {
       showIndexPathDialog,
       handleIndexPathDialogClose,
       handleIndexPathSelected,
-      validateIndexPath,
       needsPreprocessing,
       handleIndexStatusChanged
     }
