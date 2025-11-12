@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bgc-viewer"
-version = "0.1.9"
+version = "0.1.15"
 description = "A viewer to explore and visualize Biosynthetic Gene Cluster data"
 authors = [
     {name = "Petek Kok"},
