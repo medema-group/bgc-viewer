@@ -15,6 +15,9 @@
             {{ indexStatus.index_stats?.indexed_files || 0 }} files indexed, 
             {{ indexStatus.index_stats?.total_records || 0 }} records
           </div>
+          <div v-if="showVersionMismatch" class="version-warning">
+            ⚠️ Index created with version {{ indexStatus.version || 'unknown' }} (current: {{ currentVersion }})
+          </div>
         </div>
       </div>
       
@@ -106,6 +109,7 @@ export default {
   setup(props, { emit }) {
     const showStatus = ref(false)
     const indexStatus = ref(null)
+    const currentVersion = ref('')
     const progress = ref({
       is_running: false,
       current_file: null,
@@ -122,10 +126,26 @@ export default {
     const hasError = computed(() => progress.value.status === 'error')
     const isCompleted = computed(() => progress.value.status === 'completed')
     
+    const showVersionMismatch = computed(() => {
+      if (!indexStatus.value || !indexStatus.value.version || !currentVersion.value) {
+        return false
+      }
+      return indexStatus.value.version !== currentVersion.value
+    })
+    
     const progressPercentage = computed(() => {
       if (progress.value.total_files === 0) return 0
       return Math.round((progress.value.files_processed / progress.value.total_files) * 100)
     })
+    
+    const fetchVersion = async () => {
+      try {
+        const response = await axios.get('/api/version')
+        currentVersion.value = response.data.version
+      } catch (error) {
+        console.error('Failed to fetch version:', error)
+      }
+    }
 
     const checkIndexStatus = async () => {
       if (!props.folderPath) return
@@ -238,6 +258,7 @@ export default {
     }
 
     onMounted(() => {
+      fetchVersion()
       checkFolder()
     })
 
@@ -260,6 +281,8 @@ export default {
       hasError,
       isCompleted,
       progressPercentage,
+      showVersionMismatch,
+      currentVersion,
       showFileSelection,
       startPreprocessing,
       retryPreprocessing,
@@ -357,6 +380,16 @@ export default {
   font-size: 14px;
   color: #6c757d;
   margin-top: 4px;
+}
+
+.version-warning {
+  font-size: 13px;
+  color: #856404;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: #fff3cd;
+  border-radius: 4px;
+  display: inline-block;
 }
 
 .preprocess-button, .retry-button {

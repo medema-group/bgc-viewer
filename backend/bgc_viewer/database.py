@@ -39,6 +39,11 @@ def get_database_info(db_file_path):
                 # If no data_root in metadata, use the database's parent directory
                 data_root = str(resolved_path.parent)
             
+            # Get version from metadata table
+            cursor = conn.execute("SELECT value FROM metadata WHERE key = 'version'")
+            version_row = cursor.fetchone()
+            db_version = version_row[0] if version_row else None
+            
             # Get index stats
             cursor = conn.execute("SELECT COUNT(DISTINCT filename) FROM records")
             indexed_files = cursor.fetchone()[0]
@@ -51,6 +56,7 @@ def get_database_info(db_file_path):
             return {
                 "database_path": str(resolved_path),
                 "data_root": data_root,
+                "version": db_version,
                 "index_stats": {
                     "indexed_files": indexed_files,
                     "total_records": total_records
@@ -88,7 +94,7 @@ def check_database_exists(folder_path):
             "can_preprocess": json_count > 0
         }
         
-        # If index exists, get some basic stats
+        # Get index stats
         if has_index:
             try:
                 conn = sqlite3.connect(db_path)
@@ -100,14 +106,21 @@ def check_database_exists(folder_path):
                 cursor = conn.execute("SELECT COUNT(*) FROM records")
                 total_records = cursor.fetchone()[0]
                 
+                # Get version from metadata table
+                cursor = conn.execute("SELECT value FROM metadata WHERE key = 'version'")
+                version_row = cursor.fetchone()
+                db_version = version_row[0] if version_row else None
+                
                 conn.close()
                 
                 result["index_stats"] = {
                     "indexed_files": indexed_files,
                     "total_records": total_records
                 }
+                result["version"] = db_version
             except Exception:
                 result["index_stats"] = None
+                result["version"] = None
         
         return has_index, str(db_path) if has_index else None, result
         
