@@ -16,7 +16,6 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "waitress>=3.0.0",
     "ijson>=3.2.0",
-    "redis>=5.0.0; extra == 'redis'",
     "cachelib>=0.9.0",
 ]
 requires-python = ">=3.11"
