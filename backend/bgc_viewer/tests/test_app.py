@@ -28,7 +28,8 @@ def test_404_handler(client):
 
 def test_cors_headers(client):
     """Test that CORS headers are present."""
-    response = client.get('/api/version')
+    # Include an Origin header to trigger CORS response
+    response = client.get('/api/version', headers={'Origin': 'http://localhost:3000'})
     assert response.status_code == 200
-    # Flask-CORS should add these headers
+    # Flask-CORS should add these headers when Origin is present
     assert 'Access-Control-Allow-Origin' in response.headers
