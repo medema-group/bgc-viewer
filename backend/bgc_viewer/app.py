@@ -225,23 +225,16 @@ def get_status():
     
     if PUBLIC_MODE:
         # In public mode, read data_root from database metadata
-        try:
-            db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
-            if "error" not in db_info:
-                current_data_dir = db_info.get('data_root')
-        except Exception:
-            pass
+        db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
+        if "error" not in db_info:
+            current_data_dir = db_info.get('data_root')
     else:
         # In local mode, check session database path
         db_path = session.get('current_database_path')
         if db_path:
-            try:
-                db_info = get_database_info(db_path)
-                if "error" not in db_info:
-                    current_data_dir = db_info.get('data_root')
-            except Exception:
-                # Fallback to parent directory
-                current_data_dir = str(Path(db_path).parent)
+            db_info = get_database_info(db_path)
+            if "error" not in db_info:
+                current_data_dir = db_info.get('data_root')
     
     # Check if this session has loaded data
     has_loaded_data = session.get('loaded_entry_id') is not None
