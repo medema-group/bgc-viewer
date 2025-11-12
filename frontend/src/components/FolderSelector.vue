@@ -1,9 +1,9 @@
 <template>
   <section class="folder-selector-section">
-    <h2>Folder or Index File Selection</h2>
+    <h2>Folder or index file selection</h2>
     <div class="folder-selector">
       <button @click="showFolderDialog" class="browse-button">
-        Select Folder or Index File
+        Select folder or index file
       </button>
       <span v-if="currentFolderPath" class="current-folder">
         Current folder: <strong>{{ currentFolderPath }}</strong>
@@ -28,7 +28,7 @@
     />
     
     <div v-if="currentFolderPath && needsPreprocessing" class="index-location-section">
-      <h3>Index File Location</h3>
+      <h3>Index file location</h3>
       <div class="index-location-row">
         <label class="index-label">Index file path:</label>
         <input 
@@ -236,8 +236,6 @@ export default {
         
         if (count === 0) {
           alert(`No JSON files found in the selected folder and its subdirectories`)
-        } else {
-          alert(`Found ${count} JSON file${count === 1 ? '' : 's'} in the selected folder (${scanType} scan)`)
         }
         
         // Emit index changed to refresh the record list

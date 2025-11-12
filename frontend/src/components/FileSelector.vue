@@ -1,13 +1,13 @@
 <template>
   <div class="file-selector" v-if="jsonFiles.length > 0">
     <div class="selector-header">
-      <h3>Select Files for Preprocessing</h3>
+      <h3>Select files for preprocessing</h3>
       <p class="file-count">{{ jsonFiles.length }} JSON file{{ jsonFiles.length === 1 ? '' : 's' }} found</p>
     </div>
     
     <div class="selection-controls">
-      <button @click="selectAll" class="control-button">Select All</button>
-      <button @click="deselectAll" class="control-button">Deselect All</button>
+      <button @click="selectAll" class="control-button">Select all</button>
+      <button @click="deselectAll" class="control-button">Deselect all</button>
       <span class="selection-count">{{ selectedCount }} of {{ jsonFiles.length }} selected</span>
     </div>
     
@@ -39,7 +39,7 @@
         class="confirm-button"
         :disabled="selectedCount === 0"
       >
-        Preprocess Selected Files ({{ selectedCount }})
+        Preprocess selected files ({{ selectedCount }})
       </button>
     </div>
   </div>

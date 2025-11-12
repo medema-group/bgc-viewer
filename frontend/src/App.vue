@@ -22,7 +22,7 @@
 
       <!-- Region Viewer Section -->
       <section class="region-section">
-        <h2>Record Visualization</h2>
+        <h2>Record visualization</h2>
         <RegionViewerComponent ref="regionViewerRef" />
       </section>
 

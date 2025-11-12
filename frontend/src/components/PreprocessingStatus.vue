@@ -1,7 +1,7 @@
 <template>
   <div class="preprocessing-status" v-if="showStatus">
     <div class="status-header">
-      <h3>Data Preprocessing</h3>
+      <h3>Data preprocessing</h3>
       <button @click="closeStatus" class="close-button" v-if="!isRunning">×</button>
     </div>
     

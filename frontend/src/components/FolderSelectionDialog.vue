@@ -2,7 +2,7 @@
   <div v-if="show" class="modal-overlay" @click="handleOverlayClick">
     <div class="modal-dialog" @click.stop>
       <div class="modal-header">
-        <h3>Select Folder or Index File</h3>
+        <h3>Select folder or index file</h3>
         <button class="close-button" @click="closeDialog">&times;</button>
       </div>
       
@@ -35,7 +35,7 @@
       
       <div class="modal-footer">
         <button @click="selectCurrentFolder" class="confirm-button" :disabled="!currentBrowserPath">
-          Select This Folder
+          Select this folder
         </button>
         <button @click="closeDialog" class="cancel-button">
           Cancel
