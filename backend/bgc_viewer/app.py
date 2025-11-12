@@ -887,13 +887,9 @@ def main():
     if PUBLIC_MODE:
         print(f"Database path: {PUBLIC_DATABASE_PATH}")
         # Read and display data_root from database metadata
-        try:
-            db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
-            if "error" not in db_info:
-                print(f"Data root (from database metadata): {db_info.get('data_root')}")
-        except Exception:
-            pass
-        print("Restricted endpoints: /api/browse, /api/scan-folder, /api/preprocess-folder, /api/check-index, /api/set-data-root")
+        db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
+        if "error" not in db_info:
+            print(f"Data root (from database metadata): {db_info.get('data_root')}")
         print("Multi-user session support: ENABLED")
     else:
         print("Session-based database management: ENABLED")
