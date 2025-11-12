@@ -19,6 +19,9 @@
             ⚠️ Index created with version {{ indexStatus.version || 'unknown' }} (current: {{ currentVersion }})
           </div>
         </div>
+        <button @click="confirmRegenerateIndex" class="regenerate-button" title="Regenerate index">
+          regenerate index
+        </button>
       </div>
       
       <div v-else class="index-missing">
@@ -242,6 +245,31 @@ export default {
         startPreprocessing()
       }
     }
+    
+    const confirmRegenerateIndex = async () => {
+      const confirmed = window.confirm(
+        'Are you sure you want to regenerate the index?\n\n' +
+        'This will delete the existing database and allow you to select which files to reprocess.\n\n' +
+        'Click OK to continue or Cancel to abort.'
+      )
+      
+      if (confirmed) {
+        try {
+          // Drop the database
+          await axios.post('/api/drop-database', {
+            path: props.folderPath
+          })
+          
+          // Refresh the index status which will show "no index found" state
+          // and automatically trigger file selection
+          await checkIndexStatus()
+          
+        } catch (error) {
+          console.error('Failed to drop database:', error)
+          alert(`Failed to drop database: ${error.response?.data?.error || error.message}`)
+        }
+      }
+    }
 
     const closeStatus = () => {
       showStatus.value = false
@@ -286,6 +314,7 @@ export default {
       showFileSelection,
       startPreprocessing,
       retryPreprocessing,
+      confirmRegenerateIndex,
       closeStatus
     }
   }
@@ -390,6 +419,22 @@ export default {
   background: #fff3cd;
   border-radius: 4px;
   display: inline-block;
+}
+
+.regenerate-button {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.regenerate-button:hover {
+  background: #5a6268;
 }
 
 .preprocess-button, .retry-button {

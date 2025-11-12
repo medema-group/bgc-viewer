@@ -557,6 +557,39 @@ def get_database_entries_endpoint():
     
     return jsonify(result)
 
+# Drop database endpoint - only available in local mode
+if not PUBLIC_MODE:
+    @app.route('/api/drop-database', methods=['POST'])
+    def drop_database():
+        """Drop/delete the database file for the given folder."""
+        data = request.get_json()
+        folder_path = data.get('path')
+        
+        if not folder_path:
+            return jsonify({"error": "No folder path provided"}), 400
+        
+        try:
+            resolved_path = Path(folder_path).resolve()
+            
+            if not resolved_path.exists() or not resolved_path.is_dir():
+                return jsonify({"error": "Invalid folder path"}), 400
+            
+            # Check for attributes.db file
+            db_path = resolved_path / "attributes.db"
+            
+            if db_path.exists():
+                # Delete the database file
+                db_path.unlink()
+                return jsonify({
+                    "message": "Database dropped successfully",
+                    "database_path": str(db_path)
+                })
+            else:
+                return jsonify({"error": "No database found in the specified folder"}), 404
+            
+        except Exception as e:
+            return jsonify({"error": f"Failed to drop database: {str(e)}"}), 500
+
 # Preprocessing endpoint - only available in local mode
 if not PUBLIC_MODE:
     @app.route('/api/preprocess-folder', methods=['POST'])
