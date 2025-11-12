@@ -218,7 +218,6 @@ export default {
       // Handle index file selection
       if (folderData.isDatabaseSelection) {
         const stats = folderData.indexStats
-        alert(`Index file selected: ${stats.indexed_files} file${stats.indexed_files === 1 ? '' : 's'}, ${stats.total_records} record${stats.total_records === 1 ? '' : 's'}\nData root: ${folderData.folderPath}`)
         // For index file selections, trigger index changed immediately
         emit('index-changed', folderData.folderPath)
       } else {
