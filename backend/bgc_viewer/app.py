@@ -51,12 +51,16 @@ if PUBLIC_MODE:
     except ImportError:
         # Fallback to filesystem if redis is not available
         print("Warning: redis not available, falling back to filesystem sessions")
-        app.config['SESSION_TYPE'] = 'filesystem'
-        app.config['SESSION_FILE_DIR'] = os.getenv('SESSION_DIR', '/tmp/bgc_viewer_sessions')
+        from cachelib.file import FileSystemCache
+        session_dir = os.getenv('SESSION_DIR', '/tmp/bgc_viewer_sessions')
+        app.config['SESSION_TYPE'] = 'cachelib'
+        app.config['SESSION_CACHELIB'] = FileSystemCache(cache_dir=session_dir)
 else:
     # Use filesystem for local development
-    app.config['SESSION_TYPE'] = 'filesystem'
-    app.config['SESSION_FILE_DIR'] = os.getenv('SESSION_DIR', '/tmp/bgc_viewer_sessions')
+    from cachelib.file import FileSystemCache
+    session_dir = os.getenv('SESSION_DIR', '/tmp/bgc_viewer_sessions')
+    app.config['SESSION_TYPE'] = 'cachelib'
+    app.config['SESSION_CACHELIB'] = FileSystemCache(cache_dir=session_dir)
 
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_COOKIE_NAME'] = 'bgc_viewer_session'
