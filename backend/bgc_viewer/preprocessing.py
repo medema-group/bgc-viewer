@@ -74,13 +74,13 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def populate_metadata_table(conn: sqlite3.Connection, db_path: Path) -> None:
+def populate_metadata_table(conn: sqlite3.Connection, data_root: str) -> None:
     """
     Populate the metadata table with preprocessing information.
     
     Args:
         conn: SQLite database connection
-        db_path: Path to the database file
+        data_root: Absolute path to the data root directory
     """
     metadata_entries = []
     
@@ -94,7 +94,6 @@ def populate_metadata_table(conn: sqlite3.Connection, db_path: Path) -> None:
     metadata_entries.append(('version', package_version))
     
     # Store the absolute path of the data root directory
-    data_root = str(db_path.parent.absolute())
     metadata_entries.append(('data_root', data_root))
     
     # Insert metadata entries
@@ -311,8 +310,9 @@ def preprocess_antismash_files(
     # Create database at the specified path
     conn = create_attributes_database(db_path)
     
-    # Populate metadata table
-    populate_metadata_table(conn, db_path)
+    # Populate metadata table with the data root (input directory)
+    data_root = str(input_path.absolute())
+    populate_metadata_table(conn, data_root)
     
     # Determine which files to process
     if json_files is not None:
