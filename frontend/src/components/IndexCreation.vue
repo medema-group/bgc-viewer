@@ -28,10 +28,14 @@
           v-model="indexPath" 
           type="text" 
           class="index-path-input"
+          @input="checkIndexFileExists"
         />
         <button @click="showIndexPathDialog" class="change-button">
           Browse
         </button>
+      </div>
+      <div v-if="indexFileExists" class="file-exists-warning">
+        ⚠️ This file already exists and will be overwritten
       </div>
     </div>
     
@@ -56,7 +60,8 @@
 </template>
 
 <script>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import axios from 'axios'
 import FolderSelectionDialog from './FolderSelectionDialog.vue'
 import PreprocessingStatus from './PreprocessingStatus.vue'
 import FileSelector from './FileSelector.vue'
@@ -95,9 +100,31 @@ export default {
     const showIndexPathDialogFlag = ref(false)
     const indexPath = ref(`${props.folderPath}/attributes.db`)
     const isPreprocessingRunning = ref(false)
+    const indexFileExists = ref(false)
     
     const defaultIndexPath = computed(() => {
       return `${props.folderPath}/attributes.db`
+    })
+    
+    const checkIndexFileExists = async () => {
+      if (!indexPath.value) {
+        indexFileExists.value = false
+        return
+      }
+      
+      try {
+        const response = await axios.post('/api/check_file_exists', {
+          path: indexPath.value
+        })
+        indexFileExists.value = response.data.exists
+      } catch (error) {
+        console.error('Error checking if file exists:', error)
+        indexFileExists.value = false
+      }
+    }
+    
+    onMounted(() => {
+      checkIndexFileExists()
     })
     
     const showIndexPathDialog = () => {
@@ -115,6 +142,7 @@ export default {
         indexPath.value = `${folderData.folderPath}/attributes.db`
         showIndexPathDialogFlag.value = false
         console.log('Index path set to:', indexPath.value)
+        checkIndexFileExists()
       } else {
         alert('Please select a folder for the index location, not a database file.')
       }
@@ -145,12 +173,14 @@ export default {
       indexPath,
       defaultIndexPath,
       isPreprocessingRunning,
+      indexFileExists,
       showIndexPathDialog,
       handleIndexPathDialogClose,
       handleIndexPathSelected,
       handlePreprocessingCompleted,
       handleFilesSelected,
-      handleCancel
+      handleCancel,
+      checkIndexFileExists
     }
   }
 }
@@ -262,6 +292,19 @@ export default {
 
 .change-button:hover {
   background: #5a6268;
+}
+
+.file-exists-warning {
+  color: #856404;
+  background-color: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-top: 10px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* Loading Files */

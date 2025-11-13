@@ -634,6 +634,24 @@ if not PUBLIC_MODE:
             "version": result.get("version", "")
         })
 
+if not PUBLIC_MODE:
+    @app.route('/api/check_file_exists', methods=['POST'])
+    def check_file_exists():
+        """Check if a file exists at the given path.
+        
+        This is used to warn users if they're about to overwrite an existing index file.
+        """
+        data = request.get_json()
+        file_path = data.get('path')
+        
+        if not file_path:
+            return jsonify({"error": "No file path provided"}), 400
+        
+        # Check if the file exists
+        exists = os.path.exists(file_path) and os.path.isfile(file_path)
+        
+        return jsonify({"exists": exists})
+
 @app.route('/api/database-entries')
 def get_database_entries_endpoint():
     """Get paginated list of all file+record entries from the current database."""
