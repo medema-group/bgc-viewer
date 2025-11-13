@@ -1,6 +1,11 @@
 <template>
   <div class="index-creation-section">
-    <h2>Create new index</h2>
+    <div class="header-with-cancel">
+      <h2>Create new index</h2>
+      <button @click="handleCancel" class="cancel-button" title="Cancel index creation">
+        ✕
+      </button>
+    </div>
     <p class="section-description">
       Creating index for: <strong>{{ folderPath }}</strong>
     </p>
@@ -119,6 +124,10 @@ export default {
       emit('preprocessing-completed', indexPath.value)
     }
     
+    const handleCancel = () => {
+      emit('cancel')
+    }
+    
     const handleFilesSelected = (files) => {
       selectedFiles.value = files
       
@@ -140,7 +149,8 @@ export default {
       handleIndexPathDialogClose,
       handleIndexPathSelected,
       handlePreprocessingCompleted,
-      handleFilesSelected
+      handleFilesSelected,
+      handleCancel
     }
   }
 }
@@ -157,6 +167,34 @@ export default {
 .index-creation-section h2 {
   margin-top: 0;
   margin-bottom: 10px;
+  color: #495057;
+}
+
+.header-with-cancel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.cancel-button {
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.cancel-button:hover {
+  background: #e9ecef;
   color: #495057;
 }
 

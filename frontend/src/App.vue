@@ -11,6 +11,18 @@
         @folder-selected="handleFolderSelected"
         @folder-changed="handleFolderChanged"
         @index-changed="handleIndexChanged"
+        @create-index-for-folder="handleCreateIndexForFolder"
+      />
+
+      <!-- Index Creation Section - Only shown in local mode when creating a new index -->
+      <IndexCreation
+        v-if="!isPublicMode && folderForIndexing"
+        :folder-path="folderForIndexing"
+        :available-files="availableFiles"
+        :is-loading-files="isLoadingFiles"
+        :needs-preprocessing="needsPreprocessing"
+        @preprocessing-completed="handlePreprocessingCompleted"
+        @cancel="handleCancelIndexCreation"
       />
 
       <!-- Record List Selector Section -->
@@ -43,6 +55,7 @@ import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import RegionViewerComponent from './components/RegionViewer.vue'
 import IndexSelection from './components/IndexSelection.vue'
+import IndexCreation from './components/IndexCreation.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
 
 export default {
@@ -50,6 +63,7 @@ export default {
   components: {
     RegionViewerComponent,
     IndexSelection,
+    IndexCreation,
     RecordListSelector
   },
   setup() {
@@ -66,6 +80,12 @@ export default {
     // Data root and index tracking
     const selectedDataRoot = ref('')
     const selectedIndexPath = ref('')
+    
+    // Index creation state
+    const folderForIndexing = ref('')
+    const availableFiles = ref([])
+    const isLoadingFiles = ref(false)
+    const needsPreprocessing = ref(false)
     
     const handleFolderSelected = async (folderPath) => {
       // Update the selected data root
@@ -95,6 +115,38 @@ export default {
       if (regionViewerRef.value) {
         await regionViewerRef.value.loadRecord(recordData)
       }
+    }
+    
+    const handleCreateIndexForFolder = async ({ folderPath, files }) => {
+      // Set up state for index creation
+      folderForIndexing.value = folderPath
+      availableFiles.value = files.availableFiles || []
+      isLoadingFiles.value = files.isLoadingFiles || false
+      needsPreprocessing.value = files.needsPreprocessing || false
+    }
+    
+    const handlePreprocessingCompleted = async (indexPath) => {
+      // Clear index creation state
+      folderForIndexing.value = ''
+      availableFiles.value = []
+      isLoadingFiles.value = false
+      needsPreprocessing.value = false
+      
+      // Update the selected index path
+      selectedIndexPath.value = indexPath
+      
+      // Refresh the record list
+      if (recordListSelectorRef.value) {
+        await recordListSelectorRef.value.refreshEntries()
+      }
+    }
+    
+    const handleCancelIndexCreation = () => {
+      // Clear index creation state
+      folderForIndexing.value = ''
+      availableFiles.value = []
+      isLoadingFiles.value = false
+      needsPreprocessing.value = false
     }
     
     const fetchVersion = async () => {
@@ -134,10 +186,17 @@ export default {
       isPublicMode,
       selectedDataRoot,
       selectedIndexPath,
+      folderForIndexing,
+      availableFiles,
+      isLoadingFiles,
+      needsPreprocessing,
       handleFolderSelected,
       handleFolderChanged,
       handleIndexChanged,
-      handleRecordLoaded
+      handleRecordLoaded,
+      handleCreateIndexForFolder,
+      handlePreprocessingCompleted,
+      handleCancelIndexCreation
     }
   }
 }

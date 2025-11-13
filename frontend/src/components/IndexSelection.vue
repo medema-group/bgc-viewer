@@ -1,6 +1,5 @@
 <template>
   <section class="folder-selector-section">
-    <!-- Section 1: Current Index and Data Root -->
     <div class="current-index-section">
       <h2>Current index</h2>
       
@@ -53,16 +52,6 @@
       </div>
     </div>
 
-    <!-- Section 2: Index Creation (only shown when a folder is selected for indexing) -->
-    <IndexCreation
-      v-if="selectedFolderForIndexing"
-      :folder-path="selectedFolderForIndexing"
-      :available-files="availableFiles"
-      :is-loading-files="isLoadingFiles"
-      :needs-preprocessing="needsPreprocessing"
-      @preprocessing-completed="handlePreprocessingCompleted"
-    />
-
     <!-- Dialog for selecting existing index file -->
     <FolderSelectionDialog 
       :show="showIndexDialog"
@@ -76,7 +65,7 @@
     <!-- Dialog for selecting folder to index -->
     <FolderSelectionDialog 
       :show="showFolderDialog"
-      :initial-path="selectedFolderForIndexing || ''"
+      :initial-path="''"
       :allow-folder-selection="true"
       :allow-database-selection="false"
       @close="handleFolderDialogClose"
@@ -86,18 +75,16 @@
 </template>
 
 <script>
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import FolderSelectionDialog from './FolderSelectionDialog.vue'
-import IndexCreation from './IndexCreation.vue'
 
 export default {
   name: 'IndexSelection',
   components: {
-    FolderSelectionDialog,
-    IndexCreation
+    FolderSelectionDialog
   },
-  emits: ['folder-selected', 'folder-changed', 'index-changed'],
+  emits: ['folder-selected', 'folder-changed', 'index-changed', 'create-index-for-folder'],
   setup(_, { emit }) {
     const currentFolderPath = ref('')
     const currentIndexPath = ref('')
@@ -106,10 +93,6 @@ export default {
     const currentVersion = ref('')
     const showIndexDialog = ref(false)
     const showFolderDialog = ref(false)
-    const selectedFolderForIndexing = ref('')
-    const isLoadingFiles = ref(false)
-    const availableFiles = ref([])
-    const needsPreprocessing = ref(false)
     
     const STORAGE_KEY = 'bgc-viewer-last-index-path'
     
@@ -118,18 +101,6 @@ export default {
         return false
       }
       return indexVersion.value !== currentVersion.value
-    })
-    
-    // Watch for selected folder changes to reset file selector
-    watch(selectedFolderForIndexing, (newValue, oldValue) => {
-      // Only reset if we're clearing the folder or switching from one folder to another
-      // Don't reset when initially setting a folder (oldValue is empty)
-      if (newValue !== oldValue && oldValue !== '') {
-        // Hide file selector when folder changes
-        needsPreprocessing.value = false
-        isLoadingFiles.value = false
-        availableFiles.value = []
-      }
     })
     
     const getIndexDirectory = () => {
@@ -254,10 +225,6 @@ export default {
         // Save the selected index path for next time
         saveLastIndexPath(currentIndexPath.value)
         
-        // Clear preprocessing section
-        selectedFolderForIndexing.value = ''
-        needsPreprocessing.value = false
-        
         // Emit events
         emit('folder-changed', currentFolderPath.value)
         emit('folder-selected', currentFolderPath.value)
@@ -270,80 +237,39 @@ export default {
     const handleFolderToIndexSelected = async (folderData) => {
       // This handles selecting a folder to create a new index
       if (!folderData.isDatabaseSelection) {
-        selectedFolderForIndexing.value = folderData.folderPath
-        
+        const folderPath = folderData.folderPath
         const count = folderData.count
         
         if (count === 0) {
           alert(`No JSON files found in the selected folder and its subdirectories`)
-          selectedFolderForIndexing.value = ''
           return
         }
         
         // Fetch the list of JSON files from the API
-        isLoadingFiles.value = true
-        needsPreprocessing.value = true
-        
         try {
           const response = await axios.post('/api/scan-folder', {
-            path: folderData.folderPath
+            path: folderPath
           })
           
           if (response.data.json_files && response.data.json_files.length > 0) {
-            availableFiles.value = response.data.json_files
+            // Emit event to parent to show IndexCreation component
+            emit('create-index-for-folder', {
+              folderPath: folderPath,
+              files: {
+                availableFiles: response.data.json_files,
+                isLoadingFiles: false,
+                needsPreprocessing: true
+              }
+            })
           } else {
             alert('No JSON files found in the selected folder')
-            selectedFolderForIndexing.value = ''
-            needsPreprocessing.value = false
           }
         } catch (error) {
           console.error('Failed to fetch JSON files:', error)
           alert(`Failed to fetch file list: ${error.response?.data?.error || error.message}`)
-          selectedFolderForIndexing.value = ''
-          needsPreprocessing.value = false
-        } finally {
-          isLoadingFiles.value = false
         }
         
         showFolderDialog.value = false
-      }
-    }
-    const handlePreprocessingCompleted = async (newIndexPath) => {
-      // Clear file selection
-      needsPreprocessing.value = false
-      availableFiles.value = []
-      
-      try {
-        // Select the newly created database via the API
-        const response = await axios.post('/api/select-database', {
-          path: newIndexPath
-        })
-        
-        if (response.data.database_path) {
-          currentIndexPath.value = response.data.database_path
-          currentFolderPath.value = response.data.data_root
-          indexStats.value = response.data.index_stats
-          indexVersion.value = response.data.version || ''
-          
-          // Save the new index path for next time
-          saveLastIndexPath(currentIndexPath.value)
-          
-          // Clear preprocessing section
-          selectedFolderForIndexing.value = ''
-          
-          // Emit events that index has changed after preprocessing
-          emit('folder-changed', currentFolderPath.value)
-          emit('folder-selected', currentFolderPath.value)
-          emit('index-changed', currentIndexPath.value)
-        } else {
-          throw new Error('No database path returned from server')
-        }
-      } catch (error) {
-        console.error('Failed to select database after preprocessing:', error)
-        alert(`Failed to activate new database: ${error.response?.data?.error || error.message}`)
-        
-        // Clear preprocessing section on error
-        selectedFolderForIndexing.value = ''
       }
     }
     
@@ -361,8 +287,7 @@ export default {
             path: currentFolderPath.value
           })
           
-          // Move current folder to preprocessing section
-          selectedFolderForIndexing.value = currentFolderPath.value
+          const folderPath = currentFolderPath.value
           
           // Clear current index section
           currentIndexPath.value = ''
@@ -370,28 +295,27 @@ export default {
           indexVersion.value = ''
           
           // Fetch the list of JSON files from the API
-          isLoadingFiles.value = true
-          needsPreprocessing.value = true
-          
           try {
             const response = await axios.post('/api/scan-folder', {
-              path: currentFolderPath.value
+              path: folderPath
             })
             
             if (response.data.json_files && response.data.json_files.length > 0) {
-              availableFiles.value = response.data.json_files
+              // Emit event to parent to show IndexCreation component
+              emit('create-index-for-folder', {
+                folderPath: folderPath,
+                files: {
+                  availableFiles: response.data.json_files,
+                  isLoadingFiles: false,
+                  needsPreprocessing: true
+                }
+              })
             } else {
               alert('No JSON files found in the selected folder')
-              selectedFolderForIndexing.value = ''
-              needsPreprocessing.value = false
             }
           } catch (error) {
             console.error('Failed to fetch JSON files:', error)
             alert(`Failed to fetch file list: ${error.response?.data?.error || error.message}`)
-            selectedFolderForIndexing.value = ''
-            needsPreprocessing.value = false
-          } finally {
-            isLoadingFiles.value = false
           }
           
         } catch (error) {
@@ -416,7 +340,6 @@ export default {
       showVersionMismatch,
       showIndexDialog,
       showFolderDialog,
-      selectedFolderForIndexing,
       getIndexDirectory,
       showSelectIndexDialog,
       handleIndexDialogClose,
@@ -424,11 +347,7 @@ export default {
       handleFolderDialogClose,
       handleIndexFileSelected,
       handleFolderToIndexSelected,
-      handlePreprocessingCompleted,
-      confirmRegenerateIndex,
-      isLoadingFiles,
-      availableFiles,
-      needsPreprocessing
+      confirmRegenerateIndex
     }
   }
 }
