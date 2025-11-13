@@ -680,52 +680,6 @@ def get_database_entries_endpoint():
     
     return jsonify(result)
 
-# Drop database endpoint - only available in local mode
-if not PUBLIC_MODE:
-    @app.route('/api/drop-database', methods=['POST'])
-    def drop_database():
-        """Drop/delete the database file for the given folder."""
-        data = request.get_json()
-        folder_path = data.get('path')
-        
-        if not folder_path:
-            return jsonify({"error": "No folder path provided"}), 400
-        
-        try:
-            # Get the current database path from session
-            db_path_str = session.get('current_database_path')
-            if not db_path_str:
-                return jsonify({"error": "No database selected"}), 400
-            
-            db_path = Path(db_path_str).resolve()
-            
-            # Verify the database file is in the requested folder path
-            resolved_folder = Path(folder_path).resolve()
-            if not resolved_folder.exists() or not resolved_folder.is_dir():
-                return jsonify({"error": "Invalid folder path"}), 400
-            
-            # Get data_root from database to verify it matches the folder
-            db_info = get_database_info(str(db_path))
-            if "error" not in db_info:
-                db_data_root = Path(db_info.get('data_root', '')).resolve()
-                if db_data_root != resolved_folder:
-                    return jsonify({"error": "Database data root does not match the specified folder"}), 400
-            
-            if db_path.exists():
-                # Delete the database file
-                db_path.unlink()
-                # Clear from session
-                session.pop('current_database_path', None)
-                return jsonify({
-                    "message": "Database dropped successfully",
-                    "database_path": str(db_path)
-                })
-            else:
-                return jsonify({"error": "Database file does not exist"}), 404
-            
-        except Exception as e:
-            return jsonify({"error": f"Failed to drop database: {str(e)}"}), 500
-
 # Preprocessing endpoint - only available in local mode
 if not PUBLIC_MODE:
     @app.route('/api/preprocess-folder', methods=['POST'])

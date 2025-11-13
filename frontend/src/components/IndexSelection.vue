@@ -276,23 +276,14 @@ export default {
     const confirmRegenerateIndex = async () => {
       const confirmed = window.confirm(
         'Are you sure you want to regenerate the index?\n\n' +
-        'This will delete the existing database and allow you to select which files to reprocess.\n\n' +
+        'This will overwrite the existing database and allow you to select which files to reprocess.\n\n' +
         'Click OK to continue or Cancel to abort.'
       )
       
       if (confirmed) {
         try {
-          // Drop the database
-          await axios.post('/api/drop-database', {
-            path: currentFolderPath.value
-          })
-          
           const folderPath = currentFolderPath.value
-          
-          // Clear current index section
-          currentIndexPath.value = ''
-          indexStats.value = null
-          indexVersion.value = ''
+          const indexFilePath = currentIndexPath.value
           
           // Fetch the list of JSON files from the API
           try {
@@ -304,6 +295,7 @@ export default {
               // Emit event to parent to show IndexCreation component
               emit('create-index-for-folder', {
                 folderPath: folderPath,
+                indexPath: indexFilePath,
                 files: {
                   availableFiles: response.data.json_files,
                   isLoadingFiles: false,
@@ -319,8 +311,8 @@ export default {
           }
           
         } catch (error) {
-          console.error('Failed to drop database:', error)
-          alert(`Failed to drop database: ${error.response?.data?.error || error.message}`)
+          console.error('Failed to regenerate index:', error)
+          alert(`Failed to regenerate index: ${error.message}`)
         }
       }
     }

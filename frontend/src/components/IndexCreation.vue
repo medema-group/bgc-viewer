@@ -80,6 +80,10 @@ export default {
       type: String,
       required: true
     },
+    indexPath: {
+      type: String,
+      default: ''
+    },
     availableFiles: {
       type: Array,
       default: () => []
@@ -98,7 +102,7 @@ export default {
     const selectedFiles = ref([])
     const preprocessingStatusRef = ref(null)
     const showIndexPathDialogFlag = ref(false)
-    const indexPath = ref(`${props.folderPath}/attributes.db`)
+    const indexPath = ref(props.indexPath || `${props.folderPath}/attributes.db`)
     const isPreprocessingRunning = ref(false)
     const indexFileExists = ref(false)
     

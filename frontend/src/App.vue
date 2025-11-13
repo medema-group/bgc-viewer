@@ -18,6 +18,7 @@
       <IndexCreation
         v-if="!isPublicMode && folderForIndexing"
         :folder-path="folderForIndexing"
+        :index-path="indexPathForCreation"
         :available-files="availableFiles"
         :is-loading-files="isLoadingFiles"
         :needs-preprocessing="needsPreprocessing"
@@ -83,6 +84,7 @@ export default {
     
     // Index creation state
     const folderForIndexing = ref('')
+    const indexPathForCreation = ref('')
     const availableFiles = ref([])
     const isLoadingFiles = ref(false)
     const needsPreprocessing = ref(false)
@@ -121,9 +123,10 @@ export default {
       }
     }
     
-    const handleCreateIndexForFolder = async ({ folderPath, files }) => {
+    const handleCreateIndexForFolder = async ({ folderPath, indexPath, files }) => {
       // Set up state for index creation
       folderForIndexing.value = folderPath
+      indexPathForCreation.value = indexPath || ''
       availableFiles.value = files.availableFiles || []
       isLoadingFiles.value = files.isLoadingFiles || false
       needsPreprocessing.value = files.needsPreprocessing || false
@@ -132,6 +135,7 @@ export default {
     const handlePreprocessingCompleted = async (indexPath) => {
       // Clear index creation state
       folderForIndexing.value = ''
+      indexPathForCreation.value = ''
       availableFiles.value = []
       isLoadingFiles.value = false
       needsPreprocessing.value = false
@@ -148,6 +152,7 @@ export default {
     const handleCancelIndexCreation = () => {
       // Clear index creation state
       folderForIndexing.value = ''
+      indexPathForCreation.value = ''
       availableFiles.value = []
       isLoadingFiles.value = false
       needsPreprocessing.value = false
@@ -191,6 +196,7 @@ export default {
       selectedDataRoot,
       selectedIndexPath,
       folderForIndexing,
+      indexPathForCreation,
       availableFiles,
       isLoadingFiles,
       needsPreprocessing,
