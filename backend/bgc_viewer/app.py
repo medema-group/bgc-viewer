@@ -139,7 +139,7 @@ def load_cached_entry(entry_id: str, db_path: str, data_dir: str):
     Args:
         entry_id: Entry ID in format "filename:record_id"
         db_path: Full path to the database file (used as cache key)
-        data_dir: Data directory path
+        data_dir: Data directory path (where the JSON files are located)
     
     Returns:
         Loaded AntiSMASH data for the specified entry
@@ -150,20 +150,21 @@ def load_cached_entry(entry_id: str, db_path: str, data_dir: str):
         switch between different databases).
     """
     filename, record_id = entry_id.split(':', 1)
-    db_folder = Path(db_path).parent
-    file_path = db_folder / filename
+    file_path = Path(data_dir) / filename
     return load_specific_record(str(file_path), record_id, data_dir)
+
 
 def get_current_entry_data():
     """
     Get the currently loaded AntiSMASH data for the current session.
     
     Returns:
-        Tuple of (data, db_folder, data_dir) or (None, None, None) if no data loaded
+        Tuple of (data, data_dir) or (None, None) if no data loaded
+        Note: db_folder is no longer returned as it's not needed (data_root is used instead)
     """
     entry_id = session.get('loaded_entry_id')
     if not entry_id:
-        return None, None, None
+        return None, None
     
     # Determine database path based on mode
     if PUBLIC_MODE:
@@ -172,28 +173,28 @@ def get_current_entry_data():
         # In LOCAL_MODE, get from session
         db_path = session.get('current_database_path')
         if not db_path:
-            return None, None, None
+            return None, None
         db_path = Path(db_path)
-    
-    # Get database folder and data directory
-    db_folder = db_path.parent
     
     # Load data_root from database metadata
     try:
         db_info = get_database_info(str(db_path))
         if "error" in db_info:
-            return None, None, None
-        data_dir = db_info.get('data_root', str(db_folder))
+            return None, None
+        data_dir = db_info.get('data_root')
+        if not data_dir:
+            # data_root is required
+            return None, None
     except Exception:
-        # Fallback to db_folder if metadata can't be read
-        data_dir = str(db_folder)
+        # If we can't read metadata, we can't proceed
+        return None, None
     
     # Load from cache (using db_path as part of cache key)
     try:
         data = load_cached_entry(entry_id, str(db_path), data_dir)
-        return data, db_folder, data_dir
+        return data, data_dir
     except Exception:
-        return None, None, None
+        return None, None
 
 
 
@@ -399,25 +400,27 @@ def load_database_entry():
             if not db_path.exists():
                 return jsonify({"error": f"Database file does not exist: {db_path_str}"}), 404
         
-        db_folder = db_path.parent
-        file_path = db_folder / filename
-        
         # Get data_root from database metadata
         try:
             db_info = get_database_info(str(db_path))
             if "error" not in db_info:
-                data_dir = db_info.get('data_root', str(db_folder))
+                data_root = db_info.get('data_root')
+                if not data_root:
+                    return jsonify({"error": "Database metadata missing data_root"}), 500
             else:
-                data_dir = str(db_folder)
-        except Exception:
-            data_dir = str(db_folder)
+                return jsonify({"error": f"Failed to read database metadata: {db_info.get('error')}"}), 500
+        except Exception as e:
+            return jsonify({"error": f"Failed to read database metadata: {str(e)}"}), 500
         
-        # In public mode, ensure file is within the database folder (security check)
+        data_dir = data_root
+        file_path = Path(data_root) / filename
+        
+        # In public mode, ensure file is within the data root folder (security check)
         if PUBLIC_MODE:
             try:
-                file_path.resolve().relative_to(db_folder.resolve())
+                file_path.resolve().relative_to(Path(data_root).resolve())
             except ValueError:
-                return jsonify({"error": "Access denied: File must be within the database folder"}), 403
+                return jsonify({"error": "Access denied: File must be within the data root folder"}), 403
         
         if not file_path.exists():
             return jsonify({"error": f"File {filename} not found in database folder"}), 404
@@ -461,7 +464,7 @@ def load_database_entry():
 def get_record_regions(record_id):
     """API endpoint to get all regions for a specific record."""
     # Get data from session cache
-    antismash_data, db_folder, data_dir = get_current_entry_data()
+    antismash_data, data_dir = get_current_entry_data()
     
     if not antismash_data:
         return jsonify({"error": "No data loaded. Please load an entry first."}), 404
@@ -497,7 +500,7 @@ def get_record_regions(record_id):
 def get_region_features(record_id, region_id):
     """API endpoint to get all features within a specific region."""
     # Get data from session cache
-    antismash_data, db_folder, data_dir = get_current_entry_data()
+    antismash_data, data_dir = get_current_entry_data()
     
     if not antismash_data:
         return jsonify({"error": "No data loaded. Please load an entry first."}), 404
@@ -560,7 +563,7 @@ def get_region_features(record_id, region_id):
 def get_record_features(record_id):
     """API endpoint to get all features for a specific record."""
     # Get data from session cache
-    antismash_data, db_folder, data_dir = get_current_entry_data()
+    antismash_data, data_dir = get_current_entry_data()
     
     if not antismash_data:
         return jsonify({"error": "No data loaded. Please load an entry first."}), 404

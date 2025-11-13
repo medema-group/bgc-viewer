@@ -36,8 +36,9 @@ def get_database_info(db_file_path):
             if row:
                 data_root = row[0]
             else:
-                # If no data_root in metadata, use the database's parent directory
-                data_root = str(resolved_path.parent)
+                # data_root is required in metadata
+                conn.close()
+                return {"error": "Database metadata missing required 'data_root' field"}
             
             # Get version from metadata table
             cursor = conn.execute("SELECT value FROM metadata WHERE key = 'version'")
