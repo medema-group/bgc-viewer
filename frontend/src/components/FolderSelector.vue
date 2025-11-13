@@ -37,7 +37,10 @@
       
       <div class="action-buttons">
         <button @click="showSelectIndexDialog" class="browse-button">
-          Select different index file
+          Select existing index file
+        </button>
+        <button @click="showSelectFolderDialog" class="browse-button browse-button-secondary">
+          Select folder to index
         </button>
         <button 
           v-if="currentFolderPath" 
@@ -50,29 +53,22 @@
       </div>
     </div>
 
-    <!-- Section 2: Preprocessing -->
-    <div class="preprocessing-section">
+    <!-- Section 2: Preprocessing (only shown when a folder is selected for indexing) -->
+    <div v-if="selectedFolderForIndexing" class="preprocessing-section">
       <h2>Create New Index</h2>
       <p class="section-description">
-        Select a folder containing antiSMASH JSON files to create a new index.
+        Creating index for: <strong>{{ selectedFolderForIndexing }}</strong>
       </p>
       
-      <button @click="showSelectFolderDialog" class="browse-button browse-button-secondary">
-        Select folder to index
-      </button>
-      
       <PreprocessingStatus 
-        v-if="selectedFolderForIndexing"
         :folder-path="selectedFolderForIndexing"
         :selected-files="selectedFiles"
         :index-path="indexPath"
         @preprocessing-completed="handlePreprocessingCompleted"
-        @need-file-selection="handleNeedFileSelection"
-        @index-status-changed="handleIndexStatusChanged"
         ref="preprocessingStatusRef"
       />
       
-      <div v-if="selectedFolderForIndexing && needsPreprocessing" class="index-location-section">
+      <div v-if="needsPreprocessing" class="index-location-section">
         <h3>Index file location</h3>
         <div class="index-location-row">
           <label class="index-label">Index file path:</label>
@@ -355,7 +351,7 @@ export default {
       }
     }
     
-    const handleFolderToIndexSelected = (folderData) => {
+    const handleFolderToIndexSelected = async (folderData) => {
       // This handles selecting a folder to create a new index
       if (!folderData.isDatabaseSelection) {
         selectedFolderForIndexing.value = folderData.folderPath
@@ -368,6 +364,33 @@ export default {
         
         if (count === 0) {
           alert(`No JSON files found in the selected folder and its subdirectories`)
+          selectedFolderForIndexing.value = ''
+          return
+        }
+        
+        // Fetch the list of JSON files from the API
+        isLoadingFiles.value = true
+        needsPreprocessing.value = true
+        
+        try {
+          const response = await axios.post('/api/scan-folder', {
+            path: folderData.folderPath
+          })
+          
+          if (response.data.json_files && response.data.json_files.length > 0) {
+            availableFiles.value = response.data.json_files
+          } else {
+            alert('No JSON files found in the selected folder')
+            selectedFolderForIndexing.value = ''
+            needsPreprocessing.value = false
+          }
+        } catch (error) {
+          console.error('Failed to fetch JSON files:', error)
+          alert(`Failed to fetch file list: ${error.response?.data?.error || error.message}`)
+          selectedFolderForIndexing.value = ''
+          needsPreprocessing.value = false
+        } finally {
+          isLoadingFiles.value = false
         }
         
         showFolderDialog.value = false
@@ -404,42 +427,6 @@ export default {
       emit('index-changed', currentIndexPath.value)
     }
     
-    const handleIndexStatusChanged = (indexStatusData) => {
-      // Update needsPreprocessing based on index status
-      needsPreprocessing.value = !indexStatusData.has_index
-      
-      // Update current index path if an index exists
-      if (indexStatusData.has_index && indexStatusData.database_path) {
-        currentIndexPath.value = indexStatusData.database_path
-      } else {
-        currentIndexPath.value = ''
-      }
-    }
-    
-    const handleNeedFileSelection = async (indexStatusData) => {
-      // Update preprocessing status
-      needsPreprocessing.value = !indexStatusData.has_index
-      
-      // Fetch the list of JSON files from the API
-      isLoadingFiles.value = true
-      try {
-        const response = await axios.post('/api/scan-folder', {
-          path: selectedFolderForIndexing.value
-        })
-        
-        if (response.data.json_files && response.data.json_files.length > 0) {
-          availableFiles.value = response.data.json_files
-        } else {
-          alert('No JSON files found in the selected folder')
-        }
-      } catch (error) {
-        console.error('Failed to fetch JSON files:', error)
-        alert(`Failed to fetch file list: ${error.response?.data?.error || error.message}`)
-      } finally {
-        isLoadingFiles.value = false
-      }
-    }
-    
     const handleFilesSelected = (files) => {
       selectedFiles.value = files
       
@@ -472,7 +459,30 @@ export default {
           indexStats.value = null
           indexVersion.value = ''
           
-          // This will trigger the preprocessing status component to check and show file selection
+          // Fetch the list of JSON files from the API
+          isLoadingFiles.value = true
+          needsPreprocessing.value = true
+          
+          try {
+            const response = await axios.post('/api/scan-folder', {
+              path: currentFolderPath.value
+            })
+            
+            if (response.data.json_files && response.data.json_files.length > 0) {
+              availableFiles.value = response.data.json_files
+            } else {
+              alert('No JSON files found in the selected folder')
+              selectedFolderForIndexing.value = ''
+              needsPreprocessing.value = false
+            }
+          } catch (error) {
+            console.error('Failed to fetch JSON files:', error)
+            alert(`Failed to fetch file list: ${error.response?.data?.error || error.message}`)
+            selectedFolderForIndexing.value = ''
+            needsPreprocessing.value = false
+          } finally {
+            isLoadingFiles.value = false
+          }
           
         } catch (error) {
           console.error('Failed to drop database:', error)
@@ -506,7 +516,6 @@ export default {
       handleIndexFileSelected,
       handleFolderToIndexSelected,
       handlePreprocessingCompleted,
-      handleNeedFileSelection,
       handleFilesSelected,
       confirmRegenerateIndex,
       isLoadingFiles,
@@ -518,8 +527,7 @@ export default {
       showIndexPathDialog,
       handleIndexPathDialogClose,
       handleIndexPathSelected,
-      needsPreprocessing,
-      handleIndexStatusChanged
+      needsPreprocessing
     }
   }
 }

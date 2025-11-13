@@ -151,6 +151,7 @@ export default {
           dataRoot: response.data.data_root,  // The data root directory
           databasePath: response.data.database_path,
           indexStats: response.data.index_stats,
+          version: response.data.version,  // Include version from backend
           isDatabaseSelection: true
         })
         
