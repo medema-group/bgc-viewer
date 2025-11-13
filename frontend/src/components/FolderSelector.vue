@@ -199,26 +199,6 @@ export default {
       }
     }
     
-    const fetchIndexInfo = async (folderPath) => {
-      try {
-        const response = await axios.post('/api/check-index', {
-          path: folderPath
-        })
-        
-        if (response.data.has_index) {
-          indexStats.value = response.data.index_stats
-          indexVersion.value = response.data.version || ''
-          currentIndexPath.value = response.data.database_path || `${folderPath}/attributes.db`
-        } else {
-          indexStats.value = null
-          indexVersion.value = ''
-          currentIndexPath.value = ''
-        }
-      } catch (error) {
-        console.error('Failed to fetch index info:', error)
-      }
-    }
-    
     const showSelectIndexDialog = () => {
       showIndexDialog.value = true
     }
@@ -448,16 +428,8 @@ export default {
         console.error('Failed to select database after preprocessing:', error)
         alert(`Failed to activate new database: ${error.response?.data?.error || error.message}`)
         
-        // Still try to update local state as fallback
-        currentIndexPath.value = newIndexPath
-        currentFolderPath.value = newDataRoot
-        await fetchIndexInfo(newDataRoot)
-        saveLastIndexPath(currentIndexPath.value)
+        // Clear preprocessing section on error
         selectedFolderForIndexing.value = ''
-        
-        emit('folder-changed', currentFolderPath.value)
-        emit('folder-selected', currentFolderPath.value)
-        emit('index-changed', currentIndexPath.value)
       }
     }
     

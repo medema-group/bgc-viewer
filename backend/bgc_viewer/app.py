@@ -15,7 +15,7 @@ from . import __version__
 from .preprocessing import preprocess_antismash_files
 from .data_loader import load_specific_record
 from .file_utils import match_location
-from .database import check_database_exists, get_database_entries, get_database_info
+from .database import get_database_entries, get_database_info
 
 # Load environment variables from .env file
 load_dotenv()
@@ -98,14 +98,19 @@ PUBLIC_DATABASE_PATH: Optional[Path] = None
 
 if PUBLIC_MODE:
     # In public mode, database path (index file) is REQUIRED
-    db_path_env = os.getenv('BGCV_DATABASE_PATH', 'data/attributes.db')
+    db_path_env = os.getenv('BGCV_DATABASE_PATH')
+    if not db_path_env:
+        raise RuntimeError(
+            "PUBLIC_MODE is enabled but BGCV_DATABASE_PATH environment variable is not set. "
+            "Please set BGCV_DATABASE_PATH to the path of your database file."
+        )
+    
     PUBLIC_DATABASE_PATH = Path(db_path_env).resolve()
     
     # Verify the database file exists
     if not PUBLIC_DATABASE_PATH.exists():
         raise RuntimeError(
             f"PUBLIC_MODE is enabled but database file does not exist: {PUBLIC_DATABASE_PATH}. "
-            f"Set BGCV_DATABASE_PATH environment variable or create the database. "
             f"Use the preprocessing tool to create an index database."
         )
     
@@ -388,11 +393,11 @@ def load_database_entry():
         else:
             # In LOCAL_MODE, use session database path
             db_path_str = session.get('current_database_path')
-            if db_path_str:
-                db_path = Path(db_path_str)
-            else:
-                # Fallback to data directory
-                db_path = Path("data") / "attributes.db"
+            if not db_path_str:
+                return jsonify({"error": "No database selected. Please select a database first."}), 400
+            db_path = Path(db_path_str)
+            if not db_path.exists():
+                return jsonify({"error": f"Database file does not exist: {db_path_str}"}), 404
         
         db_folder = db_path.parent
         file_path = db_folder / filename
@@ -595,23 +600,6 @@ def get_version():
 
 # Database management endpoints - only available in local mode
 if not PUBLIC_MODE:
-    @app.route('/api/check-index', methods=['POST'])
-    def check_index_status():
-        """Check if an SQLite index exists for the given folder."""
-        data = request.get_json()
-        folder_path = data.get('path')
-        
-        if not folder_path:
-            return jsonify({"error": "No folder path provided"}), 400
-        
-        try:
-            has_index, db_path, result = check_database_exists(folder_path)
-            return jsonify(result)
-            
-        except Exception as e:
-            return jsonify({"error": f"Failed to check index status: {str(e)}"}), 500
-
-if not PUBLIC_MODE:
     @app.route('/api/select-database', methods=['POST'])
     def select_database():
         """Select a database file and extract its data_root from metadata.
@@ -658,13 +646,10 @@ def get_database_entries_endpoint():
     else:
         # In LOCAL_MODE, get from session
         db_path = session.get('current_database_path')
-        if not db_path or not Path(db_path).exists():
-            # Fallback: Look for attributes.db in the data directory
-            data_dir = Path("data")
-            fallback_db_path = data_dir / "attributes.db"
-            if fallback_db_path.exists():
-                db_path = str(fallback_db_path)
-                session['current_database_path'] = db_path
+        if not db_path:
+            return jsonify({"error": "No database selected. Please select a database first."}), 400
+        if not Path(db_path).exists():
+            return jsonify({"error": f"Database file does not exist: {db_path}"}), 404
     
     # Use the database module function
     result = get_database_entries(db_path, page, per_page, search)
@@ -686,23 +671,36 @@ if not PUBLIC_MODE:
             return jsonify({"error": "No folder path provided"}), 400
         
         try:
-            resolved_path = Path(folder_path).resolve()
+            # Get the current database path from session
+            db_path_str = session.get('current_database_path')
+            if not db_path_str:
+                return jsonify({"error": "No database selected"}), 400
             
-            if not resolved_path.exists() or not resolved_path.is_dir():
+            db_path = Path(db_path_str).resolve()
+            
+            # Verify the database file is in the requested folder path
+            resolved_folder = Path(folder_path).resolve()
+            if not resolved_folder.exists() or not resolved_folder.is_dir():
                 return jsonify({"error": "Invalid folder path"}), 400
             
-            # Check for attributes.db file
-            db_path = resolved_path / "attributes.db"
+            # Get data_root from database to verify it matches the folder
+            db_info = get_database_info(str(db_path))
+            if "error" not in db_info:
+                db_data_root = Path(db_info.get('data_root', '')).resolve()
+                if db_data_root != resolved_folder:
+                    return jsonify({"error": "Database data root does not match the specified folder"}), 400
             
             if db_path.exists():
                 # Delete the database file
                 db_path.unlink()
+                # Clear from session
+                session.pop('current_database_path', None)
                 return jsonify({
                     "message": "Database dropped successfully",
                     "database_path": str(db_path)
                 })
             else:
-                return jsonify({"error": "No database found in the specified folder"}), 404
+                return jsonify({"error": "Database file does not exist"}), 404
             
         except Exception as e:
             return jsonify({"error": f"Failed to drop database: {str(e)}"}), 500

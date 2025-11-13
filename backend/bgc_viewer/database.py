@@ -70,64 +70,6 @@ def get_database_info(db_file_path):
         return {"error": f"Failed to read database: {str(e)}"}
 
 
-def check_database_exists(folder_path):
-    """Check if an SQLite database exists in the given folder."""
-    try:
-        resolved_path = Path(folder_path).resolve()
-        
-        if not resolved_path.exists() or not resolved_path.is_dir():
-            return False, None, {}
-        
-        # Check for attributes.db file
-        db_path = resolved_path / "attributes.db"
-        has_index = db_path.exists()
-        
-        # Count JSON files in the folder (recursively in subdirectories)
-        json_files = list(resolved_path.glob("**/*.json"))
-        json_count = len(json_files)
-        
-        result = {
-            "folder_path": str(resolved_path),
-            "has_index": has_index,
-            "database_path": str(db_path) if has_index else None,
-            "json_files_count": json_count,
-            "can_preprocess": json_count > 0
-        }
-        
-        # Get index stats
-        if has_index:
-            try:
-                conn = sqlite3.connect(db_path)
-                
-                # Count distinct files and total records from records table
-                cursor = conn.execute("SELECT COUNT(DISTINCT filename) FROM records")
-                indexed_files = cursor.fetchone()[0]
-                
-                cursor = conn.execute("SELECT COUNT(*) FROM records")
-                total_records = cursor.fetchone()[0]
-                
-                # Get version from metadata table
-                cursor = conn.execute("SELECT value FROM metadata WHERE key = 'version'")
-                version_row = cursor.fetchone()
-                db_version = version_row[0] if version_row else None
-                
-                conn.close()
-                
-                result["index_stats"] = {
-                    "indexed_files": indexed_files,
-                    "total_records": total_records
-                }
-                result["version"] = db_version
-            except Exception:
-                result["index_stats"] = None
-                result["version"] = None
-        
-        return has_index, str(db_path) if has_index else None, result
-        
-    except Exception:
-        return False, None, {}
-
-
 def get_database_entries(db_path, page=1, per_page=50, search=""):
     """Get paginated list of all file+record entries from the database."""
     per_page = min(per_page, 100)  # Max 100 per page
