@@ -53,49 +53,15 @@
       </div>
     </div>
 
-    <!-- Section 2: Preprocessing (only shown when a folder is selected for indexing) -->
-    <div v-if="selectedFolderForIndexing" class="preprocessing-section">
-      <h2>Create new index</h2>
-      <p class="section-description">
-        Creating index for: <strong>{{ selectedFolderForIndexing }}</strong>
-      </p>
-      
-      <PreprocessingStatus 
-        :folder-path="selectedFolderForIndexing"
-        :selected-files="selectedFiles"
-        :index-path="indexPath"
-        @preprocessing-completed="handlePreprocessingCompleted"
-        @preprocessing-started="isPreprocessingRunning = true"
-        @preprocessing-stopped="isPreprocessingRunning = false"
-        ref="preprocessingStatusRef"
-      />
-      
-      <div v-if="needsPreprocessing && !isPreprocessingRunning" class="index-location-section">
-        <h3>Index file location</h3>
-        <div class="index-location-row">
-          <label class="index-label">Index file path:</label>
-          <input 
-            v-model="indexPath" 
-            type="text" 
-            class="index-path-input"
-          />
-          <button @click="showIndexPathDialog" class="change-button">
-            Browse
-          </button>
-        </div>
-      </div>
-      
-      <div v-if="isLoadingFiles" class="loading-files">
-        <LoadingSpinner color="#1976d2" style="width: 32px; height: 32px; border-width: 3px;" />
-        <span class="loading-text">Loading file list...</span>
-      </div>
-      
-      <FileSelector 
-        v-if="needsPreprocessing && !isPreprocessingRunning"
-        :json-files="availableFiles"
-        @files-selected="handleFilesSelected"
-      />
-    </div>
+    <!-- Section 2: Index Creation (only shown when a folder is selected for indexing) -->
+    <IndexCreation
+      v-if="selectedFolderForIndexing"
+      :folder-path="selectedFolderForIndexing"
+      :available-files="availableFiles"
+      :is-loading-files="isLoadingFiles"
+      :needs-preprocessing="needsPreprocessing"
+      @preprocessing-completed="handlePreprocessingCompleted"
+    />
 
     <!-- Dialog for selecting existing index file -->
     <FolderSelectionDialog 
@@ -116,12 +82,6 @@
       @close="handleFolderDialogClose"
       @folder-selected="handleFolderToIndexSelected"
     />
-
-    <FolderSelectionDialog 
-      :show="showIndexPathDialogFlag"
-      @close="handleIndexPathDialogClose"
-      @folder-selected="handleIndexPathSelected"
-    />
   </section>
 </template>
 
@@ -129,17 +89,13 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import axios from 'axios'
 import FolderSelectionDialog from './FolderSelectionDialog.vue'
-import PreprocessingStatus from './PreprocessingStatus.vue'
-import FileSelector from './FileSelector.vue'
-import LoadingSpinner from './LoadingSpinner.vue'
+import IndexCreation from './IndexCreation.vue'
 
 export default {
   name: 'IndexSelection',
   components: {
     FolderSelectionDialog,
-    PreprocessingStatus,
-    FileSelector,
-    LoadingSpinner
+    IndexCreation
   },
   emits: ['folder-selected', 'folder-changed', 'index-changed'],
   setup(_, { emit }) {
@@ -153,12 +109,7 @@ export default {
     const selectedFolderForIndexing = ref('')
     const isLoadingFiles = ref(false)
     const availableFiles = ref([])
-    const selectedFiles = ref([])
-    const preprocessingStatusRef = ref(null)
-    const showIndexPathDialogFlag = ref(false)
-    const indexPath = ref('')
     const needsPreprocessing = ref(false)
-    const isPreprocessingRunning = ref(false)
     
     const STORAGE_KEY = 'bgc-viewer-last-index-path'
     
@@ -167,13 +118,6 @@ export default {
         return false
       }
       return indexVersion.value !== currentVersion.value
-    })
-    
-    const defaultIndexPath = computed(() => {
-      if (selectedFolderForIndexing.value) {
-        return `${selectedFolderForIndexing.value}/attributes.db`
-      }
-      return ''
     })
     
     // Watch for selected folder changes to reset file selector
@@ -185,9 +129,6 @@ export default {
         needsPreprocessing.value = false
         isLoadingFiles.value = false
         availableFiles.value = []
-        selectedFiles.value = []
-        // Set index path to default (data root + /attributes.db)
-        indexPath.value = defaultIndexPath.value
       }
     })
     
@@ -221,26 +162,6 @@ export default {
     
     const handleFolderDialogClose = () => {
       showFolderDialog.value = false
-    }
-    
-    const showIndexPathDialog = () => {
-      showIndexPathDialogFlag.value = true
-    }
-    
-    const handleIndexPathDialogClose = () => {
-      showIndexPathDialogFlag.value = false
-    }
-    
-    const handleIndexPathSelected = (folderData) => {
-      // Only accept folder selections for index path, not database files
-      if (!folderData.isDatabaseSelection) {
-        // Set the index path to the selected folder + /attributes.db
-        indexPath.value = `${folderData.folderPath}/attributes.db`
-        showIndexPathDialogFlag.value = false
-        console.log('Index path set to:', indexPath.value)
-      } else {
-        alert('Please select a folder for the index location, not a database file.')
-      }
     }
     
     const saveLastIndexPath = (indexPath) => {
@@ -351,11 +272,6 @@ export default {
       if (!folderData.isDatabaseSelection) {
         selectedFolderForIndexing.value = folderData.folderPath
         
-        // Set default index path
-        indexPath.value = `${folderData.folderPath}/attributes.db`
-        
-        // Don't save to localStorage yet - wait until index is created
-        
         const count = folderData.count
         
         if (count === 0) {
@@ -392,20 +308,10 @@ export default {
         showFolderDialog.value = false
       }
     }
-    
-
-    
-    const handlePreprocessingCompleted = async () => {
+    const handlePreprocessingCompleted = async (newIndexPath) => {
       // Clear file selection
       needsPreprocessing.value = false
-      selectedFiles.value = []
       availableFiles.value = []
-      
-      // Set current index path based on indexPath or default
-      const newIndexPath = indexPath.value || `${selectedFolderForIndexing.value}/attributes.db`
-      
-      // Update current folder path
-      const newDataRoot = selectedFolderForIndexing.value
       
       try {
         // Select the newly created database via the API
@@ -441,16 +347,6 @@ export default {
       }
     }
     
-    const handleFilesSelected = (files) => {
-      selectedFiles.value = files
-      
-      // Trigger preprocessing with selected files
-      if (preprocessingStatusRef.value) {
-        const filePaths = files.map(f => f.path)
-        preprocessingStatusRef.value.startPreprocessing(filePaths)
-      }
-    }
-    
     const confirmRegenerateIndex = async () => {
       const confirmed = window.confirm(
         'Are you sure you want to regenerate the index?\n\n' +
@@ -467,9 +363,6 @@ export default {
           
           // Move current folder to preprocessing section
           selectedFolderForIndexing.value = currentFolderPath.value
-          
-          // Set default index path for regeneration (use current index path if it exists in the data root)
-          indexPath.value = currentIndexPath.value || `${currentFolderPath.value}/attributes.db`
           
           // Clear current index section
           currentIndexPath.value = ''
@@ -521,7 +414,6 @@ export default {
       indexVersion,
       currentVersion,
       showVersionMismatch,
-      defaultIndexPath,
       showIndexDialog,
       showFolderDialog,
       selectedFolderForIndexing,
@@ -533,19 +425,10 @@ export default {
       handleIndexFileSelected,
       handleFolderToIndexSelected,
       handlePreprocessingCompleted,
-      handleFilesSelected,
       confirmRegenerateIndex,
       isLoadingFiles,
       availableFiles,
-      selectedFiles,
-      preprocessingStatusRef,
-      showIndexPathDialogFlag,
-      indexPath,
-      showIndexPathDialog,
-      handleIndexPathDialogClose,
-      handleIndexPathSelected,
-      needsPreprocessing,
-      isPreprocessingRunning
+      needsPreprocessing
     }
   }
 }
@@ -644,26 +527,6 @@ export default {
   margin-left: 8px;
 }
 
-/* Preprocessing Section */
-.preprocessing-section {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  padding: 20px;
-}
-
-.preprocessing-section h2 {
-  margin-top: 0;
-  margin-bottom: 10px;
-  color: #495057;
-}
-
-.section-description {
-  color: #6c757d;
-  font-size: 14px;
-  margin-bottom: 15px;
-}
-
 /* Buttons */
 .browse-button {
   background: #1976d2;
@@ -685,83 +548,6 @@ export default {
 }
 
 .browse-button-secondary:hover {
-  background: #5a6268;
-}
-
-/* Loading Files */
-.loading-files {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 20px;
-  background: white;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  margin-top: 20px;
-}
-
-.loading-text {
-  color: #495057;
-  font-size: 14px;
-}
-
-/* Index Location Section */
-.index-location-section {
-  margin-top: 20px;
-  padding: 15px;
-  background: white;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-}
-
-.index-location-section h3 {
-  margin-top: 0;
-  margin-bottom: 15px;
-  color: #495057;
-  font-size: 16px;
-}
-
-.index-location-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.index-label {
-  font-weight: 500;
-  color: #495057;
-  min-width: 120px;
-  font-size: 14px;
-}
-
-.index-path-input {
-  flex: 1;
-  padding: 6px 10px;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  font-size: 13px;
-  font-family: monospace;
-}
-
-.index-path-input:focus {
-  outline: none;
-  border-color: #1976d2;
-  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
-}
-
-.change-button {
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  white-space: nowrap;
-  transition: background 0.2s;
-}
-
-.change-button:hover {
   background: #5a6268;
 }
 </style>
