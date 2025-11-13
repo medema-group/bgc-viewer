@@ -65,10 +65,12 @@
         :selected-files="selectedFiles"
         :index-path="indexPath"
         @preprocessing-completed="handlePreprocessingCompleted"
+        @preprocessing-started="isPreprocessingRunning = true"
+        @preprocessing-stopped="isPreprocessingRunning = false"
         ref="preprocessingStatusRef"
       />
       
-      <div v-if="needsPreprocessing" class="index-location-section">
+      <div v-if="needsPreprocessing && !isPreprocessingRunning" class="index-location-section">
         <h3>Index file location</h3>
         <div class="index-location-row">
           <label class="index-label">Index file path:</label>
@@ -90,7 +92,7 @@
       </div>
       
       <FileSelector 
-        v-if="needsPreprocessing"
+        v-if="needsPreprocessing && !isPreprocessingRunning"
         :json-files="availableFiles"
         @files-selected="handleFilesSelected"
       />
@@ -158,6 +160,7 @@ export default {
     const showIndexPathDialogFlag = ref(false)
     const indexPath = ref('')
     const needsPreprocessing = ref(false)
+    const isPreprocessingRunning = ref(false)
     
     const STORAGE_KEY = 'bgc-viewer-last-index-path'
     
@@ -533,7 +536,8 @@ export default {
       showIndexPathDialog,
       handleIndexPathDialogClose,
       handleIndexPathSelected,
-      needsPreprocessing
+      needsPreprocessing,
+      isPreprocessingRunning
     }
   }
 }

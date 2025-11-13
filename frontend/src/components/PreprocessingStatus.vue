@@ -78,7 +78,7 @@ export default {
       default: null
     }
   },
-  emits: ['preprocessing-completed'],
+  emits: ['preprocessing-completed', 'preprocessing-started', 'preprocessing-stopped'],
   setup(props, { emit }) {
     const showStatus = ref(false)
     const progress = ref({
@@ -125,6 +125,9 @@ export default {
         
         await axios.post('/api/preprocess-folder', requestData)
         
+        // Emit that preprocessing has started
+        emit('preprocessing-started')
+        
         // Start polling for status updates
         startStatusPolling()
         
@@ -146,6 +149,9 @@ export default {
           if (!response.data.is_running) {
             clearInterval(statusInterval)
             statusInterval = null
+            
+            // Emit that preprocessing has stopped
+            emit('preprocessing-stopped')
             
             if (response.data.status === 'completed') {
               // Emit completion event
