@@ -614,7 +614,11 @@ if not PUBLIC_MODE:
 if not PUBLIC_MODE:
     @app.route('/api/select-database', methods=['POST'])
     def select_database():
-        """Select a database file and extract its data_root from metadata."""
+        """Select a database file and extract its data_root from metadata.
+        
+        This endpoint sets the database path in the session and returns metadata
+        including data_root, index statistics, and version information.
+        """
         data = request.get_json()
         db_file_path = data.get('path')
         
@@ -635,41 +639,9 @@ if not PUBLIC_MODE:
             "message": "Database selected successfully",
             "database_path": result["database_path"],
             "data_root": result["data_root"],
-            "index_stats": result["index_stats"]
+            "index_stats": result["index_stats"],
+            "version": result.get("version", "")
         })
-
-if not PUBLIC_MODE:
-    @app.route('/api/set-data-root', methods=['POST'])
-    def set_data_root():
-        """Set the data root path and corresponding database for queries."""
-        data = request.get_json()
-        folder_path = data.get('path')
-        
-        if not folder_path:
-            return jsonify({"error": "No folder path provided"}), 400
-        
-        try:
-            resolved_path = Path(folder_path).resolve()
-            
-            if not resolved_path.exists() or not resolved_path.is_dir():
-                return jsonify({"error": "Invalid folder path"}), 400
-            
-            # Check for attributes.db file
-            db_path = resolved_path / "attributes.db"
-            
-            if not db_path.exists():
-                return jsonify({"error": "No database found in the specified folder"}), 404
-            
-            # Store database path in session
-            session['current_database_path'] = str(db_path)
-            
-            return jsonify({
-                "message": "Data root set successfully",
-                "database_path": str(db_path)
-            })
-            
-        except Exception as e:
-            return jsonify({"error": f"Failed to set data root: {str(e)}"}), 500
 
 @app.route('/api/database-entries')
 def get_database_entries_endpoint():

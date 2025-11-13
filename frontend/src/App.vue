@@ -17,6 +17,7 @@
       <RecordListSelector 
         ref="recordListSelectorRef"
         :data-root="selectedDataRoot"
+        :index-path="selectedIndexPath"
         @record-loaded="handleRecordLoaded" 
       />
 
@@ -62,8 +63,9 @@ export default {
     // Mode information
     const isPublicMode = ref(true) // Default to true for safety
     
-    // Data root tracking
+    // Data root and index tracking
     const selectedDataRoot = ref('')
+    const selectedIndexPath = ref('')
     
     const handleFolderSelected = async (folderPath) => {
       // Update the selected data root
@@ -79,9 +81,9 @@ export default {
       selectedDataRoot.value = folderPath
     }
 
-    const handleIndexChanged = async (folderPath) => {
-      // Update the data root to ensure it's in sync
-      selectedDataRoot.value = folderPath
+    const handleIndexChanged = async (indexPath) => {
+      // Store the index file path (not data root)
+      selectedIndexPath.value = indexPath
       // Refresh the record list when index has changed
       if (recordListSelectorRef.value) {
         await recordListSelectorRef.value.refreshEntries()
@@ -131,6 +133,7 @@ export default {
       appName,
       isPublicMode,
       selectedDataRoot,
+      selectedIndexPath,
       handleFolderSelected,
       handleFolderChanged,
       handleIndexChanged,

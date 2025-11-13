@@ -159,7 +159,7 @@ export default {
     const indexPath = ref('')
     const needsPreprocessing = ref(false)
     
-    const STORAGE_KEY = 'bgc-viewer-last-folder'
+    const STORAGE_KEY = 'bgc-viewer-last-index-path'
     
     const showVersionMismatch = computed(() => {
       if (!indexVersion.value || !currentVersion.value) {
@@ -253,75 +253,82 @@ export default {
       }
     }
     
-    const saveLastFolder = (folderPath) => {
+    const saveLastIndexPath = (indexPath) => {
       try {
-        localStorage.setItem(STORAGE_KEY, folderPath)
-        console.log('Saved folder to localStorage:', folderPath)
+        localStorage.setItem(STORAGE_KEY, indexPath)
+        console.log('Saved index path to localStorage:', indexPath)
       } catch (error) {
-        console.warn('Failed to save last folder to localStorage:', error)
+        console.warn('Failed to save last index path to localStorage:', error)
       }
     }
     
-    const loadLastFolder = () => {
+    const loadLastIndexPath = () => {
       try {
-        const savedFolder = localStorage.getItem(STORAGE_KEY)
-        console.log('Loaded folder from localStorage:', savedFolder)
-        return savedFolder
+        const savedIndexPath = localStorage.getItem(STORAGE_KEY)
+        console.log('Loaded index path from localStorage:', savedIndexPath)
+        return savedIndexPath
       } catch (error) {
-        console.warn('Failed to load last folder from localStorage:', error)
+        console.warn('Failed to load last index path from localStorage:', error)
         return null
       }
     }
     
-    const tryDefaultFolder = async () => {
-      // First try to use the last remembered folder
-      const lastFolder = loadLastFolder()
-      if (lastFolder) {
+    const tryDefaultIndexPath = async () => {
+      // First try to use the last remembered index path
+      const lastIndexPath = loadLastIndexPath()
+      if (lastIndexPath) {
         try {
-          const lastFolderResponse = await axios.post('/api/scan-folder', {
-            path: lastFolder
+          const response = await axios.post('/api/select-database', {
+            path: lastIndexPath
           })
           
-          if (lastFolderResponse.data.folder_path) {
-            currentFolderPath.value = lastFolderResponse.data.folder_path
+          if (response.data.database_path) {
+            currentIndexPath.value = response.data.database_path
+            currentFolderPath.value = response.data.data_root
+            indexStats.value = response.data.index_stats
+            indexVersion.value = response.data.version || ''
             folderRestoredFromMemory.value = true
-            // Fetch index information
-            await fetchIndexInfo(lastFolderResponse.data.folder_path)
-            // Emit folder change event first
-            emit('folder-changed', lastFolderResponse.data.folder_path)
-            emit('folder-selected', lastFolderResponse.data.folder_path)
-            console.log('Restored last used folder:', lastFolder)
+            
+            // Emit events
+            emit('folder-changed', currentFolderPath.value)
+            emit('folder-selected', currentFolderPath.value)
+            emit('index-changed', currentIndexPath.value)
+            
+            console.log('Restored last used index path:', lastIndexPath)
             return // Successfully restored, no need to try default
           }
-        } catch (lastFolderError) {
-          console.warn('Failed to restore last used folder:', lastFolderError.message)
+        } catch (lastIndexError) {
+          console.warn('Failed to restore last used index path:', lastIndexError.message)
         }
       }
       
-      // If no saved folder or saved folder failed, try the default data directory
+      // If no saved index or saved index failed, try the default location
       try {
-        const dataDir = '../data'
-        const scanResponse = await axios.post('/api/scan-folder', {
-          path: dataDir
+        const defaultIndexPath = '../data/attributes.db'
+        const response = await axios.post('/api/select-database', {
+          path: defaultIndexPath
         })
         
-        if (scanResponse.data.folder_path) {
-          currentFolderPath.value = scanResponse.data.folder_path
+        if (response.data.database_path) {
+          currentIndexPath.value = response.data.database_path
+          currentFolderPath.value = response.data.data_root
+          indexStats.value = response.data.index_stats
+          indexVersion.value = response.data.version || ''
           folderRestoredFromMemory.value = false
-          // Fetch index information
-          await fetchIndexInfo(scanResponse.data.folder_path)
-          // Save the default folder for next time
-          saveLastFolder(scanResponse.data.folder_path)
-          // Emit folder change event first
-          emit('folder-changed', scanResponse.data.folder_path)
-          // Emit folder selection for default data directory
-          emit('folder-selected', scanResponse.data.folder_path)
-          console.log('Using default data directory:', dataDir)
+          
+          // Save the default index path for next time
+          saveLastIndexPath(response.data.database_path)
+          
+          // Emit events
+          emit('folder-changed', currentFolderPath.value)
+          emit('folder-selected', currentFolderPath.value)
+          emit('index-changed', currentIndexPath.value)
+          
+          console.log('Using default index path:', defaultIndexPath)
         }
-        
-      } catch (scanError) {
-        console.warn('Failed to scan default data directory:', scanError.message)
-        console.log('No folder selected - user will need to select one manually')
+      } catch (defaultError) {
+        console.warn('Failed to load default index:', defaultError.message)
+        console.log('No index selected - user will need to select one manually')
       }
     }
     
@@ -335,8 +342,8 @@ export default {
         // Extract data root from the database
         currentFolderPath.value = folderData.dataRoot || folderData.folderPath
         
-        // Save the selected folder for next time
-        saveLastFolder(currentFolderPath.value)
+        // Save the selected index path for next time
+        saveLastIndexPath(currentIndexPath.value)
         
         // Clear preprocessing section
         selectedFolderForIndexing.value = ''
@@ -357,8 +364,7 @@ export default {
         selectedFolderForIndexing.value = folderData.folderPath
         folderRestoredFromMemory.value = false
         
-        // Save the selected folder for next time
-        saveLastFolder(folderData.folderPath)
+        // Don't save to localStorage yet - wait until index is created
         
         const count = folderData.count
         
@@ -417,6 +423,9 @@ export default {
       
       // Fetch index information
       await fetchIndexInfo(selectedFolderForIndexing.value)
+      
+      // Save the new index path for next time
+      saveLastIndexPath(currentIndexPath.value)
       
       // Clear preprocessing section
       selectedFolderForIndexing.value = ''
@@ -491,10 +500,10 @@ export default {
       }
     }
     
-    // Try to load default folder on component mount
+    // Try to load default index path on component mount
     onMounted(() => {
       fetchVersion()
-      tryDefaultFolder()
+      tryDefaultIndexPath()
     })
     
     return {

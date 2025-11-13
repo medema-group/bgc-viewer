@@ -118,11 +118,15 @@ export default {
     dataRoot: {
       type: String,
       default: ''
+    },
+    indexPath: {
+      type: String,
+      default: ''
     }
   },
   emits: ['record-loaded'],
   setup(props, { emit }) {
-    const { dataRoot } = toRefs(props)
+    const { dataRoot, indexPath } = toRefs(props)
     
     const entriesData = ref([])
     const loading = ref(false)
@@ -229,16 +233,16 @@ export default {
       loadEntries(1, '')
     }
     
-    const setDataRoot = async (folderPath) => {
-      if (!folderPath) return
+    const setDatabasePath = async (databasePath) => {
+      if (!databasePath) return
       
       try {
-        await axios.post('/api/set-data-root', {
-          path: folderPath
+        await axios.post('/api/select-database', {
+          path: databasePath
         })
-        console.log('Data root set to:', folderPath)
+        console.log('Database path set to:', databasePath)
       } catch (err) {
-        console.warn('Failed to set data root:', err.response?.data?.error || err.message)
+        console.warn('Failed to set database path:', err.response?.data?.error || err.message)
       }
     }
     
@@ -257,22 +261,22 @@ export default {
       hasDatabase.value = false
     }
     
-    // Watch for data root changes
-    watch(dataRoot, async (newFolder, oldFolder) => {
-      if (newFolder) {
-        await setDataRoot(newFolder)
-        // Reload entries after setting the data root
+    // Watch for index path changes - this is the primary path to the database file
+    watch(indexPath, async (newPath, oldPath) => {
+      if (newPath) {
+        await setDatabasePath(newPath)
+        // Reload entries after setting the database path
         await loadEntries(1, '')
       } else {
-        // Clear records if folder is cleared
+        // Clear records if path is cleared
         clearRecords()
       }
     }, { immediate: true })
     
     onMounted(async () => {
-      // If we already have a data root, set it and load entries
-      if (dataRoot.value) {
-        await setDataRoot(dataRoot.value)
+      // Only use indexPath - it should always point to a database file
+      if (indexPath.value) {
+        await setDatabasePath(indexPath.value)
         await loadEntries()
       } else {
         await loadEntries()
