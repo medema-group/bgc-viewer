@@ -55,7 +55,7 @@
 
     <!-- Section 2: Preprocessing (only shown when a folder is selected for indexing) -->
     <div v-if="selectedFolderForIndexing" class="preprocessing-section">
-      <h2>Create New Index</h2>
+      <h2>Create new index</h2>
       <p class="section-description">
         Creating index for: <strong>{{ selectedFolderForIndexing }}</strong>
       </p>
@@ -170,7 +170,9 @@ export default {
     
     // Watch for selected folder changes to reset file selector
     watch(selectedFolderForIndexing, (newValue, oldValue) => {
-      if (newValue !== oldValue) {
+      // Only reset if we're clearing the folder or switching from one folder to another
+      // Don't reset when initially setting a folder (oldValue is empty)
+      if (newValue !== oldValue && oldValue !== '') {
         // Hide file selector when folder changes
         needsPreprocessing.value = false
         isLoadingFiles.value = false
@@ -412,28 +414,51 @@ export default {
       availableFiles.value = []
       
       // Set current index path based on indexPath or default
-      if (indexPath.value) {
-        currentIndexPath.value = indexPath.value
-      } else {
-        currentIndexPath.value = `${selectedFolderForIndexing.value}/attributes.db`
-      }
+      const newIndexPath = indexPath.value || `${selectedFolderForIndexing.value}/attributes.db`
       
       // Update current folder path
-      currentFolderPath.value = selectedFolderForIndexing.value
+      const newDataRoot = selectedFolderForIndexing.value
       
-      // Fetch index information
-      await fetchIndexInfo(selectedFolderForIndexing.value)
-      
-      // Save the new index path for next time
-      saveLastIndexPath(currentIndexPath.value)
-      
-      // Clear preprocessing section
-      selectedFolderForIndexing.value = ''
-      
-      // Emit event that index has changed after preprocessing
-      emit('folder-changed', currentFolderPath.value)
-      emit('folder-selected', currentFolderPath.value)
-      emit('index-changed', currentIndexPath.value)
+      try {
+        // Select the newly created database via the API
+        const response = await axios.post('/api/select-database', {
+          path: newIndexPath
+        })
+        
+        if (response.data.database_path) {
+          currentIndexPath.value = response.data.database_path
+          currentFolderPath.value = response.data.data_root
+          indexStats.value = response.data.index_stats
+          indexVersion.value = response.data.version || ''
+          
+          // Save the new index path for next time
+          saveLastIndexPath(currentIndexPath.value)
+          
+          // Clear preprocessing section
+          selectedFolderForIndexing.value = ''
+          
+          // Emit events that index has changed after preprocessing
+          emit('folder-changed', currentFolderPath.value)
+          emit('folder-selected', currentFolderPath.value)
+          emit('index-changed', currentIndexPath.value)
+        } else {
+          throw new Error('No database path returned from server')
+        }
+      } catch (error) {
+        console.error('Failed to select database after preprocessing:', error)
+        alert(`Failed to activate new database: ${error.response?.data?.error || error.message}`)
+        
+        // Still try to update local state as fallback
+        currentIndexPath.value = newIndexPath
+        currentFolderPath.value = newDataRoot
+        await fetchIndexInfo(newDataRoot)
+        saveLastIndexPath(currentIndexPath.value)
+        selectedFolderForIndexing.value = ''
+        
+        emit('folder-changed', currentFolderPath.value)
+        emit('folder-selected', currentFolderPath.value)
+        emit('index-changed', currentIndexPath.value)
+      }
     }
     
     const handleFilesSelected = (files) => {
