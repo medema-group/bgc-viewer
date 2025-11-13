@@ -134,7 +134,7 @@ import FileSelector from './FileSelector.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 
 export default {
-  name: 'FolderSelector',
+  name: 'IndexSelection',
   components: {
     FolderSelectionDialog,
     PreprocessingStatus,

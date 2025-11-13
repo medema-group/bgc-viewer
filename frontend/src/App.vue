@@ -5,8 +5,8 @@
     </header>
 
     <main>
-      <!-- Folder Selector Section - Only shown in local mode -->
-      <FolderSelector 
+      <!-- Index Selection Section - Only shown in local mode -->
+      <IndexSelection 
         v-if="!isPublicMode"
         @folder-selected="handleFolderSelected"
         @folder-changed="handleFolderChanged"
@@ -42,14 +42,14 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import RegionViewerComponent from './components/RegionViewer.vue'
-import FolderSelector from './components/FolderSelector.vue'
+import IndexSelection from './components/IndexSelection.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
 
 export default {
   name: 'App',
   components: {
     RegionViewerComponent,
-    FolderSelector,
+    IndexSelection,
     RecordListSelector
   },
   setup() {
