@@ -151,7 +151,6 @@ export default {
     const showIndexDialog = ref(false)
     const showFolderDialog = ref(false)
     const selectedFolderForIndexing = ref('')
-    const folderRestoredFromMemory = ref(false)
     const isLoadingFiles = ref(false)
     const availableFiles = ref([])
     const selectedFiles = ref([])
@@ -278,7 +277,6 @@ export default {
             currentFolderPath.value = response.data.data_root
             indexStats.value = response.data.index_stats
             indexVersion.value = response.data.version || ''
-            folderRestoredFromMemory.value = true
             
             // Emit events
             emit('folder-changed', currentFolderPath.value)
@@ -305,7 +303,6 @@ export default {
           currentFolderPath.value = response.data.data_root
           indexStats.value = response.data.index_stats
           indexVersion.value = response.data.version || ''
-          folderRestoredFromMemory.value = false
           
           // Save the default index path for next time
           saveLastIndexPath(response.data.database_path)
@@ -353,7 +350,6 @@ export default {
       // This handles selecting a folder to create a new index
       if (!folderData.isDatabaseSelection) {
         selectedFolderForIndexing.value = folderData.folderPath
-        folderRestoredFromMemory.value = false
         
         // Set default index path
         indexPath.value = `${folderData.folderPath}/attributes.db`
@@ -529,7 +525,6 @@ export default {
       showIndexDialog,
       showFolderDialog,
       selectedFolderForIndexing,
-      folderRestoredFromMemory,
       getIndexDirectory,
       showSelectIndexDialog,
       handleIndexDialogClose,

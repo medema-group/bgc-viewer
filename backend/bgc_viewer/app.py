@@ -119,16 +119,17 @@ if PUBLIC_MODE:
             f"PUBLIC_MODE is enabled but BGCV_DATABASE_PATH is not a file: {PUBLIC_DATABASE_PATH}"
         )
 
-# Global variables for preprocessing status (only used in LOCAL_MODE)
-PREPROCESSING_STATUS = {
-    'is_running': False,
-    'current_file': None,
-    'files_processed': 0,
-    'total_files': 0,
-    'status': 'idle',  # 'idle', 'running', 'completed', 'error'
-    'error_message': None,
-    'folder_path': None
-}
+# Preprocessing status tracking (only used in LOCAL_MODE)
+if not PUBLIC_MODE:
+    PREPROCESSING_STATUS = {
+        'is_running': False,
+        'current_file': None,
+        'files_processed': 0,
+        'total_files': 0,
+        'status': 'idle',  # 'idle', 'running', 'completed', 'error'
+        'error_message': None,
+        'folder_path': None
+    }
 
 # LRU cache for loaded AntiSMASH data to support multiple users efficiently
 @lru_cache(maxsize=100)
@@ -159,8 +160,7 @@ def get_current_entry_data():
     Get the currently loaded AntiSMASH data for the current session.
     
     Returns:
-        Tuple of (data, data_dir) or (None, None) if no data loaded
-        Note: db_folder is no longer returned as it's not needed (data_root is used instead)
+        Tuple of (data, data_root) or (None, None) if no data loaded
     """
     entry_id = session.get('loaded_entry_id')
     if not entry_id:
@@ -181,8 +181,8 @@ def get_current_entry_data():
         db_info = get_database_info(str(db_path))
         if "error" in db_info:
             return None, None
-        data_dir = db_info.get('data_root')
-        if not data_dir:
+        data_root = db_info.get('data_root')
+        if not data_root:
             # data_root is required
             return None, None
     except Exception:
@@ -191,8 +191,8 @@ def get_current_entry_data():
     
     # Load from cache (using db_path as part of cache key)
     try:
-        data = load_cached_entry(entry_id, str(db_path), data_dir)
-        return data, data_dir
+        data = load_cached_entry(entry_id, str(db_path), data_root)
+        return data, data_root
     except Exception:
         return None, None
 
@@ -227,27 +227,27 @@ def spa_fallback(path):
 def get_status():
     """API endpoint to get current file and data loading status."""
     # Determine the current data directory
-    current_data_dir = None
+    current_data_root = None
     
     if PUBLIC_MODE:
         # In public mode, read data_root from database metadata
         db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
         if "error" not in db_info:
-            current_data_dir = db_info.get('data_root')
+            current_data_root = db_info.get('data_root')
     else:
         # In local mode, check session database path
         db_path = session.get('current_database_path')
         if db_path:
             db_info = get_database_info(db_path)
             if "error" not in db_info:
-                current_data_dir = db_info.get('data_root')
+                current_data_root = db_info.get('data_root')
     
     # Check if this session has loaded data
     has_loaded_data = session.get('loaded_entry_id') is not None
     
     return jsonify({
         "has_loaded_data": has_loaded_data,
-        "current_data_directory": current_data_dir,
+        "current_data_directory": current_data_root,
         "public_mode": PUBLIC_MODE
     })
 
@@ -410,9 +410,9 @@ def load_database_entry():
             else:
                 return jsonify({"error": f"Failed to read database metadata: {db_info.get('error')}"}), 500
         except Exception as e:
-            return jsonify({"error": f"Failed to read database metadata: {str(e)}"}), 500
+            return jsonify({"error": f"Invalid data_root in database metadata: {str(e)}"}), 500
         
-        data_dir = data_root
+        data_root = data_root
         file_path = Path(data_root) / filename
         
         # In public mode, ensure file is within the data root folder (security check)
@@ -426,7 +426,7 @@ def load_database_entry():
             return jsonify({"error": f"File {filename} not found in database folder"}), 404
         
         # Load the specific record
-        modified_data = load_specific_record(str(file_path), record_id, data_dir)
+        modified_data = load_specific_record(str(file_path), record_id, data_root)
         
         if not modified_data:
             return jsonify({"error": f"Record {record_id} not found in {filename}"}), 404
@@ -439,7 +439,7 @@ def load_database_entry():
         }
         
         # Pre-cache the data for this session (using db_path as part of cache key)
-        load_cached_entry(entry_id, str(db_path), data_dir)
+        load_cached_entry(entry_id, str(db_path), data_root)
         
         # Get the loaded record info
         loaded_record = modified_data["records"][0] if modified_data["records"] else {}
@@ -464,7 +464,7 @@ def load_database_entry():
 def get_record_regions(record_id):
     """API endpoint to get all regions for a specific record."""
     # Get data from session cache
-    antismash_data, data_dir = get_current_entry_data()
+    antismash_data, data_root = get_current_entry_data()
     
     if not antismash_data:
         return jsonify({"error": "No data loaded. Please load an entry first."}), 404
@@ -500,7 +500,7 @@ def get_record_regions(record_id):
 def get_region_features(record_id, region_id):
     """API endpoint to get all features within a specific region."""
     # Get data from session cache
-    antismash_data, data_dir = get_current_entry_data()
+    antismash_data, data_root = get_current_entry_data()
     
     if not antismash_data:
         return jsonify({"error": "No data loaded. Please load an entry first."}), 404
@@ -563,7 +563,7 @@ def get_region_features(record_id, region_id):
 def get_record_features(record_id):
     """API endpoint to get all features for a specific record."""
     # Get data from session cache
-    antismash_data, data_dir = get_current_entry_data()
+    antismash_data, data_root = get_current_entry_data()
     
     if not antismash_data:
         return jsonify({"error": "No data loaded. Please load an entry first."}), 404
