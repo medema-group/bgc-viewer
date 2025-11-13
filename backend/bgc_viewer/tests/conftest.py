@@ -139,6 +139,7 @@ def processed_data_dir(temp_dir, sample_json_file):
     from bgc_viewer.preprocessing import preprocess_antismash_files
     
     # Run preprocessing to create the index
-    result = preprocess_antismash_files(str(temp_dir))
+    index_path = str(temp_dir / "attributes.db")
+    result = preprocess_antismash_files(str(temp_dir), index_path)
     
     return temp_dir, result

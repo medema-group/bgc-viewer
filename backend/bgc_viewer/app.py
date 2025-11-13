@@ -693,10 +693,13 @@ if not PUBLIC_MODE:
         data = request.get_json()
         folder_path = data.get('path')
         selected_files = data.get('files')  # Optional list of file paths
-        index_path = data.get('index_path')  # Optional custom index file path
+        index_path = data.get('index_path')  # Required index file path
         
         if not folder_path:
             return jsonify({"error": "No folder path provided"}), 400
+        
+        if not index_path:
+            return jsonify({"error": "No index path provided"}), 400
         
         try:
             resolved_path = Path(folder_path).resolve()
@@ -704,16 +707,14 @@ if not PUBLIC_MODE:
             if not resolved_path.exists() or not resolved_path.is_dir():
                 return jsonify({"error": "Invalid folder path"}), 400
             
-            # Validate index path if provided
-            resolved_index_path = None
-            if index_path:
-                resolved_index_path = Path(index_path).resolve()
-                # Ensure parent directory exists
-                if not resolved_index_path.parent.exists():
-                    try:
-                        resolved_index_path.parent.mkdir(parents=True, exist_ok=True)
-                    except Exception as e:
-                        return jsonify({"error": f"Failed to create index directory: {str(e)}"}), 400
+            # Validate and prepare index path
+            resolved_index_path = Path(index_path).resolve()
+            # Ensure parent directory exists
+            if not resolved_index_path.parent.exists():
+                try:
+                    resolved_index_path.parent.mkdir(parents=True, exist_ok=True)
+                except Exception as e:
+                    return jsonify({"error": f"Failed to create index directory: {str(e)}"}), 400
             
             # Determine which files to process
             json_files_to_process = None
@@ -746,7 +747,7 @@ if not PUBLIC_MODE:
             # Start preprocessing in background thread
             thread = threading.Thread(
                 target=run_preprocessing, 
-                args=(str(resolved_path), json_files_to_process, str(resolved_index_path) if resolved_index_path else None)
+                args=(str(resolved_path), str(resolved_index_path), json_files_to_process)
             )
             thread.daemon = True
             thread.start()
@@ -766,13 +767,13 @@ def get_preprocessing_status():
     """Get the current preprocessing status."""
     return jsonify(PREPROCESSING_STATUS)
 
-def run_preprocessing(folder_path, json_files=None, index_path=None):
+def run_preprocessing(folder_path, index_path, json_files=None):
     """Run the preprocessing function in a background thread.
     
     Args:
         folder_path: Path to the folder to preprocess
+        index_path: Full path to the index database file
         json_files: Optional list of specific JSON file paths to process
-        index_path: Optional full path to the index database file
     """
     global PREPROCESSING_STATUS
     
@@ -787,10 +788,10 @@ def run_preprocessing(folder_path, json_files=None, index_path=None):
     try:
         # Run the preprocessing function
         results = preprocess_antismash_files(
-            folder_path, 
-            progress_callback, 
-            json_files,
-            index_path
+            folder_path,
+            index_path,
+            progress_callback,
+            json_files
         )
         
         # Update status on completion

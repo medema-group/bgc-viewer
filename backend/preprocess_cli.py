@@ -32,6 +32,11 @@ def main():
         help="Directory containing AntiSMASH JSON files"
     )
     parser.add_argument(
+        "-o", "--output",
+        dest="index_path",
+        help="Path to the output index database file (default: <input_directory>/attributes.db)"
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable verbose output"
@@ -49,8 +54,14 @@ def main():
         print(f"Error: '{args.input_directory}' is not a directory")
         sys.exit(1)
     
+    # Determine index path
+    if args.index_path:
+        index_path = Path(args.index_path)
+    else:
+        index_path = input_path / 'attributes.db'
+    
     print(f"Processing files in: {input_path}")
-    print(f"Database will be created at: {input_path / 'attributes.db'}")
+    print(f"Database will be created at: {index_path}")
     print("-" * 50)
     
     # Progress callback for verbose output
@@ -62,7 +73,11 @@ def main():
     
     try:
         # Run the preprocessing
-        results = preprocess_antismash_files(args.input_directory, progress_callback)
+        results = preprocess_antismash_files(
+            args.input_directory,
+            str(index_path),
+            progress_callback
+        )
         
         # Print results
         print(f"\nProcessing completed!")

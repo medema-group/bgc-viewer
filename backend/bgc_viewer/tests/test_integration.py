@@ -21,7 +21,8 @@ class TestFullSystemIntegration:
             json.dump(sample_antismash_data, f, indent=2)
         
         # 2. Run preprocessing
-        result = preprocess_antismash_files(str(temp_dir))
+        index_path = str(temp_dir / "attributes.db")
+        result = preprocess_antismash_files(str(temp_dir), index_path)
         
         # Verify preprocessing results
         assert result['files_processed'] == 1
@@ -74,7 +75,8 @@ class TestFullSystemIntegration:
             created_files.append(file_path)
         
         # Run preprocessing
-        result = preprocess_antismash_files(str(temp_dir))
+        index_path = str(temp_dir / "attributes.db")
+        result = preprocess_antismash_files(str(temp_dir), index_path)
         
         # Should process both files
         assert result['files_processed'] == 2
@@ -110,7 +112,8 @@ class TestFullSystemIntegration:
             })
         
         # Run preprocessing with callback
-        result = preprocess_antismash_files(str(temp_dir), progress_callback)
+        index_path = str(temp_dir / "attributes.db")
+        result = preprocess_antismash_files(str(temp_dir), index_path, progress_callback)
         
         # Verify progress tracking
         assert len(progress_updates) > 0
@@ -129,7 +132,8 @@ class TestFullSystemIntegration:
             f.write('{"invalid": json content}')  # Invalid JSON
         
         # Preprocessing should handle this gracefully
-        result = preprocess_antismash_files(str(temp_dir))
+        index_path = str(temp_dir / "attributes.db")
+        result = preprocess_antismash_files(str(temp_dir), index_path)
         
         # Should report the error but not crash
         assert "files_processed" in result
@@ -139,7 +143,8 @@ class TestFullSystemIntegration:
         """Test processing an empty directory."""
         
         # Run preprocessing on empty directory
-        result = preprocess_antismash_files(str(temp_dir))
+        index_path = str(temp_dir / "attributes.db")
+        result = preprocess_antismash_files(str(temp_dir), index_path)
         
         # Should complete without errors
         assert result['files_processed'] == 0
@@ -194,7 +199,8 @@ class TestPerformanceAndScalability:
             json.dump(test_data, f, indent=2)
         
         # Process and verify
-        result = preprocess_antismash_files(str(temp_dir))
+        index_path = str(temp_dir / "attributes.db")
+        result = preprocess_antismash_files(str(temp_dir), index_path)
         assert result['files_processed'] == 1
         assert result['total_records'] == 1
         # We only extract attributes from annotations and source features, not all CDS features

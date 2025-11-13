@@ -276,36 +276,32 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
 
 
 def preprocess_antismash_files(
-    input_directory: str, 
+    input_directory: str,
+    index_path: str,
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
-    json_files: Optional[List[Path]] = None,
-    index_path: Optional[str] = None
+    json_files: Optional[List[Path]] = None
 ) -> Dict[str, Any]:
     """
     Preprocess antiSMASH JSON files and store attributes in SQLite database.
     
     Args:
         input_directory: Directory containing JSON files to process
+        index_path: Full path to the index database file
         progress_callback: Optional callback function called with (current_file, files_processed, total_files)
         json_files: Optional list of specific JSON file paths to process. If None, all files in directory are processed.
-        index_path: Optional full path to the index database file. If None, creates "attributes.db" in input_directory.
         
     Returns:
         Dict with processing statistics
     """
     input_path = Path(input_directory)
     
-    # Determine database path
-    if index_path:
-        db_path = Path(index_path)
-        # Ensure the directory exists
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        # Ensure .db extension
-        if not db_path.suffix == '.db':
-            db_path = db_path.with_suffix('.db')
-    else:
-        # Default to attributes.db in the input directory
-        db_path = input_path / "attributes.db"
+    # Set up database path
+    db_path = Path(index_path)
+    # Ensure the directory exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure .db extension
+    if not db_path.suffix == '.db':
+        db_path = db_path.with_suffix('.db')
     
     # Create database at the specified path
     conn = create_attributes_database(db_path)
