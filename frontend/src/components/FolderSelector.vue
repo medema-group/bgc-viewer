@@ -1,25 +1,41 @@
 <template>
   <section class="folder-selector-section">
-    <h2>Folder or index file selection</h2>
+    <h2>Index and data location</h2>
     <div class="folder-selector">
-      <button @click="showFolderDialog" class="browse-button">
-        Select folder or index file
+      <button @click="showSelectIndexDialog" class="browse-button">
+        Select existing index file
       </button>
-      <div>
-        <span v-if="currentIndexPath" class="current-index">
-          Index file: <strong>{{ currentIndexPath }}</strong>
-        </span><br />
-        <span v-if="currentFolderPath" class="current-folder">
-          Data root: <strong>{{ currentFolderPath }}</strong>
-        </span>
-      </div>
+      <button @click="showSelectFolderDialog" class="browse-button browse-button-secondary">
+        Select folder to index
+      </button>
+    </div>
+    <div>
+      <span v-if="currentIndexPath" class="current-index">
+        Index file: <strong>{{ currentIndexPath }}</strong>
+      </span><br />
+      <span v-if="currentFolderPath" class="current-folder">
+        Data root: <strong>{{ currentFolderPath }}</strong>
+      </span>
     </div>
 
+    <!-- Dialog for selecting existing index file -->
     <FolderSelectionDialog 
-      :show="showDialog"
+      :show="showIndexDialog"
+      :initial-path="getIndexDirectory()"
+      :allow-folder-selection="false"
+      :allow-database-selection="true"
+      @close="handleIndexDialogClose"
+      @folder-selected="handleIndexFileSelected"
+    />
+    
+    <!-- Dialog for selecting folder to index -->
+    <FolderSelectionDialog 
+      :show="showFolderDialog"
       :initial-path="currentFolderPath"
-      @close="handleDialogClose"
-      @folder-selected="handleFolderSelected"
+      :allow-folder-selection="true"
+      :allow-database-selection="false"
+      @close="handleFolderDialogClose"
+      @folder-selected="handleFolderToIndexSelected"
     />
     
     <PreprocessingStatus 
@@ -86,7 +102,8 @@ export default {
   emits: ['folder-selected', 'folder-changed', 'index-changed'],
   setup(_, { emit }) {
     const currentFolderPath = ref('')
-    const showDialog = ref(false)
+    const showIndexDialog = ref(false)
+    const showFolderDialog = ref(false)
     const folderRestoredFromMemory = ref(false)
     const isLoadingFiles = ref(false)
     const availableFiles = ref([])
@@ -112,6 +129,29 @@ export default {
         currentIndexPath.value = ''
       }
     })
+    
+    const getIndexDirectory = () => {
+      // Extract directory from index file path for browsing
+      if (!currentIndexPath.value) return ''
+      const lastSlash = currentIndexPath.value.lastIndexOf('/')
+      return lastSlash > 0 ? currentIndexPath.value.substring(0, lastSlash) : ''
+    }
+    
+    const showSelectIndexDialog = () => {
+      showIndexDialog.value = true
+    }
+    
+    const handleIndexDialogClose = () => {
+      showIndexDialog.value = false
+    }
+    
+    const showSelectFolderDialog = () => {
+      showFolderDialog.value = true
+    }
+    
+    const handleFolderDialogClose = () => {
+      showFolderDialog.value = false
+    }
     
     const showIndexPathDialog = () => {
       showIndexPathDialogFlag.value = true
@@ -201,46 +241,49 @@ export default {
       }
     }
     
-    const showFolderDialog = () => {
-      showDialog.value = true
-    }
-    
-    const handleDialogClose = () => {
-      showDialog.value = false
-    }
-    
-    const handleFolderSelected = (folderData) => {
-      currentFolderPath.value = folderData.folderPath
-      folderRestoredFromMemory.value = false
-      
-      // Save the selected folder for next time
-      saveLastFolder(folderData.folderPath)
-      
-      // Emit folder change event first when user manually selects folder
-      emit('folder-changed', folderData.folderPath)
-      
-      // Emit the folder selection event to parent
-      emit('folder-selected', folderData.folderPath)
-      
-      // Handle index file selection
+    const handleIndexFileSelected = (folderData) => {
+      // This handles selecting an existing index file
       if (folderData.isDatabaseSelection) {
         const stats = folderData.indexStats
-        // Set current index path to the selected database file
         currentIndexPath.value = folderData.folderPath
-        // For index file selections, trigger index changed immediately
+        // Extract data root from the database
+        currentFolderPath.value = folderData.dataRoot || folderData.folderPath
+        
+        // Save the selected folder for next time
+        saveLastFolder(currentFolderPath.value)
+        
+        // Emit events
+        emit('folder-changed', currentFolderPath.value)
+        emit('folder-selected', currentFolderPath.value)
         emit('index-changed', folderData.folderPath)
-      } else {
-        // Handle folder selection
+        
+        showIndexDialog.value = false
+      }
+    }
+    
+    const handleFolderToIndexSelected = (folderData) => {
+      // This handles selecting a folder to create a new index
+      if (!folderData.isDatabaseSelection) {
+        currentFolderPath.value = folderData.folderPath
+        folderRestoredFromMemory.value = false
+        
+        // Save the selected folder for next time
+        saveLastFolder(folderData.folderPath)
+        
+        // Emit folder change event
+        emit('folder-changed', folderData.folderPath)
+        emit('folder-selected', folderData.folderPath)
+        
         const count = folderData.count
-        const scanType = folderData.scanType
         
         if (count === 0) {
           alert(`No JSON files found in the selected folder and its subdirectories`)
         }
         
-        // Emit index changed to refresh the record list
-        // This will trigger checking if an index exists
+        // Check if index exists, if not show preprocessing UI
         emit('index-changed', folderData.folderPath)
+        
+        showFolderDialog.value = false
       }
     }
     
@@ -317,11 +360,16 @@ export default {
     return {
       currentFolderPath,
       currentIndexPath,
-      showDialog,
-      folderRestoredFromMemory,
+      showIndexDialog,
       showFolderDialog,
-      handleDialogClose,
-      handleFolderSelected,
+      folderRestoredFromMemory,
+      getIndexDirectory,
+      showSelectIndexDialog,
+      handleIndexDialogClose,
+      showSelectFolderDialog,
+      handleFolderDialogClose,
+      handleIndexFileSelected,
+      handleFolderToIndexSelected,
       handlePreprocessingCompleted,
       handleNeedFileSelection,
       handleFilesSelected,
@@ -393,6 +441,14 @@ export default {
 
 .browse-button:hover {
   background: #1565c0;
+}
+
+.browse-button-secondary {
+  background: #6c757d;
+}
+
+.browse-button-secondary:hover {
+  background: #5a6268;
 }
 
 .loading-files {

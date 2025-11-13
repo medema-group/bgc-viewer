@@ -34,7 +34,12 @@
       </div>
       
       <div class="modal-footer">
-        <button @click="selectCurrentFolder" class="confirm-button" :disabled="!currentBrowserPath">
+        <button 
+          v-if="allowFolderSelection"
+          @click="selectCurrentFolder" 
+          class="confirm-button" 
+          :disabled="!currentBrowserPath"
+        >
           Select this folder
         </button>
         <button @click="closeDialog" class="cancel-button">
@@ -59,6 +64,14 @@ export default {
     initialPath: {
       type: String,
       default: ''
+    },
+    allowFolderSelection: {
+      type: Boolean,
+      default: true
+    },
+    allowDatabaseSelection: {
+      type: Boolean,
+      default: true
     }
   },
   emits: ['close', 'folder-selected'],
@@ -90,7 +103,7 @@ export default {
     const handleBrowserItemClick = async (item) => {
       if (item.type === 'directory') {
         await browsePath(item.path)
-      } else if (item.type === 'database') {
+      } else if (item.type === 'database' && props.allowDatabaseSelection) {
         // Handle database file selection
         await selectDatabaseFile(item.path)
       }
@@ -134,7 +147,8 @@ export default {
         
         // Emit database selection with data_root as the folder path
         emit('folder-selected', {
-          folderPath: response.data.data_root,
+          folderPath: dbPath,  // The database file path itself
+          dataRoot: response.data.data_root,  // The data root directory
           databasePath: response.data.database_path,
           indexStats: response.data.index_stats,
           isDatabaseSelection: true
@@ -169,6 +183,7 @@ export default {
       browserItems,
       browserLoading,
       browserError,
+      allowFolderSelection: props.allowFolderSelection,
       browsePath,
       handleBrowserItemClick,
       closeDialog,
