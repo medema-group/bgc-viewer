@@ -102,6 +102,10 @@ export default {
     }
 
     const handleIndexChanged = async (indexPath) => {
+      // Clear the viewer when the index changes
+      if (regionViewerRef.value) {
+        regionViewerRef.value.clearViewer()
+      }
       // Store the index file path (not data root)
       selectedIndexPath.value = indexPath
       // Refresh the record list when index has changed

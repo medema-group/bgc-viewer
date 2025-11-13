@@ -609,11 +609,29 @@ export default {
       }
     }
     
+    // Clear the viewer and reset state
+    const clearViewer = () => {
+      currentRecord.value = null
+      selectedRegion.value = ''
+      regions.value = []
+      currentFeatures = []
+      allTrackData = {}
+      availableTracks.value = []
+      selectedTracks.value = []
+      error.value = ''
+      
+      // Clear the viewer container
+      if (viewerContainer.value) {
+        viewerContainer.value.innerHTML = ''
+      }
+      regionViewer = null
+    }
 
     
     // Expose methods for parent component
     expose({
-      loadRecord: onRecordLoaded
+      loadRecord: onRecordLoaded,
+      clearViewer
     })
 
     return {
