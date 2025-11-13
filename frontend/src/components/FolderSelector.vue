@@ -2,7 +2,7 @@
   <section class="folder-selector-section">
     <!-- Section 1: Current Index and Data Root -->
     <div class="current-index-section">
-      <h2>Current Index</h2>
+      <h2>Current index</h2>
       
       <div v-if="currentIndexPath || currentFolderPath" class="index-info">
         <div class="info-row" v-if="currentIndexPath">
@@ -78,7 +78,6 @@
             v-model="indexPath" 
             type="text" 
             class="index-path-input"
-            :placeholder="`${selectedFolderForIndexing}/attributes.db`"
           />
           <button @click="showIndexPathDialog" class="change-button">
             Browse
@@ -171,6 +170,13 @@ export default {
       return indexVersion.value !== currentVersion.value
     })
     
+    const defaultIndexPath = computed(() => {
+      if (selectedFolderForIndexing.value) {
+        return `${selectedFolderForIndexing.value}/attributes.db`
+      }
+      return ''
+    })
+    
     // Watch for selected folder changes to reset file selector
     watch(selectedFolderForIndexing, (newValue, oldValue) => {
       // Only reset if we're clearing the folder or switching from one folder to another
@@ -181,8 +187,8 @@ export default {
         isLoadingFiles.value = false
         availableFiles.value = []
         selectedFiles.value = []
-        // Reset index path to use data root by default
-        indexPath.value = ''
+        // Set index path to default (data root + /attributes.db)
+        indexPath.value = defaultIndexPath.value
       }
     })
     
@@ -349,6 +355,9 @@ export default {
         selectedFolderForIndexing.value = folderData.folderPath
         folderRestoredFromMemory.value = false
         
+        // Set default index path
+        indexPath.value = `${folderData.folderPath}/attributes.db`
+        
         // Don't save to localStorage yet - wait until index is created
         
         const count = folderData.count
@@ -463,6 +472,9 @@ export default {
           // Move current folder to preprocessing section
           selectedFolderForIndexing.value = currentFolderPath.value
           
+          // Set default index path for regeneration (use current index path if it exists in the data root)
+          indexPath.value = currentIndexPath.value || `${currentFolderPath.value}/attributes.db`
+          
           // Clear current index section
           currentIndexPath.value = ''
           indexStats.value = null
@@ -513,6 +525,7 @@ export default {
       indexVersion,
       currentVersion,
       showVersionMismatch,
+      defaultIndexPath,
       showIndexDialog,
       showFolderDialog,
       selectedFolderForIndexing,
