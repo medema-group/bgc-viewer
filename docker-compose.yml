@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: bgc-viewer-redis
+    restart: unless-stopped
+    volumes:
+      # Persist Redis data
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - bgc-network
+
+  bgc-viewer:
+    build: .
+    container_name: bgc-viewer
+    ports:
+      - "5050:5000"  # localhost:5050 -> container:5000
+    volumes:
+      # Mount your BGC data directory here
+      - ${BGCV_DATABASE_PATH}:/bgcv_index_file.db:ro
+      - ${BGCV_DATA_ROOT}:/data_root:ro
+    environment:
+      # Generate a secret key with: python -c "import os; print(os.urandom(24).hex())"
+      BGCV_SECRET_KEY: ${BGCV_SECRET_KEY:-change-this-secret-key-in-production}
+      BGCV_PUBLIC_MODE: "true"
+      REDIS_URL: "redis://redis:6379"
+      BGCV_HOST: "0.0.0.0"
+      BGCV_PORT: "5000"
+      # Optional: Enable HTTPS-only cookies if behind HTTPS proxy
+      # HTTPS_ENABLED: "true"
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/version').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - bgc-network
+
+volumes:
+  redis-data:
+    driver: local
+
+networks:
+  bgc-network:
+    driver: bridge
