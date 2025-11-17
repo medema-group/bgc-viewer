@@ -84,7 +84,7 @@
 </template>
 
 <script>
-import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
 import './cand-cluster-styling.css'
 import './cluster-styling.css'
@@ -664,11 +664,6 @@ export default {
 .record-details {
   font-size: 14px;
   color: #666;
-}
-
-.feature-count {
-  font-weight: 600;
-  color: #1976d2;
 }
 
 .description {
