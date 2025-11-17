@@ -431,11 +431,16 @@ def load_database_entry():
             return jsonify({"error": f"Record {record_id} not found in {filename}"}), 404
         
         # Store entry reference in session (not the full data)
-        session['loaded_entry_id'] = entry_id
-        session['loaded_entry_metadata'] = {
-            'filename': filename,
-            'record_id': record_id
-        }
+        try:
+            session['loaded_entry_id'] = entry_id
+            session['loaded_entry_metadata'] = {
+                'filename': filename,
+                'record_id': record_id
+            }
+        except Exception as e:
+            return jsonify({
+                "error": f"Failed to save session data: {str(e)}. Session storage may be unavailable."
+            }), 503
         
         # Pre-cache the data for this session (using db_path as part of cache key)
         load_cached_entry(entry_id, str(db_path), data_root)
@@ -623,7 +628,12 @@ if not PUBLIC_MODE:
             return jsonify(result), status_code
         
         # Store database path in session
-        session['current_database_path'] = result["database_path"]
+        try:
+            session['current_database_path'] = result["database_path"]
+        except Exception as e:
+            return jsonify({
+                "error": f"Failed to save session data: {str(e)}. Session storage may be unavailable."
+            }), 503
         
         return jsonify({
             "message": "Database selected successfully",
