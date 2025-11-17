@@ -412,7 +412,6 @@ def load_database_entry():
         except Exception as e:
             return jsonify({"error": f"Invalid data_root in database metadata: {str(e)}"}), 500
         
-        data_root = data_root
         file_path = Path(data_root) / filename
         
         # In public mode, ensure file is within the data root folder (security check)
