@@ -5,9 +5,9 @@
     </header>
 
     <main>
-      <!-- Index Selection Section - Only shown in local mode -->
+      <!-- Index Selection Section - Only shown in local mode and when not creating an index -->
       <IndexSelection 
-        v-if="!isPublicMode"
+        v-if="!isPublicMode && !folderForIndexing"
         @folder-selected="handleFolderSelected"
         @folder-changed="handleFolderChanged"
         @index-changed="handleIndexChanged"
@@ -26,16 +26,17 @@
         @cancel="handleCancelIndexCreation"
       />
 
-      <!-- Record List Selector Section -->
+      <!-- Record List Selector Section - Hidden when creating an index -->
       <RecordListSelector 
+        v-if="!folderForIndexing"
         ref="recordListSelectorRef"
         :data-root="selectedDataRoot"
         :index-path="selectedIndexPath"
         @record-loaded="handleRecordLoaded" 
       />
 
-      <!-- Region Viewer Section -->
-      <section class="region-section">
+      <!-- Region Viewer Section - Hidden when creating an index -->
+      <section v-if="!folderForIndexing" class="region-section">
         <h2>Record visualization</h2>
         <RegionViewerComponent ref="regionViewerRef" />
       </section>
