@@ -2,7 +2,7 @@
   <div v-if="show" class="modal-overlay" @click="handleOverlayClick">
     <div class="modal-dialog" @click.stop>
       <div class="modal-header">
-        <h3>Select folder or index file</h3>
+        <h3>{{ title }}</h3>
         <button class="close-button" @click="closeDialog">&times;</button>
       </div>
       
@@ -60,6 +60,10 @@ export default {
     show: {
       type: Boolean,
       default: false
+    },
+    title: {
+      type: String,
+      default: 'Select folder or index file'
     },
     initialPath: {
       type: String,

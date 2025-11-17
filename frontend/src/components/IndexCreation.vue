@@ -53,6 +53,7 @@
     <!-- Dialog for selecting index path -->
     <FolderSelectionDialog 
       :show="showIndexPathDialogFlag"
+      title="Select folder for index file location"
       @close="handleIndexPathDialogClose"
       @folder-selected="handleIndexPathSelected"
     />

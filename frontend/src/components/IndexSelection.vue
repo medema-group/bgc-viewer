@@ -55,6 +55,7 @@
     <!-- Dialog for selecting existing index file -->
     <FolderSelectionDialog 
       :show="showIndexDialog"
+      title="Select an index file"
       :initial-path="getIndexDirectory()"
       :allow-folder-selection="false"
       :allow-database-selection="true"
@@ -65,6 +66,7 @@
     <!-- Dialog for selecting folder to index -->
     <FolderSelectionDialog 
       :show="showFolderDialog"
+      title="Select a folder to index"
       :initial-path="''"
       :allow-folder-selection="true"
       :allow-database-selection="false"
