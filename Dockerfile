@@ -14,7 +14,8 @@ RUN pip install --no-cache-dir bgc-viewer[redis]
 ENV BGCV_PUBLIC_MODE=true \
     REDIS_URL=redis://redis:6379 \
     BGCV_HOST=0.0.0.0 \
-    BGCV_PORT=5000
+    BGCV_PORT=5000 \
+    PYTHONUNBUFFERED=1
 
 # Expose the application port
 EXPOSE 5000

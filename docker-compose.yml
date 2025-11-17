@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7-alpine
@@ -19,6 +17,7 @@ services:
 
   bgc-viewer:
     build: .
+    image: bgc-viewer:latest
     container_name: bgc-viewer
     ports:
       - "5050:5000"  # localhost:5050 -> container:5000
@@ -35,6 +34,7 @@ services:
       BGCV_PORT: "5000"
       BGCV_INDEX_FILENAME: ${BGCV_INDEX_FILENAME:-attributes.db}
       BGCV_ALLOWED_ORIGINS: ${BGCV_ALLOWED_ORIGINS:-*}
+      PYTHONUNBUFFERED: "1"
       # Optional: Enable HTTPS-only cookies if behind HTTPS proxy
       # HTTPS_ENABLED: "true"
     restart: unless-stopped
