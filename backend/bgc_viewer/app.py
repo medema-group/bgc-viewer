@@ -92,8 +92,13 @@ else:
 # Define hardcoded paths for PUBLIC mode
 # In PUBLIC mode: Fixed paths (mounted in Docker container)
 # In LOCAL mode: Paths come from session/environment
-PUBLIC_DATABASE_PATH = "/bgcv_index_file.db"
+PUBLIC_INDEX_DIR = "/index"
 PUBLIC_DATA_ROOT = "/data_root"
+
+def get_public_database_path():
+    """Get the full path to the database file in PUBLIC mode."""
+    filename = os.getenv('BGCV_INDEX_FILENAME', 'attributes.db')
+    return str(Path(PUBLIC_INDEX_DIR) / filename)
 
 # Preprocessing status tracking (only used in LOCAL_MODE)
 if not PUBLIC_MODE:
@@ -144,7 +149,7 @@ def get_current_entry_data():
     
     # Determine database path and data root based on mode
     if PUBLIC_MODE:
-        db_path = PUBLIC_DATABASE_PATH
+        db_path = get_public_database_path()
         data_root = PUBLIC_DATA_ROOT
     else:
         # In LOCAL_MODE, get from session
@@ -364,7 +369,7 @@ def load_database_entry():
         
         # Determine the database path and data root based on mode
         if PUBLIC_MODE:
-            db_path = PUBLIC_DATABASE_PATH
+            db_path = get_public_database_path()
             data_root = PUBLIC_DATA_ROOT
         else:
             # In LOCAL_MODE, use session database path
@@ -647,7 +652,7 @@ def get_database_entries_endpoint():
     # Determine database path based on mode
     if PUBLIC_MODE:
         # In PUBLIC_MODE, use hardcoded database path
-        db_path = PUBLIC_DATABASE_PATH
+        db_path = get_public_database_path()
     else:
         # In LOCAL_MODE, get from session
         db_path = session.get('current_database_path')
@@ -812,16 +817,29 @@ def main():
     
     # Validate PUBLIC_MODE configuration
     if PUBLIC_MODE:
-        # Verify the database file exists
-        if not Path(PUBLIC_DATABASE_PATH).exists():
+        # Verify the index directory exists
+        if not Path(PUBLIC_INDEX_DIR).exists():
             raise RuntimeError(
-                f"PUBLIC_MODE is enabled but database file does not exist: {PUBLIC_DATABASE_PATH}. "
-                f"Ensure the database is mounted at this location in your Docker container."
+                f"PUBLIC_MODE is enabled but index directory does not exist: {PUBLIC_INDEX_DIR}. "
+                f"Ensure the index directory is mounted at this location in your Docker container."
             )
         
-        if not Path(PUBLIC_DATABASE_PATH).is_file():
+        if not Path(PUBLIC_INDEX_DIR).is_dir():
             raise RuntimeError(
-                f"PUBLIC_MODE is enabled but database path is not a file: {PUBLIC_DATABASE_PATH}"
+                f"PUBLIC_MODE is enabled but index path is not a directory: {PUBLIC_INDEX_DIR}"
+            )
+        
+        # Verify the database file exists
+        db_path = get_public_database_path()
+        if not Path(db_path).exists():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but database file does not exist: {db_path}. "
+                f"Ensure the database file is present in the mounted index directory."
+            )
+        
+        if not Path(db_path).is_file():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but database path is not a file: {db_path}"
             )
         
         # Verify the data root exists
@@ -847,7 +865,7 @@ def main():
         print("Warning: Redis not available, using filesystem sessions as fallback")
     
     if PUBLIC_MODE:
-        print(f"Database path: {PUBLIC_DATABASE_PATH}")
+        print(f"Database path: {get_public_database_path()}")
         print(f"Data root: {PUBLIC_DATA_ROOT}")
         print("Multi-user session support: ENABLED")
     else:

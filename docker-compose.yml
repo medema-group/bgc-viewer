@@ -15,7 +15,7 @@ services:
       timeout: 3s
       retries: 3
     networks:
-      - bgc-network
+      - bgcv-network
 
   bgc-viewer:
     build: .
@@ -23,8 +23,8 @@ services:
     ports:
       - "5050:5000"  # localhost:5050 -> container:5000
     volumes:
-      # Mount your BGC data directory here
-      - ${BGCV_DATABASE_PATH}:/bgcv_index_file.db:ro
+      # Mount directories containing the database and data files
+      - ${BGCV_INDEX_DIR}:/index:ro
       - ${BGCV_DATA_ROOT}:/data_root:ro
     environment:
       # Generate a secret key with: python -c "import os; print(os.urandom(24).hex())"
@@ -33,6 +33,8 @@ services:
       REDIS_URL: "redis://redis:6379"
       BGCV_HOST: "0.0.0.0"
       BGCV_PORT: "5000"
+      BGCV_INDEX_FILENAME: ${BGCV_INDEX_FILENAME:-attributes.db}
+      BGCV_ALLOWED_ORIGINS: ${BGCV_ALLOWED_ORIGINS:-*}
       # Optional: Enable HTTPS-only cookies if behind HTTPS proxy
       # HTTPS_ENABLED: "true"
     restart: unless-stopped
@@ -46,12 +48,12 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - bgc-network
+      - bgcv-network
 
 volumes:
   redis-data:
     driver: local
 
 networks:
-  bgc-network:
+  bgcv-network:
     driver: bridge

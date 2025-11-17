@@ -116,16 +116,20 @@ which you are running the application.
 BGCV_HOST=localhost              # Server host (default: localhost)
 BGCV_PORT=5005                   # Server port (default: 5005)
 BGCV_DEBUG_MODE=False            # Enable dev/debug mode (default: False)
+BGCV_ALLOWED_ORIGINS=https://yourdomain.com # Allowed CORS origins, relevant when running a public instance
 HTTPS_ENABLED=false              # Set to 'true' in production with HTTPS
 
 # Public mode
 # In public mode, there won't be an option to access the file system; the database path will be fixed.
-# The DATABASE_PATH and DATA_ROOT below are the locations on the host that will be mounted to fixed
+# For local development: leave BGCV_PUBLIC_MODE unset or set to 'False'.
+# For Docker deployment: BGCV_PUBLIC_MODE is automatically set to 'True' by the Dockerfile (no manual configuration needed).
+BGCV_PUBLIC_MODE=True
+
+# In public mode, the DATABASE_PATH and DATA_ROOT below are the locations on the host that will be mounted to fixed
 # paths inside the container, i.e. the values are used by docker-compose only.
-BGCV_PUBLIC_MODE=True                       # Default is False (local mode), but set to True in Dockerfile.
-BGCV_DATABASE_PATH=/path/to/attributes.db   # In public mode, path to the index database file on the host.
-BGCV_DATA_ROOT=/path/to/data                # In public mode, path to the data root directory on the host.
-BGCV_ALLOWED_ORIGINS=https://yourdomain.com # Allowed CORS origins, relevant for public mode.
+BGCV_INDEX_DIR=/path/to/index_dir           # Path on the host to the index file directory (used for mounting).
+BGCV_DATA_ROOT=/path/to/data_dir            # Path on the host to the data root directory (used for mounting).
+BGCV_INDEX_FILENAME=attributes.db           # Name of the index file that is used in public mode.
 
 # Session management
 BGCV_SECRET_KEY=your-secret-key             # Required for production - secret key for session signing
