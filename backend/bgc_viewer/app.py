@@ -46,6 +46,9 @@ if PUBLIC_MODE:
 else:
     app.config['SECRET_KEY'] = os.getenv('BGCV_SECRET_KEY', os.urandom(24))
 
+# Track whether we attempted Redis and fell back to filesystem
+REDIS_FALLBACK = False
+
 if PUBLIC_MODE:
     # Use Redis for production multi-user deployment
     try:
@@ -53,10 +56,9 @@ if PUBLIC_MODE:
         redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
         app.config['SESSION_TYPE'] = 'redis'
         app.config['SESSION_REDIS'] = redis.from_url(redis_url)
-        print(f"Using Redis session storage: {redis_url}")
     except ImportError:
         # Fallback to filesystem if redis is not available
-        print("Warning: redis not available, falling back to filesystem sessions")
+        REDIS_FALLBACK = True
         from cachelib.file import FileSystemCache
         session_dir = os.getenv('SESSION_DIR', '/tmp/bgc_viewer_sessions')
         app.config['SESSION_TYPE'] = 'cachelib'
@@ -91,33 +93,16 @@ else:
     # In local mode, allow all origins
     CORS(app, supports_credentials=True)
 
-# Define the database path based on mode
-# In PUBLIC mode: Fixed database path (index file) - required for multi-user deployment
-# In LOCAL mode: None - each session has its own database path
-PUBLIC_DATABASE_PATH: Optional[Path] = None
+# Define hardcoded paths for PUBLIC mode
+# In PUBLIC mode: Fixed paths (mounted in Docker container)
+# In LOCAL mode: Paths come from session/environment
+PUBLIC_INDEX_DIR = "/index"
+PUBLIC_DATA_ROOT = "/data_root"
 
-if PUBLIC_MODE:
-    # In public mode, database path (index file) is REQUIRED
-    db_path_env = os.getenv('BGCV_DATABASE_PATH')
-    if not db_path_env:
-        raise RuntimeError(
-            "PUBLIC_MODE is enabled but BGCV_DATABASE_PATH environment variable is not set. "
-            "Please set BGCV_DATABASE_PATH to the path of your database file."
-        )
-    
-    PUBLIC_DATABASE_PATH = Path(db_path_env).resolve()
-    
-    # Verify the database file exists
-    if not PUBLIC_DATABASE_PATH.exists():
-        raise RuntimeError(
-            f"PUBLIC_MODE is enabled but database file does not exist: {PUBLIC_DATABASE_PATH}. "
-            f"Use the preprocessing tool to create an index database."
-        )
-    
-    if not PUBLIC_DATABASE_PATH.is_file():
-        raise RuntimeError(
-            f"PUBLIC_MODE is enabled but BGCV_DATABASE_PATH is not a file: {PUBLIC_DATABASE_PATH}"
-        )
+def get_public_database_path():
+    """Get the full path to the database file in PUBLIC mode."""
+    filename = os.getenv('BGCV_INDEX_FILENAME', 'attributes.db')
+    return str(Path(PUBLIC_INDEX_DIR) / filename)
 
 # Preprocessing status tracking (only used in LOCAL_MODE)
 if not PUBLIC_MODE:
@@ -166,32 +151,32 @@ def get_current_entry_data():
     if not entry_id:
         return None, None
     
-    # Determine database path based on mode
+    # Determine database path and data root based on mode
     if PUBLIC_MODE:
-        db_path = PUBLIC_DATABASE_PATH
+        db_path = get_public_database_path()
+        data_root = PUBLIC_DATA_ROOT
     else:
         # In LOCAL_MODE, get from session
         db_path = session.get('current_database_path')
         if not db_path:
             return None, None
-        db_path = Path(db_path)
-    
-    # Load data_root from database metadata
-    try:
-        db_info = get_database_info(str(db_path))
-        if "error" in db_info:
+        
+        # Load data_root from database metadata
+        try:
+            db_info = get_database_info(db_path)
+            if "error" in db_info:
+                return None, None
+            data_root = db_info.get('data_root')
+            if not data_root:
+                # data_root is required
+                return None, None
+        except Exception:
+            # If we can't read metadata, we can't proceed
             return None, None
-        data_root = db_info.get('data_root')
-        if not data_root:
-            # data_root is required
-            return None, None
-    except Exception:
-        # If we can't read metadata, we can't proceed
-        return None, None
     
     # Load from cache (using db_path as part of cache key)
     try:
-        data = load_cached_entry(entry_id, str(db_path), data_root)
+        data = load_cached_entry(entry_id, db_path, data_root)
         return data, data_root
     except Exception:
         return None, None
@@ -230,10 +215,8 @@ def get_status():
     current_data_root = None
     
     if PUBLIC_MODE:
-        # In public mode, read data_root from database metadata
-        db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
-        if "error" not in db_info:
-            current_data_root = db_info.get('data_root')
+        # In public mode, use hardcoded data root
+        current_data_root = PUBLIC_DATA_ROOT
     else:
         # In local mode, check session database path
         db_path = session.get('current_database_path')
@@ -388,29 +371,30 @@ def load_database_entry():
         
         filename, record_id = entry_id.split(':', 1)
         
-        # Determine the database path and folders based on mode
+        # Determine the database path and data root based on mode
         if PUBLIC_MODE:
-            db_path = PUBLIC_DATABASE_PATH
+            db_path = get_public_database_path()
+            data_root = PUBLIC_DATA_ROOT
         else:
             # In LOCAL_MODE, use session database path
             db_path_str = session.get('current_database_path')
             if not db_path_str:
                 return jsonify({"error": "No database selected. Please select a database first."}), 400
-            db_path = Path(db_path_str)
-            if not db_path.exists():
+            db_path = db_path_str
+            if not Path(db_path).exists():
                 return jsonify({"error": f"Database file does not exist: {db_path_str}"}), 404
-        
-        # Get data_root from database metadata
-        try:
-            db_info = get_database_info(str(db_path))
-            if "error" not in db_info:
-                data_root = db_info.get('data_root')
-                if not data_root:
-                    return jsonify({"error": "Database metadata missing data_root"}), 500
-            else:
-                return jsonify({"error": f"Failed to read database metadata: {db_info.get('error')}"}), 500
-        except Exception as e:
-            return jsonify({"error": f"Invalid data_root in database metadata: {str(e)}"}), 500
+            
+            # Get data_root from database metadata
+            try:
+                db_info = get_database_info(db_path)
+                if "error" not in db_info:
+                    data_root = db_info.get('data_root')
+                    if not data_root:
+                        return jsonify({"error": "Database metadata missing data_root"}), 500
+                else:
+                    return jsonify({"error": f"Failed to read database metadata: {db_info.get('error')}"}), 500
+            except Exception as e:
+                return jsonify({"error": f"Invalid data_root in database metadata: {str(e)}"}), 500
         
         file_path = Path(data_root) / filename
         
@@ -443,7 +427,7 @@ def load_database_entry():
             }), 503
         
         # Pre-cache the data for this session (using db_path as part of cache key)
-        load_cached_entry(entry_id, str(db_path), data_root)
+        load_cached_entry(entry_id, db_path, data_root)
         
         # Get the loaded record info
         loaded_record = modified_data["records"][0] if modified_data["records"] else {}
@@ -671,8 +655,8 @@ def get_database_entries_endpoint():
     
     # Determine database path based on mode
     if PUBLIC_MODE:
-        # In PUBLIC_MODE, use fixed database
-        db_path = str(PUBLIC_DATABASE_PATH)
+        # In PUBLIC_MODE, use hardcoded database path
+        db_path = get_public_database_path()
     else:
         # In LOCAL_MODE, get from session
         db_path = session.get('current_database_path')
@@ -835,16 +819,59 @@ def main():
     print(f"Starting BGC Viewer version {__version__}")
     print(f"Running in {'PUBLIC' if PUBLIC_MODE else 'LOCAL'} mode")
     
+    # Validate PUBLIC_MODE configuration
+    if PUBLIC_MODE:
+        # Verify the index directory exists
+        if not Path(PUBLIC_INDEX_DIR).exists():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but index directory does not exist: {PUBLIC_INDEX_DIR}. "
+                f"Ensure the index directory is mounted at this location in your Docker container."
+            )
+        
+        if not Path(PUBLIC_INDEX_DIR).is_dir():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but index path is not a directory: {PUBLIC_INDEX_DIR}"
+            )
+        
+        # Verify the database file exists
+        db_path = get_public_database_path()
+        if not Path(db_path).exists():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but database file does not exist: {db_path}. "
+                f"Ensure the database file is present in the mounted index directory."
+            )
+        
+        if not Path(db_path).is_file():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but database path is not a file: {db_path}"
+            )
+        
+        # Verify the data root exists
+        if not Path(PUBLIC_DATA_ROOT).exists():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but data root does not exist: {PUBLIC_DATA_ROOT}. "
+                f"Ensure the data directory is mounted at this location in your Docker container."
+            )
+        
+        if not Path(PUBLIC_DATA_ROOT).is_dir():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but data root is not a directory: {PUBLIC_DATA_ROOT}"
+            )
+    
     # Display session configuration
     session_type = app.config.get('SESSION_TYPE', 'unknown')
     print(f"Session storage: {session_type}")
     
+    if session_type == 'redis':
+        redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+        print(f"Redis URL: {redis_url}")
+    elif REDIS_FALLBACK:
+        print("WARNING: Redis not available in PUBLIC_MODE, using filesystem sessions as fallback")
+        print("         Install redis package (pip install redis) for production use")
+    
     if PUBLIC_MODE:
-        print(f"Database path: {PUBLIC_DATABASE_PATH}")
-        # Read and display data_root from database metadata
-        db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
-        if "error" not in db_info:
-            print(f"Data root (from database metadata): {db_info.get('data_root')}")
+        print(f"Database path: {get_public_database_path()}")
+        print(f"Data root: {PUBLIC_DATA_ROOT}")
         print("Multi-user session support: ENABLED")
     else:
         print("Session-based database management: ENABLED")
