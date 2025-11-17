@@ -16,11 +16,15 @@ This is the development README. The README for end-users is here: [backend/READM
 
 The projects consists of a number of modules, which are available in their respective folders as self-contained packages:
 
-- **backend**: Python Flask server that serves API and statically built frontend.
+- **backend**: Python Flask server that serves the API and statically built frontend.
 - **frontend**: Vue.js web application that, together with the API, makes a stand-alone viewer.
 - **viewer-components**: Reusable TS/JS components for the frontend.
 
-The frontend contains a built copy of the viewer-components and the backend (Python package) contains a built copy of the frontend, so the resulting Python package will contain everything that is needed to run the application.
+The backend is a comprehensive server that preprocesses, searches and dynamically loads data from a root directory containing huge amounts of data. The backend is not strictly necessary; the viewer can also run with other types of data sources. The backend serves from the local file system in local mode, or from a fixed data directory in public mode [see configuration](#configuration).
+
+The BGC Viewer is a stand-alone application, but the frontend components can be used separately in other applications.
+
+The frontend contains a built copy of the viewer-components. Similarly, the backend (Python package) contains a built copy of the frontend, so the resulting Python package will contain everything that is needed to run the application.
 
 
 ## Installation & usage
@@ -108,14 +112,21 @@ A convenient way to change them is to put a file called `.env` in the directory 
 which you are running the application.
 
 ```bash
-BGCV_HOST=localhost       # Server host (default: localhost)
-BGCV_PORT=5005            # Server port (default: 5005)
-BGCV_DEBUG_MODE=False     # Enable dev/debug mode (default: False)
-BGCV_PUBLIC_MODE=False    # In public mode, there won't be an option to access the
-                          # file system; the data directory will be fixed (default: False)
-BGCV_DATA_DIR=/data_dir/  # In public mode, this data directory will be used
+BGCV_HOST=localhost              # Server host (default: localhost)
+BGCV_PORT=5005                   # Server port (default: 5005)
+BGCV_DEBUG_MODE=False            # Enable dev/debug mode (default: False)
+BGCV_PUBLIC_MODE=False           # In public mode, there won't be an option to access the
+                                 # file system; the database path will be fixed (default: False)
+BGCV_DATABASE_PATH=/path/to/attributes.db  # In public mode, path to the index database file
+                                           # The data_root will be read from database metadata
+BGCV_SECRET_KEY=your-secret-key  # Required for production - secret key for session signing
+REDIS_URL=redis://localhost:6379 # Optional: Redis URL for session storage (production)
+SESSION_DIR=/tmp/sessions        # Session directory for filesystem storage (fallback)
+HTTPS_ENABLED=false              # Set to 'true' in production with HTTPS
 BGCV_ALLOWED_ORIGINS=https://yourdomain.com # Allowed CORS origins, relevant for public mode
 ```
+
+For more detailed configuration options, see [backend/.env.example](backend/.env.example).
 
 ### Running the Server
 

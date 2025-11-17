@@ -176,7 +176,8 @@ class TestPreprocessingPipeline:
             json.dump(sample_data, f, indent=2)
         
         # Run preprocessing
-        results = preprocess_antismash_files(str(temp_dir))
+        index_path = str(temp_dir / "attributes.db")
+        results = preprocess_antismash_files(str(temp_dir), index_path)
         
         # Check results
         assert results['files_processed'] == 1
@@ -217,7 +218,8 @@ class TestPreprocessingPipeline:
             progress_updates.append((current_file, files_processed, total_files))
         
         # Run preprocessing with callback
-        results = preprocess_antismash_files(str(temp_dir), progress_callback)
+        index_path = str(temp_dir / "attributes.db")
+        results = preprocess_antismash_files(str(temp_dir), index_path, progress_callback)
         
         # Should have received progress updates
         assert len(progress_updates) > 0

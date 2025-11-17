@@ -5,24 +5,39 @@
     </header>
 
     <main>
-      <!-- Folder Selector Section - Only shown in local mode -->
-      <FolderSelector 
-        v-if="!isPublicMode"
+      <!-- Index Selection Section - Only shown in local mode and when not creating an index -->
+      <IndexSelection 
+        v-if="!isPublicMode && !folderForIndexing"
         @folder-selected="handleFolderSelected"
         @folder-changed="handleFolderChanged"
-        @preprocessing-completed="handlePreprocessingCompleted"
+        @index-changed="handleIndexChanged"
+        @create-index-for-folder="handleCreateIndexForFolder"
       />
 
-      <!-- Record List Selector Section -->
+      <!-- Index Creation Section - Only shown in local mode when creating a new index -->
+      <IndexCreation
+        v-if="!isPublicMode && folderForIndexing"
+        :folder-path="folderForIndexing"
+        :index-path="indexPathForCreation"
+        :available-files="availableFiles"
+        :is-loading-files="isLoadingFiles"
+        :needs-preprocessing="needsPreprocessing"
+        @preprocessing-completed="handlePreprocessingCompleted"
+        @cancel="handleCancelIndexCreation"
+      />
+
+      <!-- Record List Selector Section - Hidden when creating an index -->
       <RecordListSelector 
+        v-if="!folderForIndexing"
         ref="recordListSelectorRef"
-        :database-folder="selectedDatabaseFolder"
+        :data-root="selectedDataRoot"
+        :index-path="selectedIndexPath"
         @record-loaded="handleRecordLoaded" 
       />
 
-      <!-- Region Viewer Section -->
-      <section class="region-section">
-        <h2>Record Visualization</h2>
+      <!-- Region Viewer Section - Hidden when creating an index -->
+      <section v-if="!folderForIndexing" class="region-section">
+        <h2>Record visualization</h2>
         <RegionViewerComponent ref="regionViewerRef" />
       </section>
 
@@ -41,14 +56,16 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import RegionViewerComponent from './components/RegionViewer.vue'
-import FolderSelector from './components/FolderSelector.vue'
+import IndexSelection from './components/IndexSelection.vue'
+import IndexCreation from './components/IndexCreation.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
 
 export default {
   name: 'App',
   components: {
     RegionViewerComponent,
-    FolderSelector,
+    IndexSelection,
+    IndexCreation,
     RecordListSelector
   },
   setup() {
@@ -62,12 +79,20 @@ export default {
     // Mode information
     const isPublicMode = ref(true) // Default to true for safety
     
-    // Database folder tracking
-    const selectedDatabaseFolder = ref('')
+    // Data root and index tracking
+    const selectedDataRoot = ref('')
+    const selectedIndexPath = ref('')
+    
+    // Index creation state
+    const folderForIndexing = ref('')
+    const indexPathForCreation = ref('')
+    const availableFiles = ref([])
+    const isLoadingFiles = ref(false)
+    const needsPreprocessing = ref(false)
     
     const handleFolderSelected = async (folderPath) => {
-      // Update the selected database folder
-      selectedDatabaseFolder.value = folderPath
+      // Update the selected data root
+      selectedDataRoot.value = folderPath
     }
 
     const handleFolderChanged = async (folderPath) => {
@@ -75,14 +100,20 @@ export default {
       if (recordListSelectorRef.value) {
         recordListSelectorRef.value.clearRecords()
       }
-      // Update the selected database folder
-      selectedDatabaseFolder.value = folderPath
+      // Update the selected data root
+      selectedDataRoot.value = folderPath
     }
 
-    const handlePreprocessingCompleted = async (folderPath) => {
-      // Refresh the record list when preprocessing is completed
+    const handleIndexChanged = async (indexPath) => {
+      // Clear the viewer when the index changes
+      if (regionViewerRef.value) {
+        regionViewerRef.value.clearViewer()
+      }
+      // Store the index file path (not data root)
+      selectedIndexPath.value = indexPath
+      // Refresh the record list when index has changed
       if (recordListSelectorRef.value) {
-        recordListSelectorRef.value.refreshEntries()
+        await recordListSelectorRef.value.refreshEntries()
       }
     }
 
@@ -91,6 +122,41 @@ export default {
       if (regionViewerRef.value) {
         await regionViewerRef.value.loadRecord(recordData)
       }
+    }
+    
+    const handleCreateIndexForFolder = async ({ folderPath, indexPath, files }) => {
+      // Set up state for index creation
+      folderForIndexing.value = folderPath
+      indexPathForCreation.value = indexPath || ''
+      availableFiles.value = files.availableFiles || []
+      isLoadingFiles.value = files.isLoadingFiles || false
+      needsPreprocessing.value = files.needsPreprocessing || false
+    }
+    
+    const handlePreprocessingCompleted = async (indexPath) => {
+      // Clear index creation state
+      folderForIndexing.value = ''
+      indexPathForCreation.value = ''
+      availableFiles.value = []
+      isLoadingFiles.value = false
+      needsPreprocessing.value = false
+      
+      // Update the selected index path
+      selectedIndexPath.value = indexPath
+      
+      // Refresh the record list
+      if (recordListSelectorRef.value) {
+        await recordListSelectorRef.value.refreshEntries()
+      }
+    }
+    
+    const handleCancelIndexCreation = () => {
+      // Clear index creation state
+      folderForIndexing.value = ''
+      indexPathForCreation.value = ''
+      availableFiles.value = []
+      isLoadingFiles.value = false
+      needsPreprocessing.value = false
     }
     
     const fetchVersion = async () => {
@@ -128,11 +194,20 @@ export default {
       appVersion,
       appName,
       isPublicMode,
-      selectedDatabaseFolder,
+      selectedDataRoot,
+      selectedIndexPath,
+      folderForIndexing,
+      indexPathForCreation,
+      availableFiles,
+      isLoadingFiles,
+      needsPreprocessing,
       handleFolderSelected,
       handleFolderChanged,
+      handleIndexChanged,
+      handleRecordLoaded,
+      handleCreateIndexForFolder,
       handlePreprocessingCompleted,
-      handleRecordLoaded
+      handleCancelIndexCreation
     }
   }
 }

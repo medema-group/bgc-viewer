@@ -1,32 +1,8 @@
 <template>
   <div class="preprocessing-status" v-if="showStatus">
     <div class="status-header">
-      <h3>Data Preprocessing</h3>
+      <h3>Data preprocessing</h3>
       <button @click="closeStatus" class="close-button" v-if="!isRunning">×</button>
-    </div>
-    
-    <!-- Index Status Display -->
-    <div v-if="indexStatus && !isRunning" class="index-status">
-      <div v-if="indexStatus.has_index" class="index-exists">
-        <div class="status-icon success">✓</div>
-        <div class="status-text">
-          <strong>Index found</strong>
-          <div class="status-details">
-            {{ indexStatus.index_stats?.indexed_files || 0 }} files indexed, 
-            {{ indexStatus.index_stats?.total_records || 0 }} records
-          </div>
-        </div>
-      </div>
-      
-      <div v-else class="index-missing">
-        <div class="status-icon warning">!</div>
-        <div class="status-text">
-          <strong>No index found</strong>
-          <div class="status-details">
-            {{ indexStatus.json_files_count }} JSON files available for preprocessing
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Preprocessing Progress -->
@@ -79,7 +55,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import axios from 'axios'
 import LoadingSpinner from './LoadingSpinner.vue'
 
@@ -96,12 +72,15 @@ export default {
     selectedFiles: {
       type: Array,
       default: null
+    },
+    indexPath: {
+      type: String,
+      default: null
     }
   },
-  emits: ['preprocessing-completed', 'need-file-selection'],
+  emits: ['preprocessing-completed', 'preprocessing-started', 'preprocessing-stopped'],
   setup(props, { emit }) {
     const showStatus = ref(false)
-    const indexStatus = ref(null)
     const progress = ref({
       is_running: false,
       current_file: null,
@@ -123,32 +102,11 @@ export default {
       return Math.round((progress.value.files_processed / progress.value.total_files) * 100)
     })
 
-    const checkIndexStatus = async () => {
-      if (!props.folderPath) return
-      
-      try {
-        const response = await axios.post('/api/check-index', {
-          path: props.folderPath
-        })
-        indexStatus.value = response.data
-        showStatus.value = true
-        
-        // Automatically show file selection if no index exists
-        if (!response.data.has_index && response.data.can_preprocess) {
-          showFileSelection()
-        }
-      } catch (error) {
-        console.error('Failed to check index status:', error)
-      }
-    }
-
-    const showFileSelection = () => {
-      // Emit event to parent to show file selection dialog
-      emit('need-file-selection', indexStatus.value)
-    }
-
     const startPreprocessing = async (filePaths = null) => {
       if (!props.folderPath) return
+      
+      // Show the status section when preprocessing starts
+      showStatus.value = true
       
       try {
         const requestData = {
@@ -160,7 +118,15 @@ export default {
           requestData.files = filePaths
         }
         
+        // Include custom index path if specified
+        if (props.indexPath) {
+          requestData.index_path = props.indexPath
+        }
+        
         await axios.post('/api/preprocess-folder', requestData)
+        
+        // Emit that preprocessing has started
+        emit('preprocessing-started')
         
         // Start polling for status updates
         startStatusPolling()
@@ -184,12 +150,12 @@ export default {
             clearInterval(statusInterval)
             statusInterval = null
             
+            // Emit that preprocessing has stopped
+            emit('preprocessing-stopped')
+            
             if (response.data.status === 'completed') {
-              // Refresh index status
-              setTimeout(() => {
-                checkIndexStatus()
-                emit('preprocessing-completed')
-              }, 1000)
+              // Emit completion event
+              emit('preprocessing-completed')
             }
           }
         } catch (error) {
@@ -210,24 +176,10 @@ export default {
         startPreprocessing()
       }
     }
-
+    
     const closeStatus = () => {
       showStatus.value = false
     }
-
-    // Watch for folder path changes
-    const checkFolder = () => {
-      if (props.folderPath) {
-        checkIndexStatus()
-      } else {
-        showStatus.value = false
-        indexStatus.value = null
-      }
-    }
-
-    onMounted(() => {
-      checkFolder()
-    })
 
     onUnmounted(() => {
       if (statusInterval) {
@@ -235,20 +187,13 @@ export default {
       }
     })
 
-    // Watch for folder path changes
-    watch(() => props.folderPath, () => {
-      checkFolder()
-    })
-
     return {
       showStatus,
-      indexStatus,
       progress,
       isRunning,
       hasError,
       isCompleted,
       progressPercentage,
-      showFileSelection,
       startPreprocessing,
       retryPreprocessing,
       closeStatus
@@ -296,17 +241,10 @@ export default {
   color: #495057;
 }
 
-.index-status, .preprocessing-progress, .preprocessing-error, .preprocessing-success {
+.preprocessing-progress, .preprocessing-error, .preprocessing-success {
   display: flex;
   align-items: center;
   gap: 15px;
-}
-
-.index-exists, .index-missing {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  width: 100%;
 }
 
 .status-icon {
@@ -335,8 +273,6 @@ export default {
   color: #721c24;
 }
 
-
-
 .status-text {
   flex: 1;
 }
@@ -347,7 +283,7 @@ export default {
   margin-top: 4px;
 }
 
-.preprocess-button, .retry-button {
+.retry-button {
   background: #007bff;
   color: white;
   border: none;
@@ -357,13 +293,8 @@ export default {
   font-size: 14px;
 }
 
-.preprocess-button:hover, .retry-button:hover {
+.retry-button:hover {
   background: #0056b3;
-}
-
-.preprocess-button:disabled {
-  background: #6c757d;
-  cursor: not-allowed;
 }
 
 .progress-bar {

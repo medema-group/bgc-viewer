@@ -2,18 +2,11 @@
   <div v-if="show" class="modal-overlay" @click="handleOverlayClick">
     <div class="modal-dialog" @click.stop>
       <div class="modal-header">
-        <h3>Select Folder</h3>
+        <h3>{{ title }}</h3>
         <button class="close-button" @click="closeDialog">&times;</button>
       </div>
       
       <div class="modal-body">
-        <div class="quick-nav">
-          <strong>Quick Navigation:</strong>
-          <button @click="browsePath('/')" class="quick-nav-button">Root (/)</button>
-          <button @click="browsePath('/Users')" class="quick-nav-button">Users</button>
-          <button @click="browsePath('.')" class="quick-nav-button">Application dir</button>
-        </div>
-        
         <div class="current-path">
           <strong>Current path:</strong> {{ currentBrowserPath || '.' }}
         </div>
@@ -29,7 +22,7 @@
               @click="handleBrowserItemClick(item)"
             >
               <span class="item-icon">
-                {{ item.type === 'directory' ? '📁' : '📄' }}
+                {{ item.type === 'directory' ? '📁' : item.type === 'database' ? '💾' : '📄' }}
               </span>
               <span class="item-name">{{ item.name }}</span>
               <span v-if="item.size" class="item-size">
@@ -41,8 +34,13 @@
       </div>
       
       <div class="modal-footer">
-        <button @click="selectCurrentFolder" class="confirm-button" :disabled="!currentBrowserPath">
-          Select This Folder
+        <button 
+          v-if="allowFolderSelection"
+          @click="selectCurrentFolder" 
+          class="confirm-button" 
+          :disabled="!currentBrowserPath"
+        >
+          Select this folder
         </button>
         <button @click="closeDialog" class="cancel-button">
           Cancel
@@ -62,6 +60,22 @@ export default {
     show: {
       type: Boolean,
       default: false
+    },
+    title: {
+      type: String,
+      default: 'Select folder or index file'
+    },
+    initialPath: {
+      type: String,
+      default: ''
+    },
+    allowFolderSelection: {
+      type: Boolean,
+      default: true
+    },
+    allowDatabaseSelection: {
+      type: Boolean,
+      default: true
     }
   },
   emits: ['close', 'folder-selected'],
@@ -93,6 +107,9 @@ export default {
     const handleBrowserItemClick = async (item) => {
       if (item.type === 'directory') {
         await browsePath(item.path)
+      } else if (item.type === 'database' && props.allowDatabaseSelection) {
+        // Handle database file selection
+        await selectDatabaseFile(item.path)
       }
     }
     
@@ -126,6 +143,29 @@ export default {
       }
     }
     
+    const selectDatabaseFile = async (dbPath) => {
+      try {
+        const response = await axios.post('/api/select-database', {
+          path: dbPath
+        })
+        
+        // Emit database selection with data_root as the folder path
+        emit('folder-selected', {
+          folderPath: dbPath,  // The database file path itself
+          dataRoot: response.data.data_root,  // The data root directory
+          databasePath: response.data.database_path,
+          indexStats: response.data.index_stats,
+          version: response.data.version,  // Include version from backend
+          isDatabaseSelection: true
+        })
+        
+        closeDialog()
+        
+      } catch (error) {
+        alert(`Failed to select database: ${error.response?.data?.error || error.message}`)
+      }
+    }
+    
     const formatFileSize = (bytes) => {
       if (bytes === 0) return '0 B'
       const k = 1024
@@ -137,7 +177,9 @@ export default {
     // Initialize folder browser when dialog is shown
     watch(() => props.show, (newValue) => {
       if (newValue) {
-        browsePath('.')
+        // Use initial path if provided, otherwise use current directory
+        const pathToOpen = props.initialPath || '.'
+        browsePath(pathToOpen)
       }
     })
     
@@ -146,11 +188,13 @@ export default {
       browserItems,
       browserLoading,
       browserError,
+      allowFolderSelection: props.allowFolderSelection,
       browsePath,
       handleBrowserItemClick,
       closeDialog,
       handleOverlayClick,
       selectCurrentFolder,
+      selectDatabaseFile,
       formatFileSize
     }
   }
@@ -300,6 +344,11 @@ export default {
 
 .browser-item.directory {
   font-weight: 500;
+}
+
+.browser-item.database {
+  font-weight: 500;
+  color: #1976d2;
 }
 
 .browser-item.file {

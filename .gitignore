@@ -146,6 +146,7 @@ Thumbs.db
 data/
 data-index/
 temp/
+*.db
 
 # Build artifacts
 backend/dist/

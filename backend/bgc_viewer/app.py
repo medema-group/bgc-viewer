@@ -1,10 +1,12 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, session
 from flask_cors import CORS
+from flask_session import Session
 import json
 import os
 import threading
 from pathlib import Path
 from typing import Optional
+from functools import lru_cache
 from waitress import serve
 from dotenv import load_dotenv
 
@@ -13,13 +15,13 @@ from . import __version__
 from .preprocessing import preprocess_antismash_files
 from .data_loader import load_specific_record
 from .file_utils import match_location
-from .database import check_database_exists, get_database_entries
+from .database import get_database_entries, get_database_info
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Configuration: Determine if running in public or local mode
-# PUBLIC mode: Restricted access, no filesystem browsing, fixed data directory
+# PUBLIC mode: Restricted access, no filesystem browsing, fixed data directory or index file.
 # LOCAL mode (default): Full access to filesystem, preprocessing, etc.
 PUBLIC_MODE = os.getenv('BGCV_PUBLIC_MODE', 'false').lower() == 'true'
 
@@ -35,46 +37,164 @@ app = Flask(__name__,
            static_folder=str(frontend_build_dir),
            static_url_path='/static')
 
+# Configure session management
+if PUBLIC_MODE:
+    secret_key = os.getenv('BGCV_SECRET_KEY')
+    if not secret_key:
+        raise RuntimeError("BGCV_SECRET_KEY environment variable must be set in PUBLIC_MODE.")
+    app.config['SECRET_KEY'] = secret_key
+else:
+    app.config['SECRET_KEY'] = os.getenv('BGCV_SECRET_KEY', os.urandom(24))
+
+if PUBLIC_MODE:
+    # Use Redis for production multi-user deployment
+    try:
+        import redis
+        redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+        app.config['SESSION_TYPE'] = 'redis'
+        app.config['SESSION_REDIS'] = redis.from_url(redis_url)
+        print(f"Using Redis session storage: {redis_url}")
+    except ImportError:
+        # Fallback to filesystem if redis is not available
+        print("Warning: redis not available, falling back to filesystem sessions")
+        from cachelib.file import FileSystemCache
+        session_dir = os.getenv('SESSION_DIR', '/tmp/bgc_viewer_sessions')
+        app.config['SESSION_TYPE'] = 'cachelib'
+        app.config['SESSION_CACHELIB'] = FileSystemCache(cache_dir=session_dir)
+else:
+    # Use filesystem for local development
+    from cachelib.file import FileSystemCache
+    session_dir = os.getenv('SESSION_DIR', '/tmp/bgc_viewer_sessions')
+    app.config['SESSION_TYPE'] = 'cachelib'
+    app.config['SESSION_CACHELIB'] = FileSystemCache(cache_dir=session_dir)
+
+app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_COOKIE_NAME'] = 'bgc_viewer_session'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+# Only use Secure cookies in production with HTTPS
+if PUBLIC_MODE and os.getenv('HTTPS_ENABLED', 'false').lower() == 'true':
+    app.config['SESSION_COOKIE_SECURE'] = True
+
+Session(app)
+
 # Configure CORS based on mode
 if PUBLIC_MODE:
     # In public mode, restrict CORS to specific origins
     allowed_origins = os.getenv('BGCV_ALLOWED_ORIGINS', '*')
     if allowed_origins == '*':
-        CORS(app)
+        CORS(app, supports_credentials=True)
     else:
         origins_list = [origin.strip() for origin in allowed_origins.split(',')]
-        CORS(app, resources={r"/api/*": {"origins": origins_list}})
+        CORS(app, resources={r"/api/*": {"origins": origins_list}}, supports_credentials=True)
 else:
     # In local mode, allow all origins
-    CORS(app)
+    CORS(app, supports_credentials=True)
 
-# Global variable to store currently loaded data
-ANTISMASH_DATA = None
+# Define the database path based on mode
+# In PUBLIC mode: Fixed database path (index file) - required for multi-user deployment
+# In LOCAL mode: None - each session has its own database path
+PUBLIC_DATABASE_PATH: Optional[Path] = None
 
-# Global variable to store current database path
-CURRENT_DATABASE_PATH = None
-
-# Define the restricted data directory based on mode
-# In PUBLIC mode: Path object restricting access to a specific directory
-# In LOCAL mode: None indicates unrestricted filesystem access
-RESTRICTED_DATA_DIRECTORY: Optional[Path]
 if PUBLIC_MODE:
-    # In public mode, use a fixed data directory (can be configured)
-    RESTRICTED_DATA_DIRECTORY = Path(os.getenv('BGCV_DATA_DIR', 'data')).resolve()
-else:
-    # In local mode, no directory restriction - users can access any path
-    RESTRICTED_DATA_DIRECTORY = None
+    # In public mode, database path (index file) is REQUIRED
+    db_path_env = os.getenv('BGCV_DATABASE_PATH')
+    if not db_path_env:
+        raise RuntimeError(
+            "PUBLIC_MODE is enabled but BGCV_DATABASE_PATH environment variable is not set. "
+            "Please set BGCV_DATABASE_PATH to the path of your database file."
+        )
+    
+    PUBLIC_DATABASE_PATH = Path(db_path_env).resolve()
+    
+    # Verify the database file exists
+    if not PUBLIC_DATABASE_PATH.exists():
+        raise RuntimeError(
+            f"PUBLIC_MODE is enabled but database file does not exist: {PUBLIC_DATABASE_PATH}. "
+            f"Use the preprocessing tool to create an index database."
+        )
+    
+    if not PUBLIC_DATABASE_PATH.is_file():
+        raise RuntimeError(
+            f"PUBLIC_MODE is enabled but BGCV_DATABASE_PATH is not a file: {PUBLIC_DATABASE_PATH}"
+        )
 
-# Global variables for preprocessing status
-PREPROCESSING_STATUS = {
-    'is_running': False,
-    'current_file': None,
-    'files_processed': 0,
-    'total_files': 0,
-    'status': 'idle',  # 'idle', 'running', 'completed', 'error'
-    'error_message': None,
-    'folder_path': None
-}
+# Preprocessing status tracking (only used in LOCAL_MODE)
+if not PUBLIC_MODE:
+    PREPROCESSING_STATUS = {
+        'is_running': False,
+        'current_file': None,
+        'files_processed': 0,
+        'total_files': 0,
+        'status': 'idle',  # 'idle', 'running', 'completed', 'error'
+        'error_message': None,
+        'folder_path': None
+    }
+
+# LRU cache for loaded AntiSMASH data to support multiple users efficiently
+@lru_cache(maxsize=100)
+def load_cached_entry(entry_id: str, db_path: str, data_dir: str):
+    """
+    Load and cache AntiSMASH entry data.
+    
+    Args:
+        entry_id: Entry ID in format "filename:record_id"
+        db_path: Full path to the database file (used as cache key)
+        data_dir: Data directory path (where the JSON files are located)
+    
+    Returns:
+        Loaded AntiSMASH data for the specified entry
+    
+    Note:
+        The cache key includes db_path to ensure cache invalidation when
+        the database changes (important for LOCAL_MODE where users can
+        switch between different databases).
+    """
+    filename, record_id = entry_id.split(':', 1)
+    file_path = Path(data_dir) / filename
+    return load_specific_record(str(file_path), record_id, data_dir)
+
+
+def get_current_entry_data():
+    """
+    Get the currently loaded AntiSMASH data for the current session.
+    
+    Returns:
+        Tuple of (data, data_root) or (None, None) if no data loaded
+    """
+    entry_id = session.get('loaded_entry_id')
+    if not entry_id:
+        return None, None
+    
+    # Determine database path based on mode
+    if PUBLIC_MODE:
+        db_path = PUBLIC_DATABASE_PATH
+    else:
+        # In LOCAL_MODE, get from session
+        db_path = session.get('current_database_path')
+        if not db_path:
+            return None, None
+        db_path = Path(db_path)
+    
+    # Load data_root from database metadata
+    try:
+        db_info = get_database_info(str(db_path))
+        if "error" in db_info:
+            return None, None
+        data_root = db_info.get('data_root')
+        if not data_root:
+            # data_root is required
+            return None, None
+    except Exception:
+        # If we can't read metadata, we can't proceed
+        return None, None
+    
+    # Load from cache (using db_path as part of cache key)
+    try:
+        data = load_cached_entry(entry_id, str(db_path), data_root)
+        return data, data_root
+    except Exception:
+        return None, None
 
 
 
@@ -107,17 +227,27 @@ def spa_fallback(path):
 def get_status():
     """API endpoint to get current file and data loading status."""
     # Determine the current data directory
-    current_data_dir = None
-    if CURRENT_DATABASE_PATH:
-        # Use the folder containing the current database
-        current_data_dir = str(Path(CURRENT_DATABASE_PATH).parent)
-    elif PUBLIC_MODE and RESTRICTED_DATA_DIRECTORY:
-        # In public mode, use the configured data directory
-        current_data_dir = str(RESTRICTED_DATA_DIRECTORY)
+    current_data_root = None
+    
+    if PUBLIC_MODE:
+        # In public mode, read data_root from database metadata
+        db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
+        if "error" not in db_info:
+            current_data_root = db_info.get('data_root')
+    else:
+        # In local mode, check session database path
+        db_path = session.get('current_database_path')
+        if db_path:
+            db_info = get_database_info(db_path)
+            if "error" not in db_info:
+                current_data_root = db_info.get('data_root')
+    
+    # Check if this session has loaded data
+    has_loaded_data = session.get('loaded_entry_id') is not None
     
     return jsonify({
-        "has_loaded_data": ANTISMASH_DATA is not None,
-        "current_data_directory": current_data_dir,
+        "has_loaded_data": has_loaded_data,
+        "current_data_directory": current_data_root,
         "public_mode": PUBLIC_MODE
     })
 
@@ -161,6 +291,13 @@ if not PUBLIC_MODE:
                         items.append({
                             "name": item.name,
                             "type": "file",
+                            "path": str(item),
+                            "size": item.stat().st_size
+                        })
+                    elif item.suffix.lower() == '.db':
+                        items.append({
+                            "name": item.name,
+                            "type": "database",
                             "path": str(item),
                             "size": item.stat().st_size
                         })
@@ -238,8 +375,6 @@ if not PUBLIC_MODE:
 @app.route('/api/load-entry', methods=['POST'])
 def load_database_entry():
     """Load a specific file+record entry from the database."""
-    global CURRENT_DATABASE_PATH
-    
     data = request.get_json()
     entry_id = data.get('id')  # Format: "filename:record_id"
     
@@ -253,39 +388,62 @@ def load_database_entry():
         
         filename, record_id = entry_id.split(':', 1)
         
-        # Determine the folder to look in
-        if CURRENT_DATABASE_PATH:
-            # Use the folder containing the current database
-            db_folder = Path(CURRENT_DATABASE_PATH).parent
-            file_path = db_folder / filename
-            data_dir = str(db_folder)
+        # Determine the database path and folders based on mode
+        if PUBLIC_MODE:
+            db_path = PUBLIC_DATABASE_PATH
         else:
-            # Fallback: Look for the file in the data directory
-            if PUBLIC_MODE and RESTRICTED_DATA_DIRECTORY:
-                data_dir = str(RESTRICTED_DATA_DIRECTORY)
-            else:
-                data_dir = "data"
-            file_path = Path(data_dir) / filename
+            # In LOCAL_MODE, use session database path
+            db_path_str = session.get('current_database_path')
+            if not db_path_str:
+                return jsonify({"error": "No database selected. Please select a database first."}), 400
+            db_path = Path(db_path_str)
+            if not db_path.exists():
+                return jsonify({"error": f"Database file does not exist: {db_path_str}"}), 404
         
-        # In public mode, ensure file is within allowed directory
-        if PUBLIC_MODE and RESTRICTED_DATA_DIRECTORY:
+        # Get data_root from database metadata
+        try:
+            db_info = get_database_info(str(db_path))
+            if "error" not in db_info:
+                data_root = db_info.get('data_root')
+                if not data_root:
+                    return jsonify({"error": "Database metadata missing data_root"}), 500
+            else:
+                return jsonify({"error": f"Failed to read database metadata: {db_info.get('error')}"}), 500
+        except Exception as e:
+            return jsonify({"error": f"Invalid data_root in database metadata: {str(e)}"}), 500
+        
+        file_path = Path(data_root) / filename
+        
+        # In public mode, ensure file is within the data root folder (security check)
+        if PUBLIC_MODE:
             try:
-                file_path.resolve().relative_to(RESTRICTED_DATA_DIRECTORY)
+                file_path.resolve().relative_to(Path(data_root).resolve())
             except ValueError:
-                return jsonify({"error": "Access denied: File must be within the data directory"}), 403
+                return jsonify({"error": "Access denied: File must be within the data root folder"}), 403
         
         if not file_path.exists():
             return jsonify({"error": f"File {filename} not found in database folder"}), 404
         
-        # Load only the specific record for better performance
-        modified_data = load_specific_record(str(file_path), record_id, data_dir)
+        # Load the specific record
+        modified_data = load_specific_record(str(file_path), record_id, data_root)
         
         if not modified_data:
             return jsonify({"error": f"Record {record_id} not found in {filename}"}), 404
         
-        # Set global data
-        global ANTISMASH_DATA
-        ANTISMASH_DATA = modified_data
+        # Store entry reference in session (not the full data)
+        try:
+            session['loaded_entry_id'] = entry_id
+            session['loaded_entry_metadata'] = {
+                'filename': filename,
+                'record_id': record_id
+            }
+        except Exception as e:
+            return jsonify({
+                "error": f"Failed to save session data: {str(e)}. Session storage may be unavailable."
+            }), 503
+        
+        # Pre-cache the data for this session (using db_path as part of cache key)
+        load_cached_entry(entry_id, str(db_path), data_root)
         
         # Get the loaded record info
         loaded_record = modified_data["records"][0] if modified_data["records"] else {}
@@ -309,10 +467,13 @@ def load_database_entry():
 @app.route('/api/records/<record_id>/regions')
 def get_record_regions(record_id):
     """API endpoint to get all regions for a specific record."""
-    if not ANTISMASH_DATA:
-        return jsonify({"error": "AntiSMASH data not found"}), 404
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
     
-    record = next((r for r in ANTISMASH_DATA.get("records", []) if r.get("id") == record_id), None)
+    if not antismash_data:
+        return jsonify({"error": "No data loaded. Please load an entry first."}), 404
+    
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
     if not record:
         return jsonify({"error": "Record not found"}), 404
     
@@ -342,10 +503,13 @@ def get_record_regions(record_id):
 @app.route('/api/records/<record_id>/regions/<region_id>/features')
 def get_region_features(record_id, region_id):
     """API endpoint to get all features within a specific region."""
-    if not ANTISMASH_DATA:
-        return jsonify({"error": "AntiSMASH data not found"}), 404
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
     
-    record = next((r for r in ANTISMASH_DATA.get("records", []) if r.get("id") == record_id), None)
+    if not antismash_data:
+        return jsonify({"error": "No data loaded. Please load an entry first."}), 404
+    
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
     if not record:
         return jsonify({"error": "Record not found"}), 404
     
@@ -402,14 +566,17 @@ def get_region_features(record_id, region_id):
 @app.route('/api/records/<record_id>/features')
 def get_record_features(record_id):
     """API endpoint to get all features for a specific record."""
-    if not ANTISMASH_DATA:
-        return jsonify({"error": "AntiSMASH data not found"}), 404
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
+    
+    if not antismash_data:
+        return jsonify({"error": "No data loaded. Please load an entry first."}), 404
     
     # Get optional query parameters
     feature_type = request.args.get('type')
     limit = request.args.get('limit', type=int)
     
-    record = next((r for r in ANTISMASH_DATA.get("records", []) if r.get("id") == record_id), None)
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
     if not record:
         return jsonify({"error": "Record not found"}), 404
     
@@ -440,78 +607,79 @@ def get_version():
 
 # Database management endpoints - only available in local mode
 if not PUBLIC_MODE:
-    @app.route('/api/check-index', methods=['POST'])
-    def check_index_status():
-        """Check if an SQLite index exists for the given folder."""
+    @app.route('/api/select-database', methods=['POST'])
+    def select_database():
+        """Select a database file and extract its data_root from metadata.
+        
+        This endpoint sets the database path in the session and returns metadata
+        including data_root, index statistics, and version information.
+        """
         data = request.get_json()
-        folder_path = data.get('path')
+        db_file_path = data.get('path')
         
-        if not folder_path:
-            return jsonify({"error": "No folder path provided"}), 400
+        if not db_file_path:
+            return jsonify({"error": "No database file path provided"}), 400
         
+        # Use the database module function to get database info
+        result = get_database_info(db_file_path)
+        
+        if "error" in result:
+            status_code = 404 if "does not exist" in result["error"] else 400
+            return jsonify(result), status_code
+        
+        # Store database path in session
         try:
-            has_index, db_path, result = check_database_exists(folder_path)
-            return jsonify(result)
-            
+            session['current_database_path'] = result["database_path"]
         except Exception as e:
-            return jsonify({"error": f"Failed to check index status: {str(e)}"}), 500
+            return jsonify({
+                "error": f"Failed to save session data: {str(e)}. Session storage may be unavailable."
+            }), 503
+        
+        return jsonify({
+            "message": "Database selected successfully",
+            "database_path": result["database_path"],
+            "data_root": result["data_root"],
+            "index_stats": result["index_stats"],
+            "version": result.get("version", "")
+        })
 
 if not PUBLIC_MODE:
-    @app.route('/api/set-database-path', methods=['POST'])
-    def set_database_path():
-        """Set the current database path for queries."""
-        global CURRENT_DATABASE_PATH
+    @app.route('/api/check_file_exists', methods=['POST'])
+    def check_file_exists():
+        """Check if a file exists at the given path.
         
+        This is used to warn users if they're about to overwrite an existing index file.
+        """
         data = request.get_json()
-        folder_path = data.get('path')
+        file_path = data.get('path')
         
-        if not folder_path:
-            return jsonify({"error": "No folder path provided"}), 400
+        if not file_path:
+            return jsonify({"error": "No file path provided"}), 400
         
-        try:
-            resolved_path = Path(folder_path).resolve()
-            
-            if not resolved_path.exists() or not resolved_path.is_dir():
-                return jsonify({"error": "Invalid folder path"}), 400
-            
-            # Check for attributes.db file
-            db_path = resolved_path / "attributes.db"
-            
-            if not db_path.exists():
-                return jsonify({"error": "No database found in the specified folder"}), 404
-            
-            CURRENT_DATABASE_PATH = str(db_path)
-            
-            return jsonify({
-                "message": "Database path set successfully",
-                "database_path": CURRENT_DATABASE_PATH
-            })
-            
-        except Exception as e:
-            return jsonify({"error": f"Failed to set database path: {str(e)}"}), 500
+        # Check if the file exists
+        exists = os.path.exists(file_path) and os.path.isfile(file_path)
+        
+        return jsonify({"exists": exists})
 
 @app.route('/api/database-entries')
 def get_database_entries_endpoint():
     """Get paginated list of all file+record entries from the current database."""
-    global CURRENT_DATABASE_PATH
-    
     # Get query parameters
     page = request.args.get('page', 1, type=int)
     per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
     search = request.args.get('search', '').strip()
     
-    # Try to find database path
-    db_path = CURRENT_DATABASE_PATH
-    if not db_path or not Path(db_path).exists():
-        # Fallback: Look for attributes.db in the data directory
-        if PUBLIC_MODE and RESTRICTED_DATA_DIRECTORY:
-            data_dir = RESTRICTED_DATA_DIRECTORY
-        else:
-            data_dir = Path("data")
-        fallback_db_path = data_dir / "attributes.db"
-        if fallback_db_path.exists():
-            db_path = str(fallback_db_path)
-            CURRENT_DATABASE_PATH = db_path
+    # Determine database path based on mode
+    if PUBLIC_MODE:
+        # In PUBLIC_MODE, use fixed database
+        db_path = str(PUBLIC_DATABASE_PATH)
+    else:
+        # In LOCAL_MODE, get from session
+        db_path = session.get('current_database_path')
+        if not db_path:
+            return jsonify({"error": "No database selected. Please select a database first."}), 400
+        if not Path(db_path).exists():
+            return jsonify({"error": f"Database file does not exist: {db_path}"}), 404
     
     # Use the database module function
     result = get_database_entries(db_path, page, per_page, search)
@@ -534,15 +702,28 @@ if not PUBLIC_MODE:
         data = request.get_json()
         folder_path = data.get('path')
         selected_files = data.get('files')  # Optional list of file paths
+        index_path = data.get('index_path')  # Required index file path
         
         if not folder_path:
             return jsonify({"error": "No folder path provided"}), 400
+        
+        if not index_path:
+            return jsonify({"error": "No index path provided"}), 400
         
         try:
             resolved_path = Path(folder_path).resolve()
             
             if not resolved_path.exists() or not resolved_path.is_dir():
                 return jsonify({"error": "Invalid folder path"}), 400
+            
+            # Validate and prepare index path
+            resolved_index_path = Path(index_path).resolve()
+            # Ensure parent directory exists
+            if not resolved_index_path.parent.exists():
+                try:
+                    resolved_index_path.parent.mkdir(parents=True, exist_ok=True)
+                except Exception as e:
+                    return jsonify({"error": f"Failed to create index directory: {str(e)}"}), 400
             
             # Determine which files to process
             json_files_to_process = None
@@ -573,7 +754,10 @@ if not PUBLIC_MODE:
             })
             
             # Start preprocessing in background thread
-            thread = threading.Thread(target=run_preprocessing, args=(str(resolved_path), json_files_to_process))
+            thread = threading.Thread(
+                target=run_preprocessing, 
+                args=(str(resolved_path), str(resolved_index_path), json_files_to_process)
+            )
             thread.daemon = True
             thread.start()
             
@@ -592,11 +776,12 @@ def get_preprocessing_status():
     """Get the current preprocessing status."""
     return jsonify(PREPROCESSING_STATUS)
 
-def run_preprocessing(folder_path, json_files=None):
+def run_preprocessing(folder_path, index_path, json_files=None):
     """Run the preprocessing function in a background thread.
     
     Args:
         folder_path: Path to the folder to preprocess
+        index_path: Full path to the index database file
         json_files: Optional list of specific JSON file paths to process
     """
     global PREPROCESSING_STATUS
@@ -611,7 +796,12 @@ def run_preprocessing(folder_path, json_files=None):
     
     try:
         # Run the preprocessing function
-        results = preprocess_antismash_files(folder_path, progress_callback, json_files)
+        results = preprocess_antismash_files(
+            folder_path,
+            index_path,
+            progress_callback,
+            json_files
+        )
         
         # Update status on completion
         PREPROCESSING_STATUS.update({
@@ -645,9 +835,19 @@ def main():
     print(f"Starting BGC Viewer version {__version__}")
     print(f"Running in {'PUBLIC' if PUBLIC_MODE else 'LOCAL'} mode")
     
+    # Display session configuration
+    session_type = app.config.get('SESSION_TYPE', 'unknown')
+    print(f"Session storage: {session_type}")
+    
     if PUBLIC_MODE:
-        print(f"Data directory: {RESTRICTED_DATA_DIRECTORY}")
-        print("Restricted endpoints: /api/browse, /api/scan-folder, /api/preprocess-folder, /api/check-index, /api/set-database-path")
+        print(f"Database path: {PUBLIC_DATABASE_PATH}")
+        # Read and display data_root from database metadata
+        db_info = get_database_info(str(PUBLIC_DATABASE_PATH))
+        if "error" not in db_info:
+            print(f"Data root (from database metadata): {db_info.get('data_root')}")
+        print("Multi-user session support: ENABLED")
+    else:
+        print("Session-based database management: ENABLED")
 
     host = os.environ.get('BGCV_HOST', 'localhost')
     port = int(os.environ.get('BGCV_PORT', 5005))

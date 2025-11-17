@@ -7,55 +7,68 @@ import sqlite3
 from pathlib import Path
 
 
-def check_database_exists(folder_path):
-    """Check if an SQLite database exists in the given folder."""
+def get_database_info(db_file_path):
+    """Get information about a database file including data_root and statistics.
+    
+    Args:
+        db_file_path: Path to the database file (string or Path object)
+        
+    Returns:
+        Dictionary with database information or error
+    """
     try:
-        resolved_path = Path(folder_path).resolve()
+        resolved_path = Path(db_file_path).resolve()
         
-        if not resolved_path.exists() or not resolved_path.is_dir():
-            return False, None, {}
+        if not resolved_path.exists():
+            return {"error": "Database file does not exist"}
         
-        # Check for attributes.db file
-        db_path = resolved_path / "attributes.db"
-        has_index = db_path.exists()
+        if not resolved_path.is_file() or resolved_path.suffix.lower() != '.db':
+            return {"error": "Path is not a database file"}
         
-        # Count JSON files in the folder (recursively in subdirectories)
-        json_files = list(resolved_path.glob("**/*.json"))
-        json_count = len(json_files)
-        
-        result = {
-            "folder_path": str(resolved_path),
-            "has_index": has_index,
-            "database_path": str(db_path) if has_index else None,
-            "json_files_count": json_count,
-            "can_preprocess": json_count > 0
-        }
-        
-        # If index exists, get some basic stats
-        if has_index:
-            try:
-                conn = sqlite3.connect(db_path)
-                
-                # Count distinct files and total records from records table
-                cursor = conn.execute("SELECT COUNT(DISTINCT filename) FROM records")
-                indexed_files = cursor.fetchone()[0]
-                
-                cursor = conn.execute("SELECT COUNT(*) FROM records")
-                total_records = cursor.fetchone()[0]
-                
+        # Try to read information from the database
+        try:
+            conn = sqlite3.connect(resolved_path)
+            
+            # Get data_root from metadata table
+            cursor = conn.execute("SELECT value FROM metadata WHERE key = 'data_root'")
+            row = cursor.fetchone()
+            
+            if row:
+                data_root = row[0]
+            else:
+                # data_root is required in metadata
                 conn.close()
-                
-                result["index_stats"] = {
+                return {"error": "Database metadata missing required 'data_root' field"}
+            
+            # Get version from metadata table
+            cursor = conn.execute("SELECT value FROM metadata WHERE key = 'version'")
+            version_row = cursor.fetchone()
+            db_version = version_row[0] if version_row else None
+            
+            # Get index stats
+            cursor = conn.execute("SELECT COUNT(DISTINCT filename) FROM records")
+            indexed_files = cursor.fetchone()[0]
+            
+            cursor = conn.execute("SELECT COUNT(*) FROM records")
+            total_records = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            return {
+                "database_path": str(resolved_path),
+                "data_root": data_root,
+                "version": db_version,
+                "index_stats": {
                     "indexed_files": indexed_files,
                     "total_records": total_records
                 }
-            except Exception:
-                result["index_stats"] = None
+            }
+            
+        except sqlite3.Error as e:
+            return {"error": f"Invalid database file: {str(e)}"}
         
-        return has_index, str(db_path) if has_index else None, result
-        
-    except Exception:
-        return False, None, {}
+    except Exception as e:
+        return {"error": f"Failed to read database: {str(e)}"}
 
 
 def get_database_entries(db_path, page=1, per_page=50, search=""):

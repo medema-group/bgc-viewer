@@ -115,14 +115,18 @@ export default {
     LoadingSpinner
   },
   props: {
-    databaseFolder: {
+    dataRoot: {
+      type: String,
+      default: ''
+    },
+    indexPath: {
       type: String,
       default: ''
     }
   },
   emits: ['record-loaded'],
   setup(props, { emit }) {
-    const { databaseFolder } = toRefs(props)
+    const { dataRoot, indexPath } = toRefs(props)
     
     const entriesData = ref([])
     const loading = ref(false)
@@ -229,21 +233,21 @@ export default {
       loadEntries(1, '')
     }
     
-    const setDatabasePath = async (folderPath) => {
-      if (!folderPath) return
+    const setDatabasePath = async (databasePath) => {
+      if (!databasePath) return
       
       try {
-        await axios.post('/api/set-database-path', {
-          path: folderPath
+        await axios.post('/api/select-database', {
+          path: databasePath
         })
-        console.log('Database path set to:', folderPath)
+        console.log('Database path set to:', databasePath)
       } catch (err) {
         console.warn('Failed to set database path:', err.response?.data?.error || err.message)
       }
     }
     
-    const refreshEntries = () => {
-      loadEntries(currentPage.value, searchQuery.value)
+    const refreshEntries = async () => {
+      await loadEntries(currentPage.value, searchQuery.value)
     }
     
     const clearRecords = () => {
@@ -257,23 +261,25 @@ export default {
       hasDatabase.value = false
     }
     
-    // Watch for database folder changes
-    watch(databaseFolder, async (newFolder) => {
-      if (newFolder) {
-        await setDatabasePath(newFolder)
+    // Watch for index path changes - this is the primary path to the database file
+    watch(indexPath, async (newPath, oldPath) => {
+      if (newPath) {
+        await setDatabasePath(newPath)
         // Reload entries after setting the database path
-        loadEntries(1, '')
+        await loadEntries(1, '')
+      } else {
+        // Clear records if path is cleared
+        clearRecords()
       }
     }, { immediate: true })
     
-    onMounted(() => {
-      // If we already have a database folder, set it and load entries
-      if (databaseFolder.value) {
-        setDatabasePath(databaseFolder.value).then(() => {
-          loadEntries()
-        })
+    onMounted(async () => {
+      // Only use indexPath - it should always point to a database file
+      if (indexPath.value) {
+        await setDatabasePath(indexPath.value)
+        await loadEntries()
       } else {
-        loadEntries()
+        await loadEntries()
       }
     })
     

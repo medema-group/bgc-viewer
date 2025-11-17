@@ -74,13 +74,13 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def populate_metadata_table(conn: sqlite3.Connection, db_path: Path) -> None:
+def populate_metadata_table(conn: sqlite3.Connection, data_root: str) -> None:
     """
     Populate the metadata table with preprocessing information.
     
     Args:
         conn: SQLite database connection
-        db_path: Path to the database file
+        data_root: Absolute path to the data root directory
     """
     metadata_entries = []
     
@@ -93,9 +93,8 @@ def populate_metadata_table(conn: sqlite3.Connection, db_path: Path) -> None:
     
     metadata_entries.append(('version', package_version))
     
-    # Store the absolute path of the database root
-    db_root = str(db_path.parent.absolute())
-    metadata_entries.append(('db_root', db_root))
+    # Store the absolute path of the data root directory
+    metadata_entries.append(('data_root', data_root))
     
     # Insert metadata entries
     conn.executemany(
@@ -277,7 +276,8 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
 
 
 def preprocess_antismash_files(
-    input_directory: str, 
+    input_directory: str,
+    index_path: str,
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
     json_files: Optional[List[Path]] = None
 ) -> Dict[str, Any]:
@@ -286,6 +286,7 @@ def preprocess_antismash_files(
     
     Args:
         input_directory: Directory containing JSON files to process
+        index_path: Full path to the index database file
         progress_callback: Optional callback function called with (current_file, files_processed, total_files)
         json_files: Optional list of specific JSON file paths to process. If None, all files in directory are processed.
         
@@ -294,12 +295,20 @@ def preprocess_antismash_files(
     """
     input_path = Path(input_directory)
     
-    # Create database in the input directory
-    db_path = input_path / "attributes.db"
+    # Set up database path
+    db_path = Path(index_path)
+    # Ensure the directory exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure .db extension
+    if not db_path.suffix == '.db':
+        db_path = db_path.with_suffix('.db')
+    
+    # Create database at the specified path
     conn = create_attributes_database(db_path)
     
-    # Populate metadata table
-    populate_metadata_table(conn, db_path)
+    # Populate metadata table with the data root (input directory)
+    data_root = str(input_path.absolute())
+    populate_metadata_table(conn, data_root)
     
     # Determine which files to process
     if json_files is not None:
