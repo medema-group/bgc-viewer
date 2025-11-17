@@ -53,10 +53,8 @@ if PUBLIC_MODE:
         redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
         app.config['SESSION_TYPE'] = 'redis'
         app.config['SESSION_REDIS'] = redis.from_url(redis_url)
-        print(f"Using Redis session storage: {redis_url}")
     except ImportError:
         # Fallback to filesystem if redis is not available
-        print("Warning: redis not available, falling back to filesystem sessions")
         from cachelib.file import FileSystemCache
         session_dir = os.getenv('SESSION_DIR', '/tmp/bgc_viewer_sessions')
         app.config['SESSION_TYPE'] = 'cachelib'
@@ -96,31 +94,6 @@ else:
 # In LOCAL mode: Paths come from session/environment
 PUBLIC_DATABASE_PATH = "/bgcv_index_file.db"
 PUBLIC_DATA_ROOT = "/data_root"
-
-if PUBLIC_MODE:
-    # Verify the database file exists
-    if not Path(PUBLIC_DATABASE_PATH).exists():
-        raise RuntimeError(
-            f"PUBLIC_MODE is enabled but database file does not exist: {PUBLIC_DATABASE_PATH}. "
-            f"Ensure the database is mounted at this location in your Docker container."
-        )
-    
-    if not Path(PUBLIC_DATABASE_PATH).is_file():
-        raise RuntimeError(
-            f"PUBLIC_MODE is enabled but database path is not a file: {PUBLIC_DATABASE_PATH}"
-        )
-    
-    # Verify the data root exists
-    if not Path(PUBLIC_DATA_ROOT).exists():
-        raise RuntimeError(
-            f"PUBLIC_MODE is enabled but data root does not exist: {PUBLIC_DATA_ROOT}. "
-            f"Ensure the data directory is mounted at this location in your Docker container."
-        )
-    
-    if not Path(PUBLIC_DATA_ROOT).is_dir():
-        raise RuntimeError(
-            f"PUBLIC_MODE is enabled but data root is not a directory: {PUBLIC_DATA_ROOT}"
-        )
 
 # Preprocessing status tracking (only used in LOCAL_MODE)
 if not PUBLIC_MODE:
@@ -837,9 +810,41 @@ def main():
     print(f"Starting BGC Viewer version {__version__}")
     print(f"Running in {'PUBLIC' if PUBLIC_MODE else 'LOCAL'} mode")
     
+    # Validate PUBLIC_MODE configuration
+    if PUBLIC_MODE:
+        # Verify the database file exists
+        if not Path(PUBLIC_DATABASE_PATH).exists():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but database file does not exist: {PUBLIC_DATABASE_PATH}. "
+                f"Ensure the database is mounted at this location in your Docker container."
+            )
+        
+        if not Path(PUBLIC_DATABASE_PATH).is_file():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but database path is not a file: {PUBLIC_DATABASE_PATH}"
+            )
+        
+        # Verify the data root exists
+        if not Path(PUBLIC_DATA_ROOT).exists():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but data root does not exist: {PUBLIC_DATA_ROOT}. "
+                f"Ensure the data directory is mounted at this location in your Docker container."
+            )
+        
+        if not Path(PUBLIC_DATA_ROOT).is_dir():
+            raise RuntimeError(
+                f"PUBLIC_MODE is enabled but data root is not a directory: {PUBLIC_DATA_ROOT}"
+            )
+    
     # Display session configuration
     session_type = app.config.get('SESSION_TYPE', 'unknown')
     print(f"Session storage: {session_type}")
+    
+    if session_type == 'redis':
+        redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+        print(f"Redis URL: {redis_url}")
+    elif session_type == 'cachelib' and PUBLIC_MODE:
+        print("Warning: Redis not available, using filesystem sessions as fallback")
     
     if PUBLIC_MODE:
         print(f"Database path: {PUBLIC_DATABASE_PATH}")
