@@ -46,6 +46,9 @@ if PUBLIC_MODE:
 else:
     app.config['SECRET_KEY'] = os.getenv('BGCV_SECRET_KEY', os.urandom(24))
 
+# Track whether we attempted Redis and fell back to filesystem
+REDIS_FALLBACK = False
+
 if PUBLIC_MODE:
     # Use Redis for production multi-user deployment
     try:
@@ -55,6 +58,7 @@ if PUBLIC_MODE:
         app.config['SESSION_REDIS'] = redis.from_url(redis_url)
     except ImportError:
         # Fallback to filesystem if redis is not available
+        REDIS_FALLBACK = True
         from cachelib.file import FileSystemCache
         session_dir = os.getenv('SESSION_DIR', '/tmp/bgc_viewer_sessions')
         app.config['SESSION_TYPE'] = 'cachelib'
@@ -861,8 +865,9 @@ def main():
     if session_type == 'redis':
         redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
         print(f"Redis URL: {redis_url}")
-    elif session_type == 'cachelib' and PUBLIC_MODE:
-        print("Warning: Redis not available, using filesystem sessions as fallback")
+    elif REDIS_FALLBACK:
+        print("WARNING: Redis not available in PUBLIC_MODE, using filesystem sessions as fallback")
+        print("         Install redis package (pip install redis) for production use")
     
     if PUBLIC_MODE:
         print(f"Database path: {get_public_database_path()}")
