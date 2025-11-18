@@ -124,6 +124,7 @@ export default {
     const loadRecord = async (recordId) => {
       loading.value = true
       error.value = ''
+      selectedRegionId.value = ''
       
       try {
         // First, load the entry through the provider to set up session and get metadata
