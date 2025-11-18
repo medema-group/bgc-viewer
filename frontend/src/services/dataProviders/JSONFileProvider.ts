@@ -1,11 +1,33 @@
-import { DataProvider } from './types.js'
+import { 
+  DataProvider, 
+  RecordInfo, 
+  Region,
+  RegionsResponse, 
+  FeaturesResponse, 
+  PfamColorMap,
+  Feature 
+} from './types'
+
+export interface JSONFileProviderOptions {
+  records?: any[]
+  pfamColorMap?: PfamColorMap
+}
+
+interface ParsedLocation {
+  start: number
+  end: number
+  strand: string | null
+}
 
 /**
  * Data provider that loads data from JSON files
  * This can be used for offline viewing or when data is stored locally
  */
 export class JSONFileProvider extends DataProvider {
-  constructor(options = {}) {
+  private records: any[]
+  private pfamColorMap: PfamColorMap
+
+  constructor(options: JSONFileProviderOptions = {}) {
     super()
     this.records = options.records || []
     this.pfamColorMap = options.pfamColorMap || {}
@@ -13,11 +35,10 @@ export class JSONFileProvider extends DataProvider {
 
   /**
    * Load data from a JSON file
-   * @param {File|string} file - File object or URL to JSON file
-   * @returns {Promise<void>}
+   * @param file - File object or URL to JSON file
    */
-  async loadFromFile(file) {
-    let data
+  async loadFromFile(file: File | string): Promise<void> {
+    let data: any
     
     if (file instanceof File) {
       // Read from File object (browser file input)
@@ -37,9 +58,8 @@ export class JSONFileProvider extends DataProvider {
 
   /**
    * Parse antiSMASH JSON data structure
-   * @private
    */
-  parseAntiSMASHData(data) {
+  private parseAntiSMASHData(data: any): void {
     // antiSMASH JSON has records array
     if (data.records) {
       this.records = data.records
@@ -51,9 +71,8 @@ export class JSONFileProvider extends DataProvider {
 
   /**
    * Get a list of available records
-   * @returns {Promise<RecordInfo[]>}
    */
-  async getRecords() {
+  async getRecords(): Promise<RecordInfo[]> {
     return this.records.map((record, idx) => ({
       recordId: record.id || `record-${idx}`,
       filename: record.filename || `record-${idx}.json`,
@@ -65,17 +84,15 @@ export class JSONFileProvider extends DataProvider {
 
   /**
    * Get regions for a specific record
-   * @param {string} recordId - The record identifier
-   * @returns {Promise<{regions: Region[]}>}
    */
-  async getRegions(recordId) {
+  async getRegions(recordId: string): Promise<RegionsResponse> {
     const record = this.findRecord(recordId)
     if (!record) {
       throw new Error(`Record not found: ${recordId}`)
     }
 
-    const regions = []
-    const features = record.features || []
+    const regions: Region[] = []
+    const features: Feature[] = record.features || []
 
     // Find region features
     features.forEach((feature, idx) => {
@@ -96,10 +113,8 @@ export class JSONFileProvider extends DataProvider {
 
   /**
    * Get all features for a record (no region filtering)
-   * @param {string} recordId - The record identifier
-   * @returns {Promise<FeaturesResponse>}
    */
-  async getRecordFeatures(recordId) {
+  async getRecordFeatures(recordId: string): Promise<FeaturesResponse> {
     const record = this.findRecord(recordId)
     if (!record) {
       throw new Error(`Record not found: ${recordId}`)
@@ -112,17 +127,14 @@ export class JSONFileProvider extends DataProvider {
 
   /**
    * Get features for a specific region within a record
-   * @param {string} recordId - The record identifier
-   * @param {string} regionId - The region identifier
-   * @returns {Promise<FeaturesResponse>}
    */
-  async getRegionFeatures(recordId, regionId) {
+  async getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse> {
     const record = this.findRecord(recordId)
     if (!record) {
       throw new Error(`Record not found: ${recordId}`)
     }
 
-    const features = record.features || []
+    const features: Feature[] = record.features || []
     
     // Find the region feature
     const regionIdx = parseInt(regionId.replace('region-', ''))
@@ -134,10 +146,14 @@ export class JSONFileProvider extends DataProvider {
 
     const regionLocation = this.parseLocation(regionFeature.location)
     
+    if (!regionLocation) {
+      throw new Error(`Invalid region location: ${regionFeature.location}`)
+    }
+
     // Filter features that fall within the region boundaries
     const regionFeatures = features.filter(feature => {
       const location = this.parseLocation(feature.location)
-      if (!location || !regionLocation) return false
+      if (!location) return false
       
       // Check if feature overlaps with region
       return !(location.end < regionLocation.start || location.start > regionLocation.end)
@@ -154,33 +170,31 @@ export class JSONFileProvider extends DataProvider {
 
   /**
    * Get PFAM domain color mapping
-   * @returns {Promise<Object<string, string>>} Map of PFAM IDs to colors
    */
-  async getPfamColorMap() {
+  async getPfamColorMap(): Promise<PfamColorMap> {
     return this.pfamColorMap
   }
 
   /**
    * Set PFAM color map (for loading from external source)
-   * @param {Object<string, string>} colorMap
    */
-  setPfamColorMap(colorMap) {
+  setPfamColorMap(colorMap: PfamColorMap): void {
     this.pfamColorMap = colorMap
   }
 
   /**
    * Find a record by ID
-   * @private
    */
-  findRecord(recordId) {
-    return this.records.find(r => (r.id || `record-${this.records.indexOf(r)}`) === recordId)
+  private findRecord(recordId: string): any | undefined {
+    return this.records.find((r, idx) => 
+      (r.id || `record-${idx}`) === recordId
+    )
   }
 
   /**
    * Parse location string like "[164:2414](+)" or "[257:2393](+)"
-   * @private
    */
-  parseLocation(location) {
+  private parseLocation(location: string): ParsedLocation | null {
     if (!location) return null
     const match = location.match(/\[<?(\d+):>?(\d+)\](?:\(([+-])\))?/)
     if (!match) return null

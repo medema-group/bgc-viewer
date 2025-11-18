@@ -4,7 +4,7 @@ This directory contains data provider implementations for the BGC Viewer. Data p
 
 ## Architecture
 
-All data providers implement the `DataProvider` base class defined in `types.js`, which ensures a consistent interface regardless of the data source.
+All data providers implement the `DataProvider` abstract class defined in `types.ts`, which ensures a consistent interface regardless of the data source. The providers are written in TypeScript for better type safety and IDE support.
 
 ### Available Providers
 
@@ -95,21 +95,25 @@ Returns PFAM domain color mapping.
 
 To add support for a new data source:
 
-1. Create a new file in this directory (e.g., `MyCustomProvider.js`)
-2. Import and extend the `DataProvider` base class
+1. Create a new TypeScript file in this directory (e.g., `MyCustomProvider.ts`)
+2. Import and extend the `DataProvider` abstract class
 3. Implement all required methods
-4. Export your provider in `index.js`
+4. Export your provider in `index.ts`
 
-```javascript
-import { DataProvider } from './types.js'
+```typescript
+import { DataProvider, RegionsResponse, FeaturesResponse, PfamColorMap, RecordInfo } from './types'
 
 export class MyCustomProvider extends DataProvider {
-  constructor(options = {}) {
+  constructor(options: MyCustomOptions = {}) {
     super()
     // Initialize your provider
   }
 
-  async getRegions(recordId) {
+  async getRecords(): Promise<RecordInfo[]> {
+    // Implement your data fetching logic
+  }
+
+  async getRegions(recordId: string): Promise<RegionsResponse> {
     // Implement your data fetching logic
   }
 
