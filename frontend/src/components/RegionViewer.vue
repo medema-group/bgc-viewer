@@ -1,6 +1,6 @@
 <template>
   <!-- Region Selector (shown when record is loaded) -->
-  <div v-if="currentRecord" class="controls">
+  <div v-if="recordInfo" class="controls">
     <select v-if="regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
       <option value="">Show all features</option>
       <option v-for="region in regions" :key="region.id" :value="region.id">
@@ -63,16 +63,16 @@
   </div>
 
   <!-- Current Record Info -->
-  <div v-if="currentRecord" class="current-record-info">
-    <span>Current Record: {{ currentRecord.recordId }} ({{ currentRecord.filename }})</span>
+  <div v-if="recordInfo" class="current-record-info">
+    <span>Current Record: {{ recordInfo.recordId }} ({{ recordInfo.filename }})</span>
     <div class="record-details">
-      <span v-if="currentRecord.recordInfo.description" class="description">
-        {{ currentRecord.recordInfo.description }}
+      <span v-if="recordInfo.recordInfo?.description" class="description">
+        {{ recordInfo.recordInfo.description }}
       </span>
     </div>
   </div>
   
-  <div ref="viewerContainer" class="viewer-container" v-show="currentRecord"></div>
+  <div ref="viewerContainer" class="viewer-container" v-show="recordInfo"></div>
   
   <div v-if="loading" class="loading">
     Loading region data...
@@ -84,23 +84,61 @@
 </template>
 
 <script>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import axios from 'axios'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import './cand-cluster-styling.css'
 import './cluster-styling.css'
 import './gene-type-styling.css'
 
 export default {
   name: 'RegionViewerComponent',
-  setup(props, { expose }) {
+  props: {
+    // Current record information
+    recordInfo: {
+      type: Object,
+      default: null
+      // Expected shape: { recordId, filename, recordInfo: { description } }
+    },
+    // Available regions for the current record
+    regions: {
+      type: Array,
+      default: () => []
+      // Expected shape: [{ id, region_number, product }]
+    },
+    // Features to display
+    features: {
+      type: Array,
+      default: () => []
+      // Expected shape: [{ type, location, qualifiers }]
+    },
+    // Region boundaries (optional, for region-specific view)
+    regionBoundaries: {
+      type: Object,
+      default: null
+      // Expected shape: { start, end }
+    },
+    // PFAM color mapping
+    pfamColorMap: {
+      type: Object,
+      default: () => ({})
+      // Expected shape: { 'PF00001': '#FF0000', ... }
+    },
+    // Selected region ID (controlled from parent)
+    selectedRegionId: {
+      type: String,
+      default: ''
+    }
+  },
+  emits: [
+    'region-changed',      // Emitted when user selects a different region
+    'annotation-clicked',  // Emitted when user clicks an annotation
+    'annotation-hovered',  // Emitted when user hovers over an annotation
+    'error'                // Emitted when an error occurs
+  ],
+  setup(props, { emit, expose }) {
     const viewerContainer = ref(null)
     const selectedRegion = ref('')
-    const regions = ref([])
     const loading = ref(false)
     const error = ref('')
-    
-    // Current record info
-    const currentRecord = ref(null)
     
     // Track management
     const availableTracks = ref([])
@@ -108,33 +146,20 @@ export default {
     const dropdownOpen = ref(false)
     
     let regionViewer = null
-    let currentFeatures = []
     let allTrackData = {} // Store all generated tracks
 
-    const pfam_colormap = {}
-
-    onMounted(async () => {
-      // Load PFAM color mapping
-      try {
-        const colorResponse = await axios.get('/domain-colors.csv')
-        const csvText = colorResponse.data
-        const lines = csvText.split('\n')
-        
-        // Skip header line and process each color mapping
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i].trim()
-          if (line) {
-            const [id, color] = line.split(',')
-            if (id && color) {
-              pfam_colormap[id] = color
-            }
-          }
-        }
-        console.log('Loaded PFAM colors for', Object.keys(pfam_colormap).length, 'domains')
-      } catch (err) {
-        console.warn('Failed to load PFAM color mapping:', err.message)
+    // Watch for prop changes and rebuild the viewer
+    watch(() => props.features, () => {
+      if (props.features && props.features.length > 0) {
+        rebuildViewer()
       }
-      
+    }, { immediate: true })
+
+    watch(() => props.selectedRegionId, (newVal) => {
+      selectedRegion.value = newVal
+    }, { immediate: true })
+
+    onMounted(() => {
       // Add event listeners
       document.addEventListener('click', handleClickOutside)
     })
@@ -143,105 +168,20 @@ export default {
       document.removeEventListener('click', handleClickOutside)
     })
     
-    const onRecordLoaded = async (recordInfo) => {
-      // Store current record info
-      currentRecord.value = recordInfo
-      selectedRegion.value = ''
-      regions.value = []
-      
-      loading.value = true
-      error.value = ''
-      
+    const rebuildViewer = async () => {
       try {
-        // Load regions for the selected record
-        const response = await axios.get(`/api/records/${recordInfo.recordId}/regions`)
-        regions.value = response.data.regions
+        error.value = ''
         
-        console.log('Loaded regions:', regions.value.length)
-        
-        // If regions are found, select the first one by default
-        if (regions.value.length > 0) {
-          selectedRegion.value = regions.value[0].id
-          await onRegionChange()
-        } else {
-          // Load all features for this record if no regions found
-          await loadAllFeaturesForRecord()
-        }
-        
-      } catch (err) {
-        error.value = `Failed to load record data: ${err.message}`
-      } finally {
-        loading.value = false
-      }
-    }
-    
-    const loadAllFeaturesForRecord = async () => {
-      try {
-        console.log('Loading all features for record:', currentRecord.value.recordId)
-        // Load all features for the selected record (no region filtering)
-        // Since we loaded a specific record, we use the single record that was loaded
-        const response = await axios.get(`/api/records/${currentRecord.value.recordId}/features`)
-        console.log('Features API response:', response.data)
-        currentFeatures = response.data.features
-        
-        if (!currentFeatures || currentFeatures.length === 0) {
-          console.warn('No features found for record:', currentRecord.value.recordId)
-          error.value = 'No features found for this record'
+        if (!props.features || props.features.length === 0) {
+          console.warn('No features provided')
           return
         }
         
-        console.log('Found', currentFeatures.length, 'features')
+        console.log('Building viewer with', props.features.length, 'features')
         
         // Build all tracks from features
         buildAllTracks()
         console.log('Built tracks:', Object.keys(allTrackData))
-        
-        // Extract available tracks and select all by default
-        const tracks = Object.values(allTrackData).map(track => ({
-          id: track.id,
-          label: track.label,
-          annotationCount: track.annotations.length
-        }))
-        sortTracks(tracks)
-        availableTracks.value = tracks
-        // For all features mode, select all tracks by default (not just CDS/protocluster)
-        selectedTracks.value = tracks.map(t => t.id)
-
-        console.log('Available tracks:', availableTracks.value)
-        console.log('Selected tracks:', selectedTracks.value)
-
-        await nextTick() // Wait for DOM update
-        // Initialize viewer without region boundaries (use feature boundaries)
-        console.log('Initializing viewer...')
-        initializeViewer(null)
-        updateViewer()
-        console.log('Viewer initialized and updated')
-        
-      } catch (err) {
-        console.error('Error in loadAllFeaturesForRecord:', err)
-        error.value = `Failed to load all features: ${err.message}`
-      }
-    }
-    
-    const onRegionChange = async () => {
-      if (!currentRecord.value || !selectedRegion.value) {
-        // If no region selected, show all features
-        if (!selectedRegion.value && currentRecord.value) {
-          await loadAllFeaturesForRecord()
-        }
-        return
-      }
-      
-      loading.value = true
-      error.value = ''
-      
-      try {
-        // Load features for the selected region
-        const response = await axios.get(`/api/records/${currentRecord.value.recordId}/regions/${selectedRegion.value}/features`)
-        currentFeatures = response.data.features
-        
-        // Build all tracks from features
-        buildAllTracks()
         
         // Extract available tracks
         const tracks = Object.values(allTrackData).map(track => ({
@@ -251,23 +191,45 @@ export default {
         }))
         sortTracks(tracks)
         availableTracks.value = tracks
-        selectedTracks.value = tracks.filter(t => ['CDS'].includes(t.id) ||
-                                                  t.id.includes('protocluster') ||
-                                                  t.id.includes('PFAM_domain') ||
-                                                  t.id.includes('cand_cluster')).map(t => t.id)
+        
+        // Select default tracks based on context
+        if (props.regionBoundaries) {
+          // Region-specific view: select CDS, protoclusters, PFAM, candidate clusters
+          selectedTracks.value = tracks.filter(t => 
+            ['CDS'].includes(t.id) ||
+            t.id.includes('protocluster') ||
+            t.id.includes('PFAM_domain') ||
+            t.id.includes('cand_cluster')
+          ).map(t => t.id)
+        } else {
+          // All features view: select all tracks
+          selectedTracks.value = tracks.map(t => t.id)
+        }
+
+        console.log('Available tracks:', availableTracks.value)
+        console.log('Selected tracks:', selectedTracks.value)
 
         await nextTick() // Wait for DOM update
-        initializeViewer(response.data.region_boundaries)
+        
+        // Initialize viewer
+        console.log('Initializing viewer...')
+        initializeViewer()
         updateViewer()
+        console.log('Viewer initialized and updated')
         
       } catch (err) {
-        error.value = `Failed to load region features: ${err.message}`
-      } finally {
-        loading.value = false
+        console.error('Error in rebuildViewer:', err)
+        error.value = `Failed to build viewer: ${err.message}`
+        emit('error', err)
       }
     }
     
-    const initializeViewer = (regionBoundaries = null) => {
+    const onRegionChange = () => {
+      // Emit event to parent to handle region change
+      emit('region-changed', selectedRegion.value)
+    }
+    
+    const initializeViewer = () => {
       if (regionViewer) {
         regionViewer.destroy()
       }
@@ -276,16 +238,16 @@ export default {
       
       let minPos, maxPos, padding
       
-      if (regionBoundaries) {
+      if (props.regionBoundaries) {
         // Use region boundaries if provided
-        minPos = regionBoundaries.start
-        maxPos = regionBoundaries.end
+        minPos = props.regionBoundaries.start
+        maxPos = props.regionBoundaries.end
         padding = (maxPos - minPos) * 0.1
         console.log('Using region boundaries:', minPos, '-', maxPos)
       } else {
         // Fallback to calculating from features
-        console.log('Calculating boundaries from', currentFeatures.length, 'features')
-        const positions = currentFeatures
+        console.log('Calculating boundaries from', props.features.length, 'features')
+        const positions = props.features
           .filter(f => f.location)
           .map(f => {
             // Parse location string like "[164:2414](+)" or "[257:2393](+)"
@@ -318,9 +280,11 @@ export default {
         trackHeight: 40,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
+          emit('annotation-clicked', { annotation, track })
         },
         onAnnotationHover: (annotation, track, event) => {
           // Hover is handled by the TrackViewer's built-in tooltip
+          emit('annotation-hovered', { annotation, track, event })
         }
       })
       console.log('TrackViewer created successfully')
@@ -367,7 +331,7 @@ export default {
       allTrackData = {}
       
       // Process all features to build all possible tracks
-      currentFeatures.forEach(feature => {
+      props.features.forEach(feature => {
         if (!feature.location) return
         const location = parseGeneLocation(feature.location)
         if (!location) {
@@ -415,7 +379,7 @@ export default {
                            feature.qualifiers?.inference?.[0]?.match(/PFAM:([^,\s]+)/)?.[1] ||
                            feature.qualifiers?.note?.[0]?.match(/PF\d+/)?.[0]
             const [pfamAccession, pfamVersion] = pfamId ? pfamId.split('.') : ['', ''];
-            const domainColor = pfamAccession && pfam_colormap[pfamAccession] ? pfam_colormap[pfamAccession] : null
+            const domainColor = pfamAccession && props.pfamColorMap[pfamAccession] ? props.pfamColorMap[pfamAccession] : null
             const pfamDescription = feature.qualifiers?.description?.[0] || ''
             const pfamLabel = `${pfamAccession} ${pfamDescription}`.trim()
 
@@ -611,10 +575,7 @@ export default {
     
     // Clear the viewer and reset state
     const clearViewer = () => {
-      currentRecord.value = null
       selectedRegion.value = ''
-      regions.value = []
-      currentFeatures = []
       allTrackData = {}
       availableTracks.value = []
       selectedTracks.value = []
@@ -628,23 +589,20 @@ export default {
     }
 
     
-    // Expose methods for parent component
+    // Expose methods for parent component (kept for backwards compatibility)
     expose({
-      loadRecord: onRecordLoaded,
-      clearViewer
+      clearViewer,
+      rebuildViewer
     })
 
     return {
       viewerContainer,
       selectedRegion,
-      regions,
       loading,
       error,
-      currentRecord,
       availableTracks,
       selectedTracks,
       dropdownOpen,
-      onRecordLoaded,
       onRegionChange,
       updateViewer,
       toggleDropdown,
