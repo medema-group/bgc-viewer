@@ -49,6 +49,14 @@ export type PfamColorMap = Record<string, string>
  */
 export abstract class DataProvider {
   /**
+   * Load an entry into the backend session and get its metadata
+   * This should be called before accessing regions/features for a record.
+   * For file-based providers, this may be a no-op that just returns metadata.
+   * For the API provider, the entryId refers to a record within a file and includes the file path.
+   */
+  abstract loadEntry(entryId: string): Promise<RecordInfo>
+
+  /**
    * Get a list of available records
    */
   abstract getRecords(): Promise<RecordInfo[]>

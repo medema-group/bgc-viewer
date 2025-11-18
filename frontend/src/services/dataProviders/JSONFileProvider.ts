@@ -70,6 +70,27 @@ export class JSONFileProvider extends DataProvider {
   }
 
   /**
+   * Load an entry (no-op for JSON file provider as data is already in memory)
+   */
+  async loadEntry(entryId: string): Promise<RecordInfo> {
+    // For JSON file provider, extract recordId from entryId (format: "filename:record_id")
+    const recordId = entryId.includes(':') ? entryId.split(':', 2)[1] : entryId
+    
+    const record = this.records.find(r => r.id === recordId)
+    if (!record) {
+      throw new Error(`Record ${recordId} not found`)
+    }
+    
+    return {
+      recordId: record.id,
+      filename: entryId.includes(':') ? entryId.split(':', 2)[0] : 'unknown',
+      recordInfo: {
+        description: record.description || ''
+      }
+    }
+  }
+
+  /**
    * Get a list of available records
    */
   async getRecords(): Promise<RecordInfo[]> {

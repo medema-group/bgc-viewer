@@ -25,6 +25,31 @@ export class BGCViewerAPIProvider extends DataProvider {
   }
 
   /**
+   * Load an entry into the backend session and get its metadata
+   */
+  async loadEntry(entryId: string): Promise<RecordInfo> {
+    const response = await this.axiosInstance.post<{
+      filename: string
+      record_id: string
+      record_info: {
+        id: string
+        description: string
+        feature_count: number
+      }
+    }>('/api/load-entry', {
+      id: entryId
+    })
+    
+    return {
+      recordId: response.data.record_id,
+      filename: response.data.filename,
+      recordInfo: {
+        description: response.data.record_info.description
+      }
+    }
+  }
+
+  /**
    * Get a list of available records
    */
   async getRecords(): Promise<RecordInfo[]> {

@@ -35,6 +35,11 @@ export default {
       type: String,
       default: ''
     },
+    // Full record data from RecordListSelector (includes entryId, recordId, filename for API provider)
+    recordData: {
+      type: Object,
+      default: null
+    },
     // Initial region ID to select (optional)
     initialRegionId: {
       type: String,
@@ -42,7 +47,6 @@ export default {
     }
   },
   emits: [
-    'record-loaded',
     'region-changed',
     'annotation-clicked',
     'error'
@@ -122,17 +126,20 @@ export default {
       error.value = ''
       
       try {
-        // Create record info object
+        // First, load the entry through the provider to set up session and get metadata
+        // If recordData is provided, use the entryId; otherwise use recordId as entryId
+        const entryId = props.recordData?.entryId || recordId
+        const recordMetadata = await provider.value.loadEntry(entryId)
+        
+        // Use the metadata from the provider
         recordInfo.value = {
-          recordId: recordId,
-          filename: recordId, // This should ideally come from the API
-          recordInfo: {
-            description: '' // This should ideally come from the API
-          }
+          recordId: recordMetadata.recordId,
+          filename: recordMetadata.filename,
+          recordInfo: recordMetadata.recordInfo
         }
 
         // Load regions for the record
-        const regionsResponse = await provider.value.getRegions(recordId)
+        const regionsResponse = await provider.value.getRegions(recordInfo.value.recordId)
         regions.value = regionsResponse.regions
 
         console.log('Loaded regions:', regions.value.length)
@@ -140,15 +147,13 @@ export default {
         // If regions are found and no initial region is set, select the first one
         if (regions.value.length > 0 && !selectedRegionId.value) {
           selectedRegionId.value = regions.value[0].id
-          await loadRegionFeatures(recordId, selectedRegionId.value)
+          await loadRegionFeatures(recordInfo.value.recordId, selectedRegionId.value)
         } else if (selectedRegionId.value) {
-          await loadRegionFeatures(recordId, selectedRegionId.value)
+          await loadRegionFeatures(recordInfo.value.recordId, selectedRegionId.value)
         } else {
           // No regions found, load all features
-          await loadAllFeatures(recordId)
+          await loadAllFeatures(recordInfo.value.recordId)
         }
-
-        emit('record-loaded', recordInfo.value)
       } catch (err) {
         error.value = `Failed to load record: ${err.message}`
         emit('error', err)

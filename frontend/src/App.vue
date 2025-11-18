@@ -32,7 +32,7 @@
         ref="recordListSelectorRef"
         :data-root="selectedDataRoot"
         :index-path="selectedIndexPath"
-        @record-loaded="handleRecordLoaded" 
+        @record-selected="handleRecordSelected" 
       />
 
       <!-- Region Viewer Section - Hidden when creating an index -->
@@ -42,8 +42,8 @@
           ref="regionViewerRef"
           :data-provider="dataProvider"
           :record-id="currentRecordId"
+          :record-data="currentRecordData"
           :initial-region-id="initialRegionId"
-          @record-loaded="handleRecordLoaded"
           @region-changed="handleRegionChanged"
           @annotation-clicked="handleAnnotationClicked"
           @error="handleViewerError"
@@ -103,6 +103,7 @@ export default {
     // Region viewer state - much simpler now!
     const dataProvider = ref(null)
     const currentRecordId = ref('')
+    const currentRecordData = ref(null)
     const initialRegionId = ref('')
     
     const handleFolderSelected = async (folderPath) => {
@@ -132,8 +133,15 @@ export default {
       }
     }
 
-    const handleRecordLoaded = async (recordData) => {
-      // Simply set the record ID - the container handles the rest!
+    const handleRecordSelected = async (recordData) => {
+      // Store the selected entry ID - container will load it through the provider
+      currentRecordData.value = {
+        entryId: recordData.entryId,
+        recordId: recordData.recordId,
+        filename: recordData.filename
+      }
+      
+      // Set the record ID to trigger the container to load
       currentRecordId.value = recordData.recordId
       initialRegionId.value = '' // Reset region selection for new record
       
@@ -237,11 +245,12 @@ export default {
       needsPreprocessing,
       dataProvider,
       currentRecordId,
+      currentRecordData,
       initialRegionId,
       handleFolderSelected,
       handleFolderChanged,
       handleIndexChanged,
-      handleRecordLoaded,
+      handleRecordSelected,
       handleRegionChanged,
       handleAnnotationClicked,
       handleViewerError,
