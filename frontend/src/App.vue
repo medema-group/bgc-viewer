@@ -38,7 +38,16 @@
       <!-- Region Viewer Section - Hidden when creating an index -->
       <section v-if="!folderForIndexing" class="region-section">
         <h2>Record visualization</h2>
-        <RegionViewerComponent ref="regionViewerRef" />
+        <RegionViewerContainer 
+          ref="regionViewerRef"
+          :data-provider="dataProvider"
+          :record-id="currentRecordId"
+          :initial-region-id="initialRegionId"
+          @record-loaded="handleRecordLoaded"
+          @region-changed="handleRegionChanged"
+          @annotation-clicked="handleAnnotationClicked"
+          @error="handleViewerError"
+        />
       </section>
 
     </main>
@@ -55,15 +64,16 @@
 <script>
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
-import RegionViewerComponent from './components/RegionViewer.vue'
+import RegionViewerContainer from './components/RegionViewerContainer.vue'
 import IndexSelection from './components/IndexSelection.vue'
 import IndexCreation from './components/IndexCreation.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
+import { BGCViewerAPIProvider } from '@/services/dataProviders'
 
 export default {
   name: 'App',
   components: {
-    RegionViewerComponent,
+    RegionViewerContainer,
     IndexSelection,
     IndexCreation,
     RecordListSelector
@@ -90,6 +100,11 @@ export default {
     const isLoadingFiles = ref(false)
     const needsPreprocessing = ref(false)
     
+    // Region viewer state - much simpler now!
+    const dataProvider = ref(null)
+    const currentRecordId = ref('')
+    const initialRegionId = ref('')
+    
     const handleFolderSelected = async (folderPath) => {
       // Update the selected data root
       selectedDataRoot.value = folderPath
@@ -106,9 +121,9 @@ export default {
 
     const handleIndexChanged = async (indexPath) => {
       // Clear the viewer when the index changes
-      if (regionViewerRef.value) {
-        regionViewerRef.value.clearViewer()
-      }
+      currentRecordId.value = ''
+      initialRegionId.value = ''
+      
       // Store the index file path (not data root)
       selectedIndexPath.value = indexPath
       // Refresh the record list when index has changed
@@ -118,10 +133,26 @@ export default {
     }
 
     const handleRecordLoaded = async (recordData) => {
-      // Load the record into the RegionViewer component
-      if (regionViewerRef.value) {
-        await regionViewerRef.value.loadRecord(recordData)
-      }
+      // Simply set the record ID - the container handles the rest!
+      currentRecordId.value = recordData.recordId
+      initialRegionId.value = '' // Reset region selection for new record
+      
+      console.log('Record selected:', recordData.recordId)
+    }
+    
+    const handleRegionChanged = (regionId) => {
+      console.log('Region changed to:', regionId)
+      // You can add custom handling here if needed
+    }
+    
+    const handleAnnotationClicked = (data) => {
+      console.log('Annotation clicked:', data)
+      // You can add custom handling here
+    }
+    
+    const handleViewerError = (error) => {
+      console.error('Viewer error:', error)
+      // You can add error handling/display here
     }
     
     const handleCreateIndexForFolder = async ({ folderPath, indexPath, files }) => {
@@ -183,9 +214,12 @@ export default {
     }
     
     // Fetch application version and status on component mount
-    onMounted(() => {
+    onMounted(async () => {
       fetchVersion()
       fetchStatus()
+      
+      // Initialize data provider - this will be shared with the container
+      dataProvider.value = new BGCViewerAPIProvider()
     })
     
     return {
@@ -201,10 +235,16 @@ export default {
       availableFiles,
       isLoadingFiles,
       needsPreprocessing,
+      dataProvider,
+      currentRecordId,
+      initialRegionId,
       handleFolderSelected,
       handleFolderChanged,
       handleIndexChanged,
       handleRecordLoaded,
+      handleRegionChanged,
+      handleAnnotationClicked,
+      handleViewerError,
       handleCreateIndexForFolder,
       handlePreprocessingCompleted,
       handleCancelIndexCreation

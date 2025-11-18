@@ -30,10 +30,10 @@ export default {
       type: Object,
       default: null
     },
-    // Record ID to load
+    // Record ID to load (can be changed dynamically)
     recordId: {
       type: String,
-      required: true
+      default: ''
     },
     // Initial region ID to select (optional)
     initialRegionId: {
@@ -75,13 +75,47 @@ export default {
     watch(() => props.recordId, async (newRecordId) => {
       if (newRecordId && provider.value) {
         await loadRecord(newRecordId)
+      } else if (!newRecordId) {
+        // Clear viewer when recordId is empty
+        clearViewer()
       }
     }, { immediate: true })
 
+    // Watch for dataProvider changes
+    watch(() => props.dataProvider, (newProvider) => {
+      if (newProvider) {
+        provider.value = newProvider
+        // Reload color map with new provider
+        loadColorMap()
+      }
+    })
+
     // Watch for initialRegionId changes
     watch(() => props.initialRegionId, (newRegionId) => {
-      selectedRegionId.value = newRegionId
-    }, { immediate: true })
+      if (newRegionId && regions.value.length > 0) {
+        selectedRegionId.value = newRegionId
+        if (recordInfo.value) {
+          loadRegionFeatures(recordInfo.value.recordId, newRegionId)
+        }
+      }
+    })
+
+    const loadColorMap = async () => {
+      if (!provider.value) return
+      try {
+        pfamColorMap.value = await provider.value.getPfamColorMap()
+      } catch (err) {
+        console.warn('Failed to load PFAM color mapping:', err.message)
+      }
+    }
+
+    const clearViewer = () => {
+      recordInfo.value = null
+      regions.value = []
+      features.value = []
+      regionBoundaries.value = null
+      selectedRegionId.value = ''
+    }
 
     const loadRecord = async (recordId) => {
       loading.value = true
