@@ -61,6 +61,115 @@ export default {
     const loading = ref(false)
     const error = ref('')
 
+    // Helper functions (defined before watchers to avoid hoisting issues)
+    const clearViewer = () => {
+      recordInfo.value = null
+      regions.value = []
+      features.value = []
+      regionBoundaries.value = null
+      selectedRegionId.value = ''
+    }
+
+    const loadColorMap = async () => {
+      if (!provider.value) return
+      try {
+        pfamColorMap.value = await provider.value.getPfamColorMap()
+        console.log('Loaded PFAM colors for', Object.keys(pfamColorMap.value).length, 'domains')
+      } catch (err) {
+        console.warn('Failed to load PFAM color mapping:', err.message)
+      }
+    }
+
+    const loadRecord = async (recordId) => {
+      loading.value = true
+      error.value = ''
+      
+      // Reset selected region when loading a new record
+      selectedRegionId.value = ''
+      
+      try {
+        if (!provider.value) {
+          throw new Error('No data provider available')
+        }
+
+        // Get record info with description
+        const entryInfo = await provider.value.loadEntry(recordId)
+        recordInfo.value = {
+          recordId: entryInfo.recordId,
+          filename: entryInfo.filename,
+          recordInfo: entryInfo.recordInfo
+        }
+        
+        // Get regions
+        const regionsData = await provider.value.getRegions(recordInfo.value.recordId)
+        regions.value = regionsData.regions || []
+        regionBoundaries.value = regionsData.boundaries || null
+        
+        // Load features based on whether there are regions
+        if (regions.value && regions.value.length > 0) {
+          // If there are regions, select the first one and load its features
+          selectedRegionId.value = regions.value[0].id
+          await loadRegionFeatures(recordInfo.value.recordId, selectedRegionId.value)
+        } else {
+          // No regions - load all features for the record
+          await loadAllFeatures(recordInfo.value.recordId)
+        }
+        
+        loading.value = false
+      } catch (err) {
+        console.error('Error loading record:', err)
+        error.value = `Failed to load record: ${err.message}`
+        emit('error', error.value)
+        loading.value = false
+      }
+    }
+
+    const loadRegionFeatures = async (recordId, regionId) => {
+      try {
+        const featuresData = await provider.value.getRegionFeatures(recordId, regionId)
+        features.value = featuresData.features || []
+        regionBoundaries.value = featuresData.region_boundaries || null
+      } catch (err) {
+        console.error('Error loading region features:', err)
+        error.value = `Failed to load region features: ${err.message}`
+        emit('error', error.value)
+      }
+    }
+
+    const loadAllFeatures = async (recordId) => {
+      try {
+        const featuresData = await provider.value.getRecordFeatures(recordId)
+        features.value = featuresData.features || []
+        regionBoundaries.value = null // No region boundaries when showing all features
+      } catch (err) {
+        console.error('Error loading features:', err)
+        error.value = `Failed to load features: ${err.message}`
+        emit('error', error.value)
+      }
+    }
+
+    const handleRegionChanged = async (regionId) => {
+      selectedRegionId.value = regionId
+      
+      if (!regionId) {
+        // Load all features
+        await loadAllFeatures(props.recordId)
+      } else {
+        // Load region-specific features
+        await loadRegionFeatures(props.recordId, regionId)
+      }
+      
+      emit('region-changed', regionId)
+    }
+
+    const handleAnnotationClicked = (data) => {
+      emit('annotation-clicked', data)
+    }
+
+    const handleError = (err) => {
+      emit('error', err)
+    }
+
     onMounted(async () => {
       // Use provided data provider (required)
       if (!props.dataProvider) {
@@ -71,12 +180,7 @@ export default {
       provider.value = props.dataProvider
       
       // Load PFAM color map
-      try {
-        pfamColorMap.value = await provider.value.getPfamColorMap()
-        console.log('Loaded PFAM colors for', Object.keys(pfamColorMap.value).length, 'domains')
-      } catch (err) {
-        console.warn('Failed to load PFAM color mapping:', err.message)
-      }
+      await loadColorMap()
     })
 
     // Watch for recordId changes
@@ -107,114 +211,6 @@ export default {
         }
       }
     })
-
-    const loadColorMap = async () => {
-      if (!provider.value) return
-      try {
-        pfamColorMap.value = await provider.value.getPfamColorMap()
-      } catch (err) {
-        console.warn('Failed to load PFAM color mapping:', err.message)
-      }
-    }
-
-    const clearViewer = () => {
-      recordInfo.value = null
-      regions.value = []
-      features.value = []
-      regionBoundaries.value = null
-      selectedRegionId.value = ''
-    }
-
-    const loadRecord = async (recordId) => {
-      loading.value = true
-      error.value = ''
-      selectedRegionId.value = ''
-      
-      try {
-        // First, load the entry through the provider to set up session and get metadata
-        // If recordData is provided, use the entryId; otherwise use recordId as entryId
-        const entryId = props.recordData?.entryId || recordId
-        const recordMetadata = await provider.value.loadEntry(entryId)
-        
-        // Use the metadata from the provider
-        recordInfo.value = {
-          recordId: recordMetadata.recordId,
-          filename: recordMetadata.filename,
-          recordInfo: recordMetadata.recordInfo
-        }
-
-        // Load regions for the record
-        const regionsResponse = await provider.value.getRegions(recordInfo.value.recordId)
-        regions.value = regionsResponse.regions
-
-        console.log('Loaded regions:', regions.value.length)
-
-        // If regions are found and no initial region is set, select the first one
-        if (regions.value.length > 0 && !selectedRegionId.value) {
-          selectedRegionId.value = regions.value[0].id
-          await loadRegionFeatures(recordInfo.value.recordId, selectedRegionId.value)
-        } else if (selectedRegionId.value) {
-          await loadRegionFeatures(recordInfo.value.recordId, selectedRegionId.value)
-        } else {
-          // No regions found, load all features
-          await loadAllFeatures(recordInfo.value.recordId)
-        }
-      } catch (err) {
-        error.value = `Failed to load record: ${err.message}`
-        emit('error', err)
-        console.error('Error loading record:', err)
-      } finally {
-        loading.value = false
-      }
-    }
-
-    const loadAllFeatures = async (recordId) => {
-      try {
-        const response = await provider.value.getRecordFeatures(recordId)
-        features.value = response.features
-        regionBoundaries.value = null
-        console.log('Loaded', features.value.length, 'features')
-      } catch (err) {
-        error.value = `Failed to load features: ${err.message}`
-        emit('error', err)
-        throw err
-      }
-    }
-
-    const loadRegionFeatures = async (recordId, regionId) => {
-      try {
-        const response = await provider.value.getRegionFeatures(recordId, regionId)
-        features.value = response.features
-        regionBoundaries.value = response.region_boundaries
-        console.log('Loaded', features.value.length, 'features for region', regionId)
-      } catch (err) {
-        error.value = `Failed to load region features: ${err.message}`
-        emit('error', err)
-        throw err
-      }
-    }
-
-    const handleRegionChanged = async (regionId) => {
-      selectedRegionId.value = regionId
-      
-      if (!regionId) {
-        // Load all features
-        await loadAllFeatures(props.recordId)
-      } else {
-        // Load region-specific features
-        await loadRegionFeatures(props.recordId, regionId)
-      }
-      
-      emit('region-changed', regionId)
-    }
-
-    const handleAnnotationClicked = (data) => {
-      emit('annotation-clicked', data)
-    }
-
-    const handleError = (err) => {
-      emit('error', err)
-    }
 
     return {
       recordInfo,
