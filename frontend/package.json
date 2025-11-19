@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:web-components": "vite build --config vite.config.webcomponents.js",
+    "build:all": "npm run build && npm run build:web-components",
     "preview": "vite preview",
     "build-python": "npm run build && python -m build"
   },

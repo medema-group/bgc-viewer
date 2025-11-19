@@ -17,7 +17,6 @@
 <script>
 import { ref, watch, onMounted } from 'vue'
 import RegionViewer from './RegionViewer.vue'
-import { BGCViewerAPIProvider } from '@/services/dataProviders'
 
 export default {
   name: 'RegionViewerContainer',
@@ -63,8 +62,13 @@ export default {
     const error = ref('')
 
     onMounted(async () => {
-      // Use provided data provider or create default one
-      provider.value = props.dataProvider || new BGCViewerAPIProvider()
+      // Use provided data provider (required)
+      if (!props.dataProvider) {
+        error.value = 'No data provider specified. Please set the dataProvider property.'
+        emit('error', error.value)
+        return
+      }
+      provider.value = props.dataProvider
       
       // Load PFAM color map
       try {
