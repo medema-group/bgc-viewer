@@ -177,6 +177,10 @@
       <div id="status" style="margin-top: 10px; font-style: italic; color: #666;"></div>
     </div>
 
+    <div class="viewer-section">
+      <bgc-region-viewer-container id="viewer"></bgc-region-viewer-container>
+    </div>
+    
     <div class="event-log">
       <h2>Event Log</h2>
       <button onclick="clearLog()" style="float: right; padding: 5px 10px; font-size: 12px;">Clear Log</button>
@@ -185,12 +189,8 @@
       </div>
     </div>
 
-    <div class="viewer-section">
-      <bgc-region-viewer-container id="viewer"></bgc-region-viewer-container>
-    </div>
-
     <footer>
-      <p>BGC Viewer Web Components | Built with Vue 3 | <a href="https://github.com/medema-group/bgc-viewer" target="_blank">GitHub</a></p>
+      <p>BGC Viewer Web Components | <a href="https://github.com/medema-group/bgc-viewer" target="_blank">GitHub</a></p>
     </footer>
   </div>
 
@@ -331,12 +331,18 @@
     }
     
     function clearViewer() {
-      if (viewer) {
-        viewer.setAttribute('record-id', '');
+      const viewer = initViewer(); // Always initialize viewer first
+
+      // Set the attribute immediately (this triggers prop watchers inside the component)
+      viewer.setAttribute('record-id', '');
+
+      // Custom elements may not have properties defined until after the upgrade microtask.
+      // Delay the property assignment to ensure the custom element has been fully initialized.
+      Promise.resolve().then(() => {
         viewer.recordData = null;
         log('info', 'Viewer cleared');
         setStatus('Viewer cleared');
-      }
+      });
     }
     
     // Log when page is ready

@@ -184,11 +184,11 @@ export default {
     })
 
     // Watch for recordId changes
-    watch(() => props.recordId, async (newRecordId) => {
+    watch(() => props.recordId, async (newRecordId, oldRecordId) => {
       if (newRecordId && provider.value) {
         await loadRecord(newRecordId)
-      } else if (!newRecordId) {
-        // Clear viewer when recordId is empty
+      } else if (!newRecordId && oldRecordId !== undefined) {
+        // Clear viewer when recordId is changed to empty (but not on initial mount)
         clearViewer()
       }
     }, { immediate: true })
