@@ -92,8 +92,13 @@ export default {
           throw new Error('No data provider available')
         }
 
+        // For BGCViewerAPIProvider, we need the full entryId (filename:recordId)
+        // For JSONFileProvider, just the recordId is fine
+        // Use recordData.entryId if available, otherwise fall back to recordId
+        const entryId = props.recordData?.entryId || recordId
+        
         // Get record info with description
-        const entryInfo = await provider.value.loadEntry(recordId)
+        const entryInfo = await provider.value.loadEntry(entryId)
         recordInfo.value = {
           recordId: entryInfo.recordId,
           filename: entryInfo.filename,
