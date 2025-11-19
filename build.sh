@@ -51,6 +51,10 @@ rm -rf build/ dist/
 npm install
 npm run build
 
+# Build web components
+echo "Building web components..."
+npm run build:web-components
+
 # Copy viewer components to frontend public directory so Vite includes it in build
 echo "Copying viewer components to frontend public directory..."
 mkdir -p public

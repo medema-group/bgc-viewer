@@ -48,6 +48,16 @@ jobs:
         cd frontend
         npm run build
 
+    - name: Build web components
+      run: |
+        cd frontend
+        npm run build:web-components
+
+    - name: Run frontend tests
+      run: |
+        cd frontend
+        npm test -- --run
+
     - name: Copy viewer-components and frontend assets to backend
       run: |
         mkdir -p backend/bgc_viewer/static
