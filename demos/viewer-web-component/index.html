@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BGC Viewer Web Components - Simple Test</title>
+  <link rel="stylesheet" href="../../frontend/dist/web-components/style.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background-color: #f4f4f4;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding: 20px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    header h1 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 14px;
+    }
+
+    .controls {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .controls h2 {
+      color: #1976d2;
+      margin-bottom: 15px;
+      font-size: 18px;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 15px;
+    }
+
+    button {
+      padding: 10px 20px;
+      background-color: #1976d2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+
+    button:hover {
+      background-color: #1565c0;
+    }
+
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+
+    .viewer-section {
+      background: white;
+      border: 1px solid #e9ecef;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 30px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .info-box {
+      background-color: #e3f2fd;
+      border-left: 4px solid #1976d2;
+      padding: 12px;
+      margin-bottom: 15px;
+      border-radius: 4px;
+    }
+
+    .event-log {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .event-log h2 {
+      color: #1976d2;
+      margin-bottom: 15px;
+      font-size: 18px;
+    }
+
+    .log-content {
+      background-color: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+    }
+
+    .log-entry {
+      padding: 4px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+
+    .log-time {
+      color: #666;
+      margin-right: 10px;
+    }
+
+    .log-type {
+      font-weight: bold;
+      margin-right: 10px;
+    }
+
+    .log-type.region { color: #1976d2; }
+    .log-type.annotation { color: #4caf50; }
+    .log-type.error { color: #f44336; }
+
+    footer {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🧬 BGC Viewer Web Components</h1>
+      <p class="subtitle">Interactive test page for the BGC region viewer component</p>
+    </header>
+
+    <div class="controls">
+      <h2>Load Sample Records</h2>
+      <div class="info-box">
+        Click a button below to load a sample antiSMASH record. The data is loaded directly from JSON files (no backend required).
+      </div>
+      <div class="button-group">
+        <button onclick="loadRecord('../data/NC_003888.3.json', 'NC_003888.3')">Load NC_003888.3 (local)</button>
+        <button onclick="clearViewer()">Clear Viewer</button>
+      </div>
+      <div id="status" style="margin-top: 10px; font-style: italic; color: #666;"></div>
+    </div>
+
+    <div class="viewer-section">
+      <bgc-region-viewer-container id="viewer"></bgc-region-viewer-container>
+    </div>
+    
+    <div class="event-log">
+      <h2>Event Log</h2>
+      <button onclick="clearLog()" style="float: right; padding: 5px 10px; font-size: 12px;">Clear Log</button>
+      <div class="log-content" id="log-content">
+        <div style="color: #999;">Events will appear here...</div>
+      </div>
+    </div>
+
+    <footer>
+      <p>BGC Viewer Web Components | <a href="https://github.com/medema-group/bgc-viewer" target="_blank">GitHub</a></p>
+    </footer>
+  </div>
+
+  <!-- Load required dependencies -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="../../frontend/public/viewer-components.umd.js"></script>
+  
+  <!-- Load the web components library -->
+  <script type="module">
+    import { JSONFileProvider } from '../../frontend/dist/web-components/bgc-viewer-components.es.js';
+    
+    // Make it available globally
+    window.JSONFileProvider = JSONFileProvider;
+    
+    console.log('✅ Web components loaded successfully');
+    console.log('Available components:', {
+      container: customElements.get('bgc-region-viewer-container'),
+      viewer: customElements.get('bgc-region-viewer')
+    });
+  </script>
+  
+  <script>
+    let viewer = null;
+    let provider = null;
+    
+    function log(type, message, data) {
+      const logContent = document.getElementById('log-content');
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      
+      let dataStr = '';
+      if (data) {
+        dataStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+        if (dataStr.length > 100) {
+          dataStr = dataStr.substring(0, 100) + '...';
+        }
+      }
+      
+      entry.innerHTML = `
+        <span class="log-time">${time}</span>
+        <span class="log-type ${type}">${type.toUpperCase()}</span>
+        <span>${message}</span>
+        ${dataStr ? `<pre style="margin: 5px 0 0 120px; color: #666;">${dataStr}</pre>` : ''}
+      `;
+      
+      // Remove placeholder if exists
+      if (logContent.children.length === 1 && logContent.children[0].textContent.includes('Events will appear')) {
+        logContent.innerHTML = '';
+      }
+      
+      logContent.appendChild(entry);
+      logContent.scrollTop = logContent.scrollHeight;
+    }
+    
+    function clearLog() {
+      const logContent = document.getElementById('log-content');
+      logContent.innerHTML = '<div style="color: #999;">Events will appear here...</div>';
+    }
+    
+    function setStatus(message) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+    }
+    
+    function initViewer() {
+      if (!viewer) {
+        viewer = document.getElementById('viewer');
+        
+        // Listen to events
+        viewer.addEventListener('region-changed', (e) => {
+          log('region', 'Region changed', e.detail);
+          console.log('Region changed:', e.detail);
+        });
+        
+        viewer.addEventListener('annotation-clicked', (e) => {
+          log('annotation', 'Annotation clicked', {
+            annotation: e.detail.annotation?.label || e.detail.annotation?.id,
+            track: e.detail.track
+          });
+          console.log('Annotation clicked:', e.detail);
+        });
+        
+        viewer.addEventListener('error', (e) => {
+          log('error', 'Error occurred', e.detail);
+          console.error('Viewer error:', e.detail);
+        });
+        
+        log('info', 'Viewer initialized');
+      }
+      return viewer;
+    }
+    
+    async function loadRecord(jsonUrl, recordId) {
+      try {
+        const viewer = initViewer();
+        
+        log('info', `Fetching data from: ${jsonUrl}`);
+        setStatus(`Loading ${recordId}...`);
+        
+        // Fetch the JSON data
+        const response = await fetch(jsonUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+        }
+        
+        const jsonData = await response.json();
+        log('info', `Data fetched successfully`, `Records: ${jsonData.records?.length || 0}`);
+        
+        // Create a new provider with the loaded data
+        provider = new JSONFileProvider(jsonData);
+        viewer.dataProvider = provider;
+        
+        // Find the first record (or specific record if multiple)
+        const firstRecordId = jsonData.records?.[0]?.id || recordId;
+        const filename = jsonUrl.split('/').pop();
+        
+        log('info', `Setting up viewer for record: ${firstRecordId}`);
+        
+        // Set record data
+        viewer.recordData = {
+          entryId: `${filename}:${firstRecordId}`,
+          recordId: firstRecordId,
+          filename: filename
+        };
+        
+        // Trigger loading by setting the recordId attribute
+        viewer.setAttribute('record-id', firstRecordId);
+        
+        setStatus(`✅ Loaded ${firstRecordId} from ${filename}`);
+        log('info', `Record loaded successfully: ${firstRecordId}`);
+        
+      } catch (error) {
+        log('error', 'Failed to load record', error.message);
+        setStatus(`❌ Error: ${error.message}`);
+        console.error('Error loading record:', error);
+      }
+    }
+    
+    function clearViewer() {
+      const viewer = initViewer(); // Always initialize viewer first
+
+      // Set the attribute immediately (this triggers prop watchers inside the component)
+      viewer.setAttribute('record-id', '');
+
+      // Custom elements may not have properties defined until after the upgrade microtask.
+      // Delay the property assignment to ensure the custom element has been fully initialized.
+      Promise.resolve().then(() => {
+        viewer.recordData = null;
+        log('info', 'Viewer cleared');
+        setStatus('Viewer cleared');
+      });
+    }
+    
+    // Log when page is ready
+    window.addEventListener('DOMContentLoaded', () => {
+      log('info', 'Page loaded - ready to load records');
+      setStatus('Ready - click a button to load a record');
+    });
+  </script>
+</body>
+</html>

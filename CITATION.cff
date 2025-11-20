@@ -4,16 +4,36 @@ type: software
 title: "BGC-Viewer"
 abstract: "A viewer to explore and visualize Biosynthetic Gene Cluster data"
 authors:
-  - family-names: Peter
-    given-names: Kok
+  - family-names: Kok
+    given-names: Peter
     email: p.kok@esciencecenter.nl
     affiliation: Netherlands eScience Center
     orcid: 'https://orcid.org/0000-0002-6630-7326'
-  - given-names: Vedran
-    family-names: Kasalica
+  - family-names: Sales E Santos Loureiro
+    given-names: Catarina
+    email: catarina.salesesantosloureiro@wur.nl
+    affiliation: Wageningen University & Research, The Netherlands
+    orcid: 'https://orcid.org/0000-0002-6258-2080'
+  - family-names: Draisma
+    given-names: Arjan
+    email: arjan.draisma@wur.nl
+    affiliation: Wageningen University & Research, The Netherlands
+    orcid: 'https://orcid.org/0009-0004-0503-6261'
+  - family-names: Louwen
+    given-names: Nico
+    email: nico.louwen@wur.nl
+    affiliation: Wageningen University & Research, The Netherlands
+    orcid: 'https://orcid.org/0000-0002-4431-5499'
+  - family-names: Kasalica
+    given-names: Vedran
     email: v.kasalica@esciencecenter.nl
     affiliation: Netherlands eScience Center, Netherlands
     orcid: 'https://orcid.org/0000-0002-0097-1056'
+  - family-names: Medema
+    given-names: Marnix
+    email: marnix.medema@wur.nl
+    affiliation: Wageningen University & Research, The Netherlands
+    orcid: 'https://orcid.org/0000-0002-2191-2821'
 repository-code: "https://github.com/medema-group/bgc-viewer"
 url: "https://github.com/medema-group/bgc-viewer"
 license: Apache-2.0

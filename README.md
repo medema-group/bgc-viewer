@@ -9,7 +9,9 @@
 
 A viewer for biosynthetic gene cluster data.
 
-This is the development README. The README for end-users is here: [backend/README.md](backend/README.md) (it's the readme of the Python package)
+You are reading the development README. There are a few other READMEs:
+- The README for end-users: [backend/README.md](backend/README.md) (it's the readme of the Python package)
+- The README for users of the bgc-viewer-components: [frontend/README.md](frontend/README.md) (the readme of the npm package with web components)
 
 
 ## Project Structure
@@ -17,7 +19,7 @@ This is the development README. The README for end-users is here: [backend/READM
 The projects consists of a number of modules, which are available in their respective folders as self-contained packages:
 
 - **backend**: Python Flask server that serves the API and statically built frontend.
-- **frontend**: Vue.js web application that, together with the API, makes a stand-alone viewer.
+- **frontend**: The frontend folder contains the code for both the web components (npm package) and the stand-alone viewer frontend that works together with the backend API (separate build target).
 - **viewer-components**: Reusable TS/JS components for the frontend.
 
 The backend is a comprehensive server that preprocesses, searches and dynamically loads data from a root directory containing huge amounts of data. The backend is not strictly necessary; the viewer can also run with other types of data sources. The backend serves from the local file system in local mode, or from a fixed data directory in public mode [see configuration](#configuration).

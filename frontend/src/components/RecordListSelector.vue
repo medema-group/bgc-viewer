@@ -61,7 +61,7 @@
             v-for="record in entriesData"
             :key="record.id"
             :class="['record-item', { 'selected': selectedRecordId === record.id, 'loading': loadingRecordId === record.id }]"
-            @click="selectAndLoadRecord(record)"
+            @click="selectRecord(record)"
           >
             <div class="record-content">
               <!-- First Line: Record ID -->
@@ -124,7 +124,7 @@ export default {
       default: ''
     }
   },
-  emits: ['record-loaded'],
+  emits: ['record-selected'],
   setup(props, { emit }) {
     const { dataRoot, indexPath } = toRefs(props)
     
@@ -190,30 +190,17 @@ export default {
       }
     }
     
-    const selectAndLoadRecord = async (record) => {
+    const selectRecord = async (record) => {
       if (loadingRecordId.value || selectedRecordId.value === record.id) return
       
       selectedRecordId.value = record.id
-      loadingRecordId.value = record.id
       
-      try {
-        const response = await axios.post('/api/load-entry', {
-          id: record.id
-        })
-        
-        emit('record-loaded', {
-          entryId: record.id,
-          filename: response.data.filename,
-          recordId: response.data.record_id,
-          recordInfo: response.data.record_info
-        })
-        
-      } catch (err) {
-        error.value = err.response?.data?.error || 'Failed to load record'
-        selectedRecordId.value = ''
-      } finally {
-        loadingRecordId.value = ''
-      }
+      // Simply emit the selected record - let the parent handle loading
+      emit('record-selected', {
+        entryId: record.id,
+        recordId: record.record_id,
+        filename: record.filename
+      })
     }
     
     const debouncedSearch = () => {
@@ -297,7 +284,7 @@ export default {
       searchQuery,
       loadEntries,
       goToPage,
-      selectAndLoadRecord,
+      selectRecord,
       debouncedSearch,
       clearSearch,
       refreshEntries,
