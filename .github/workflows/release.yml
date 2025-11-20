@@ -57,14 +57,6 @@ jobs:
         echo "Updated version in pyproject.toml:"
         grep "^version = " pyproject.toml
     
-    - name: Update version in package.json
-      working-directory: frontend
-      run: |
-        VERSION="${{ steps.get_version.outputs.version }}"
-        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
-        echo "Updated version in package.json:"
-        grep "\"version\":" package.json
-    
     - name: Install Node.js
       uses: actions/setup-node@v4
       with:
@@ -193,22 +185,41 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
+    - name: Extract version from tag
+      id: get_version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/v* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION="0.0.0.dev0"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+    
+    - name: Update version in package.json
+      working-directory: frontend
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
+        echo "Updated version in package.json:"
+        grep "\"version\":" package.json
+    
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
         registry-url: 'https://registry.npmjs.org'
     
-    - name: Install frontend dependencies
-      run: |
-        cd frontend
-        npm ci
-    
     - name: Download NPM build artifacts
       uses: actions/download-artifact@v4
       with:
         name: npm-dist
         path: frontend/dist/web-components/
+    
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        rm -rf node_modules package-lock.json
+        npm install
     
     - name: Publish to NPM with provenance
       run: |
