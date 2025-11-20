@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TrackViewer Demo - BGC Viewer Components</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="../../frontend/dist/web-components/bgc-viewer-components.umd.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+
+    h1 {
+      color: #333;
+      border-bottom: 3px solid #007acc;
+      padding-bottom: 10px;
+    }
+
+    h2 {
+      color: #555;
+      margin-top: 30px;
+    }
+
+    p {
+      color: #666;
+      line-height: 1.6;
+    }
+
+    /* Tooltip styling */
+    .track-viewer-tooltip {
+      position: absolute;
+      background: white;
+      border: 1px solid #ccc;
+      padding: 4px 8px;
+      font-size: 14px;
+      font-family: sans-serif;
+      pointer-events: none;
+      display: none;
+      z-index: 1000;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Track labels on the left side */
+    .track-label {
+      font-size: 14px;
+      font-family: sans-serif;
+    }
+
+    /* Annotation labels on features */
+    .annotation-label {
+      font-size: 14px;
+      font-family: sans-serif;
+      stroke: white;
+      stroke-width: 0.5px;
+      paint-order: stroke fill;
+      pointer-events: none;
+    }
+
+    /* X-axis labels */
+    .axis-label {
+      font-size: 14px;
+      font-family: sans-serif;
+    }
+
+    /* Optional: Style the x-axis class as well */
+    .x-axis {
+      font-size: 14px;
+      font-family: sans-serif;
+    }
+
+    .controls {
+      margin-bottom: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .controls button {
+      margin: 5px;
+      padding: 8px 16px;
+      background: #007acc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    
+    .controls button:hover {
+      background: #005a99;
+    }
+
+    .controls button:active {
+      background: #004578;
+    }
+    
+    #viewer-container {
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Annotation styling */
+    .annotation {
+      cursor: pointer;
+    }
+
+    /* Ensure crisp 1px strokes for all stroked annotations */
+    .annotation {
+      shape-rendering: crispEdges;
+    }
+
+    .annotation-gene {
+      fill: #4CAF50;
+    }
+
+    .annotation-gene-alt {
+      fill: #2196F3;
+      stroke: black;
+      stroke-width: 1px;
+      shape-rendering: crispEdges;
+    }
+
+    .annotation-domain {
+      fill: #21C683;
+    }
+
+    .annotation-regulatory {
+      fill: #FF9800;
+    }
+
+    .annotation-triangle {
+      fill: darkblue;
+    }
+
+    .annotation-default {
+      fill: #9C27B0;
+    }
+
+    .annotation.hovered {
+      fill: #FFA726 !important; /* Orange color for hover */
+    }
+
+    /* Primitive styling */
+    .baseline {
+      stroke: #ddd;
+      stroke-width: 1;
+      opacity: 0.6;
+    }
+
+    .reference-line {
+      stroke: #999;
+      stroke-width: 1.5;
+      stroke-dasharray: 5,5;
+    }
+
+    .event-log {
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      height: 150px;
+      overflow-y: auto;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+    }
+
+    .event-log div {
+      padding: 2px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .event-log div:last-child {
+      border-bottom: none;
+    }
+
+    footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #ddd;
+      color: #666;
+      font-size: 14px;
+      text-align: center;
+    }
+
+    footer a {
+      color: #007acc;
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>TrackViewer Demo</h1>
+  
+  <p>
+    This demo shows the <code>TrackViewer</code> class. By itself, the component is agnostic
+    of any domain and allows visualizing tracks of annotations over a numeric domain.
+  </p>
+  
+  <p>Try zooming with the mouse wheel, panning by dragging, and clicking on annotations.</p>
+
+  <div class="controls">
+    <button onclick="viewer.resetZoom()">Reset Zoom</button>
+    <button onclick="viewer.zoomTo(20, 60)">Zoom to 20-60</button>
+    <button onclick="addTrack()">Add Track</button>
+    <button onclick="updateDomain()">Update Domain (0-200)</button>
+  </div>
+
+  <div id="viewer-container"></div>
+
+  <h3>Event Log</h3>
+  <div class="event-log" id="event-log">
+    <div>Event log (click or hover over annotations):</div>
+  </div>
+
+  <script>
+    const { TrackViewer } = window.BGCViewerComponents;
+    
+    // Sample gene track data using new format with per-track heights
+    const sampleData = {
+      tracks: [
+        { id: "genes", label: "Primary Gene Clusters", height: 40 }, // Taller track for genes
+        { id: "genes2", label: "Secondary Genes", height: 35 },
+        { id: "regulatory", label: "Regulatory Elements & Sites", height: 50 }, 
+        { id: "domains", label: "Protein Domains", height: 25 }, // Shorter track for domains
+      ],
+      annotations: [
+        // Gene track annotations with different heights and custom colors
+        { id: "gene1", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneA", start: 10, end: 30, direction: "right", heightFraction: 0.8, tooltip: "Hi, this is a <strong>tooltip</strong>!!<br>A multi-line tooltip" },
+        { id: "gene2", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, heightFraction: 0.6, fill: "#4ecdc4", labelPosition: "center", showLabel: "always" },
+        { id: "gene3", trackId: "genes", type: "arrow", classes: ["annotation-gene"], label: "geneC", start: 60, end: 80, direction: "right", heightFraction: 1.3, fill: "#45b7d1", opacity: 0.5, corner_radius: 5 },
+
+        { id: "gene1", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneA", start: 10, end: 30, direction: "left", heightFraction: 0.5, fy: 0.25, fill: "#f9ca24", stroke: "red" },
+        { id: "gene2", trackId: "genes2", type: "arrow", classes: ["annotation-gene"], label: "geneB", start: 35, end: 55, direction: "left", heightFraction: 0.4 },
+        { id: "gene3", trackId: "genes2", type: "arrow", classes: ["annotation-gene-alt"], label: "geneC", start: 60, end: 80, direction: "left", heightFraction: 1.0, fill: "#6c5ce7" },
+
+        // Domain track annotations with custom heights and colors
+        { id: "dom1", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain1", start: 15, end: 25, heightFraction: 0.3, fill: "#a29bfe" },
+        { id: "dom2", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain2", start: 40, end: 50, heightFraction: 0.5, corner_radius: 5 },
+        { id: "dom3", trackId: "genes2", type: "box", classes: ["annotation-domain"], label: "domain3", start: 65, end: 75, heightFraction: 0.7 },
+
+        // Regulatory track annotations - mix of custom and default heights
+        { id: "prom1", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "", start: 5, end: 12, heightFraction: 0.8, stroke: 'green' },
+        { id: "term1", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "circle", start: 82, end: 90, opacity: 0.5 },
+        { id: "term2", trackId: "regulatory", type: "circle", classes: ["annotation-regulatory"], label: "circle", start: 50, end: 50, fy: 0.75, heightFraction: 0.5 },
+        { id: "term3", trackId: "regulatory", type: "triangle", classes: [], label: "triangle", start: 55, end: 55},
+        { id: "term4", trackId: "regulatory", type: "triangle", classes: [], label: "triangle", start: 65, end: 65, fy: 0.4, heightFraction: 0.35},
+        { id: "term5", trackId: "regulatory", type: "pin", classes: [], label: "binding site", start: 60, end: 60, heightFraction: 0.4 },
+        { id: "term6", trackId: "regulatory", type: "pin", classes: [], label: "binding site", start: 59, end: 59 }
+      ],
+      primitives: [
+        // Background
+        { id: "bg-regulatory", trackId: "regulatory", type: "background", class: "baseline", fy: 1, fill: 'lightgrey' },
+
+        // Full-width baseline lines for each track (no start/end specified)
+        { id: "baseline-genes", trackId: "genes", type: "horizontal-line", class: "baseline" },
+        { id: "baseline-genes2", trackId: "genes2", type: "horizontal-line", class: "baseline" },
+        { id: "baseline-domains", trackId: "domains", type: "horizontal-line", class: "baseline" },
+        { id: "line1", trackId: "regulatory", type: "horizontal-line", class: "baseline", fy: 0, stroke: 'blue' },
+        { id: "line2", trackId: "regulatory", type: "horizontal-line", class: "baseline", fy: 0.5, stroke: 'grey' },
+        { id: "line3", trackId: "regulatory", type: "horizontal-line", class: "baseline", fy: 1, stroke: 'red' },
+
+        // Example of a partial line (with specific start/end)
+        { id: "highlight-region", trackId: "genes", type: "horizontal-line", class: "reference-line", start: 20, end: 70 }
+      ]
+    };
+
+    // Event logging function
+    function logEvent(message) {
+      const log = document.getElementById('event-log');
+      const timestamp = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.textContent = `[${timestamp}] ${message}`;
+      log.appendChild(entry);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // Wait for the DOM to be ready
+    window.addEventListener('DOMContentLoaded', function() {
+      // Create viewer instance using the built TrackViewer
+      window.viewer = new TrackViewer({
+        container: '#viewer-container',
+        height: 200,
+        domain: [0, 100],
+        onAnnotationClick: (annotation, track) => {
+          logEvent(`Clicked: ${annotation.label} on ${track.label} (${annotation.start}-${annotation.end})`);
+        },
+        onAnnotationHover: (annotation, track) => {
+          logEvent(`Hovered: ${annotation.label} on ${track.label}`);
+        }
+      });
+
+      // Set initial data
+      viewer.setData(sampleData);
+
+      // Global functions for demo buttons
+      let trackCounter = 4;
+      window.addTrack = function() {
+        const trackId = `track${trackCounter}`;
+        const newTrack = { id: trackId, label: `Track ${trackCounter}` };
+        const newAnnotations = [
+          { 
+            id: `t${trackCounter}a`, 
+            trackId: trackId, 
+            type: "box", 
+            classes: ["annotation-default"], 
+            label: `item${trackCounter}A`, 
+            start: Math.random() * 50, 
+            end: Math.random() * 30 + 50
+          },
+          { 
+            id: `t${trackCounter}b`, 
+            trackId: trackId, 
+            type: "box", 
+            classes: ["annotation-default"], 
+            label: `item${trackCounter}B`, 
+            start: Math.random() * 20 + 70, 
+            end: Math.random() * 10 + 90
+          }
+        ];
+        viewer.addTrack(newTrack, newAnnotations);
+        trackCounter++;
+        logEvent(`Added ${newTrack.label}`);
+      };
+
+      window.updateDomain = function() {
+        viewer.updateDomain([0, 200]);
+        logEvent('Updated domain to 0-200');
+      };
+
+      logEvent('TrackViewer initialized');
+    });
+  </script>
+
+  <footer>
+    <p>
+      Part of <a href="https://github.com/medema-group/bgc-viewer" target="_blank">BGC Viewer</a> |
+      <a href="https://www.npmjs.com/package/@kretep/bgc-viewer-components" target="_blank">@kretep/bgc-viewer-components</a>
+    </p>
+  </footer>
+</body>
+</html>
