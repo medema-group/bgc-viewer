@@ -1,6 +1,7 @@
 /**
  * Web Components build entry point
  * Exports RegionViewer and RegionViewerContainer as custom elements
+ * Also exports TrackViewer class for direct use
  */
 
 import { defineCustomElement } from 'vue'
@@ -21,3 +22,15 @@ export { RegionViewerContainer, RegionViewer }
 // Export data provider classes dynamically to avoid circular dependencies
 export { BGCViewerAPIProvider } from './services/dataProviders/BGCViewerAPIProvider'
 export { JSONFileProvider } from './services/dataProviders/JSONFileProvider'
+
+// Export TrackViewer class and types
+export { TrackViewer } from './TrackViewer'
+export type { 
+  TrackViewerConfig, 
+  TrackData, 
+  AnnotationData, 
+  AnnotationType, 
+  TrackViewerData,
+  DrawingPrimitive,
+  DrawingPrimitiveType
+} from './TrackViewer'

@@ -99,6 +99,44 @@ const provider = new BGCViewerAPIProvider({
 });
 ```
 
+## TrackViewer
+
+The package also exports a standalone `TrackViewer` class for creating custom genomic track visualizations with D3.js.
+
+### Basic Usage
+
+```javascript
+import { TrackViewer } from '@kretep/bgc-viewer-components';
+
+const viewer = new TrackViewer({
+  container: '#viewer-container',
+  domain: [0, 100],
+  trackHeight: 30
+});
+
+viewer.setData({
+  tracks: [
+    { id: 'genes', label: 'Genes', height: 40 }
+  ],
+  annotations: [
+    {
+      id: 'gene1',
+      trackId: 'genes',
+      type: 'arrow',
+      classes: ['gene'],
+      label: 'geneA',
+      start: 10,
+      end: 30,
+      direction: 'right'
+    }
+  ]
+});
+```
+
+### TrackViewer API
+
+See the [TrackViewer TypeScript types](src/TrackViewer.ts) for the complete API documentation.
+
 ## Example
 
 See the [demos directory](https://github.com/medema-group/bgc-viewer/tree/main/demos/viewer-web-component) for a complete working example.
@@ -130,7 +168,8 @@ npm run test:coverage
 
 - `src/components/` - Vue components (RegionViewer, RegionViewerContainer)
 - `src/services/dataProviders/` - Data provider implementations
-- `src/web-components.js` - Web components entry point
+- `src/TrackViewer.ts` - TrackViewer class for genomic track visualization
+- `src/web-components.ts` - Web components entry point
 - `dist/web-components/` - Built web components (after build)
 - `demos/` - Example usage demonstrations
 
