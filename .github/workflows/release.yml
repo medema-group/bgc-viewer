@@ -225,7 +225,8 @@ jobs:
       run: |
         cd frontend
         npm publish --provenance --access public
-      # No NODE_AUTH_TOKEN needed - uses OIDC trusted publishing
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   create-github-release:
     name: Create GitHub Release
