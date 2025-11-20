@@ -57,6 +57,14 @@ jobs:
         echo "Updated version in pyproject.toml:"
         grep "^version = " pyproject.toml
     
+    - name: Update version in package.json
+      working-directory: frontend
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
+        echo "Updated version in package.json:"
+        grep "\"version\":" package.json
+    
     - name: Install Node.js
       uses: actions/setup-node@v4
       with:
@@ -190,6 +198,11 @@ jobs:
       with:
         node-version: '20'
         registry-url: 'https://registry.npmjs.org'
+    
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
     
     - name: Download NPM build artifacts
       uses: actions/download-artifact@v4
