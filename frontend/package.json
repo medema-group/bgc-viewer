@@ -49,7 +49,7 @@
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run build:web-components && npm test -- --run && cp README.npm.md README.md"
+    "prepublishOnly": "npm run build:web-components && npm test -- --run"
   },
   "peerDependencies": {
     "d3": "^7.0.0"

@@ -197,11 +197,6 @@ jobs:
         name: npm-dist
         path: frontend/dist/web-components/
     
-    - name: Copy NPM README
-      run: |
-        cd frontend
-        cp README.npm.md README.md
-    
     - name: Publish to NPM with provenance
       run: |
         cd frontend

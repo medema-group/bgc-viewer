@@ -1,6 +1,8 @@
 # BGC Viewer Web Components
 
-Framework-agnostic web components for visualizing biosynthetic gene clusters from antiSMASH output.
+Framework-agnostic web components for visualizing biosynthetic gene cluster data.
+
+For more details about the project structure and the stand-alone BGC Viewer, have a look at the project's [main readme](https://github.com/medema-group/bgc-viewer).
 
 ## Installation
 
@@ -105,6 +107,36 @@ See the [demos directory](https://github.com/medema-group/bgc-viewer/tree/main/d
 
 - D3.js v7 or higher (peer dependency)
 - Modern browser with Web Components support
+
+## Development
+
+### Building from Source
+
+```bash
+# Install dependencies
+npm install
+
+# Build web components
+npm run build:web-components
+
+# Run tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
+```
+
+### Project Structure
+
+- `src/components/` - Vue components (RegionViewer, RegionViewerContainer)
+- `src/services/dataProviders/` - Data provider implementations
+- `src/web-components.js` - Web components entry point
+- `dist/web-components/` - Built web components (after build)
+- `demos/` - Example usage demonstrations
+
+### Running the Demo
+
+See the [demo README](../demos/viewer-web-component/README.md) for instructions on running a demo of the viewer component.
 
 ## License
 
