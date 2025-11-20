@@ -7,7 +7,7 @@ name = "bgc-viewer"
 version = "0.1.15"
 description = "A viewer to explore and visualize Biosynthetic Gene Cluster data"
 authors = [
-    {name = "Petek Kok"},
+    {name = "Medema Group (see CITATION.cff for full citation)"},
 ]
 dependencies = [
     "flask>=2.3.0",
