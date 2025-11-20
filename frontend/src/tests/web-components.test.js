@@ -11,7 +11,7 @@ describe('Web Components', () => {
       // This test ensures the module can be imported without initialization errors
       const loadModule = async () => {
         // Dynamic import to catch initialization errors
-        const module = await import('../web-components.js')
+        const module = await import('../web-components.ts')
         return module
       }
       
@@ -20,25 +20,25 @@ describe('Web Components', () => {
     })
 
     it('should export RegionViewerContainer', async () => {
-      const module = await import('../web-components.js')
+      const module = await import('../web-components.ts')
       expect(module.RegionViewerContainer).toBeDefined()
       expect(typeof module.RegionViewerContainer).toBe('function')
     })
 
     it('should export RegionViewer', async () => {
-      const module = await import('../web-components.js')
+      const module = await import('../web-components.ts')
       expect(module.RegionViewer).toBeDefined()
       expect(typeof module.RegionViewer).toBe('function')
     })
 
     it('should export JSONFileProvider', async () => {
-      const module = await import('../web-components.js')
+      const module = await import('../web-components.ts')
       expect(module.JSONFileProvider).toBeDefined()
       expect(typeof module.JSONFileProvider).toBe('function')
     })
 
     it('should export BGCViewerAPIProvider', async () => {
-      const module = await import('../web-components.js')
+      const module = await import('../web-components.ts')
       expect(module.BGCViewerAPIProvider).toBeDefined()
       expect(typeof module.BGCViewerAPIProvider).toBe('function')
     })
@@ -81,7 +81,7 @@ describe('Web Components', () => {
     })
 
     it('should not throw when setting properties on container', async () => {
-      const { JSONFileProvider } = await import('../web-components.js')
+      const { JSONFileProvider } = await import('../web-components.ts')
       const element = document.createElement('bgc-region-viewer-container')
       container.appendChild(element)
       

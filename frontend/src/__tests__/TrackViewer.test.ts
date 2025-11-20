@@ -1,3 +1,4 @@
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TrackViewer, TrackViewerData, TrackData, AnnotationData, DrawingPrimitive } from '../TrackViewer';
 
 /**
@@ -43,7 +44,7 @@ describe('TrackViewer', () => {
   });
 
   test('should create TrackViewer instance with custom config', () => {
-    const onAnnotationClick = jest.fn();
+    const onAnnotationClick = vi.fn();
     const viewer = new TrackViewer({
       container: '#test-container',
       width: 1000,
