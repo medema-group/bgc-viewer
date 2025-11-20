@@ -1,4 +1,4 @@
-name: Release to PyPI
+name: Release
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write  # For trusted publishing to PyPI
+  id-token: write  # For trusted publishing to PyPI and NPM
 
 jobs:
   build:
@@ -82,6 +82,10 @@ jobs:
       working-directory: frontend
       run: npm run build
     
+    - name: Build web components
+      working-directory: frontend
+      run: npm run build:web-components
+    
     - name: Copy viewer-components and frontend assets to backend
       run: |
         mkdir -p backend/bgc_viewer/static
@@ -106,6 +110,13 @@ jobs:
       with:
         name: dist-packages
         path: backend/dist/
+        retention-days: 7
+    
+    - name: Upload NPM build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: npm-dist
+        path: frontend/dist/web-components/
         retention-days: 7
 
   test-install:
@@ -159,9 +170,47 @@ jobs:
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
 
+  publish-npm:
+    name: Publish to NPM
+    needs: [build, test-install]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@kretep/bgc-viewer-components
+    permissions:
+      id-token: write  # mandatory for trusted publishing
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        registry-url: 'https://registry.npmjs.org'
+    
+    - name: Download NPM build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: npm-dist
+        path: frontend/dist/web-components/
+    
+    - name: Copy NPM README
+      run: |
+        cd frontend
+        cp README.npm.md README.md
+    
+    - name: Publish to NPM with provenance
+      run: |
+        cd frontend
+        npm publish --provenance --access public
+      # No NODE_AUTH_TOKEN needed - uses OIDC trusted publishing
+
   create-github-release:
     name: Create GitHub Release
-    needs: [build, test-install]
+    needs: [build, test-install, publish-pypi, publish-npm]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -194,7 +243,7 @@ jobs:
         - Package built with Python 3.11
         - See [CHANGELOG.md](CHANGELOG.md) for detailed changes
         
-        ### Installation
+        ### Python Package Installation
         \`\`\`bash
         pip install bgc-viewer==$VERSION
         \`\`\`
@@ -204,14 +253,18 @@ jobs:
         uv pip install bgc-viewer==$VERSION
         \`\`\`
         
+        ### NPM Package Installation
+        \`\`\`bash
+        npm install @kretep/bgc-viewer-components@$VERSION
+        \`\`\`
+        
         ### Usage
         \`\`\`bash
-        # Run the viewer
-        bgc_viewer
-        
-        # Or with uv
-        uv run bgc_viewer
+        # Run the standalone viewer
+        bgc-viewer
         \`\`\`
+        
+        See the [NPM package](https://www.npmjs.com/package/@kretep/bgc-viewer-components) for web component usage.
         
         ### Files
         - \`bgc_viewer-$VERSION.tar.gz\` - Source distribution

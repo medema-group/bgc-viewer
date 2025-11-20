@@ -1,7 +1,43 @@
 {
-  "name": "bgc-viewer-frontend",
+  "name": "@kretep/bgc-viewer-components",
   "version": "0.1.15",
-  "description": "Frontend assets for BGC Viewer",
+  "description": "Reusable web components for visualizing biosynthetic gene clusters",
+  "main": "./dist/web-components/bgc-viewer-components.umd.js",
+  "module": "./dist/web-components/bgc-viewer-components.es.js",
+  "types": "./dist/web-components/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/web-components/bgc-viewer-components.es.js",
+      "require": "./dist/web-components/bgc-viewer-components.umd.js",
+      "types": "./dist/web-components/index.d.ts"
+    },
+    "./style.css": "./dist/web-components/style.css"
+  },
+  "files": [
+    "dist/web-components/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "bioinformatics",
+    "genomics",
+    "biosynthetic-gene-clusters",
+    "antismash",
+    "web-components",
+    "vue",
+    "visualization"
+  ],
+  "author": "Medema Group (see CITATION.cff for full citation)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medema-group/bgc-viewer.git",
+    "directory": "frontend"
+  },
+  "bugs": {
+    "url": "https://github.com/medema-group/bgc-viewer/issues"
+  },
+  "homepage": "https://github.com/medema-group/bgc-viewer#readme",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,7 +48,11 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run build:web-components && npm test -- --run && cp README.npm.md README.md"
+  },
+  "peerDependencies": {
+    "d3": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
@@ -24,11 +64,11 @@
     "typescript": "^5.9.3",
     "vite": "^5.0.0",
     "vitest": "^1.0.0",
-    "@vitest/coverage-v8": "^1.0.0"
+    "@vitest/coverage-v8": "^1.0.0",
+    "d3": "^7.8.5"
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "d3": "^7.8.5",
     "vue": "^3.3.0"
   }
 }
