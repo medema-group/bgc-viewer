@@ -28,7 +28,7 @@
     "visualization"
   ],
   "author": "Medema Group (see CITATION.cff for full citation)",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/medema-group/bgc-viewer.git",
