@@ -148,6 +148,7 @@ export default {
     
     let regionViewer = null
     let allTrackData = {} // Store all generated tracks
+    let selectedAnnotation = null // Track the selected annotation for highlighting
 
     // Watch for prop changes and rebuild the viewer
     watch(() => props.features, () => {
@@ -179,6 +180,9 @@ export default {
         }
         
         console.log('Building viewer with', props.features.length, 'features')
+        
+        // Clear selection when rebuilding
+        selectedAnnotation = null
         
         // Build all tracks from features
         buildAllTracks()
@@ -281,6 +285,7 @@ export default {
         trackHeight: 40,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
+          handleAnnotationClick(annotation, track)
           emit('annotation-clicked', { annotation, track })
         },
         onAnnotationHover: (annotation, track, event) => {
@@ -574,9 +579,89 @@ export default {
       }
     }
     
+    // Handle annotation click for highlighting
+    const handleAnnotationClick = (annotation, track) => {
+      // Toggle selection: if clicking the same annotation, deselect it
+      if (selectedAnnotation?.id === annotation.id) {
+        selectedAnnotation = null
+      } else {
+        selectedAnnotation = annotation
+        if (annotation.id.endsWith('-core')) {
+          // If core annotation clicked, find parent protocluster annotation
+          const parentTrack = allTrackData[annotation.trackId]
+          const parentAnnotationId = annotation.id.replace('-core', '')
+          if (parentTrack) {
+            const parentAnnotation = parentTrack.annotations.find(ann => 
+              ann.id === parentAnnotationId
+            )
+            if (parentAnnotation) {
+              selectedAnnotation = parentAnnotation
+            }
+          }
+        }
+      }
+      
+      // Update highlighting in allTrackData
+      updateAnnotationHighlighting()
+      
+      // Update the viewer with new opacity values
+      updateViewer()
+    }
+    
+    // Determine if an annotation should be highlighted
+    const shouldHighlightAnnotation = (annotation) => {
+      // If no annotation is selected, highlight all
+      if (!selectedAnnotation) {
+        return true
+      }
+
+      if (annotation.id.endsWith('-core')) {
+        // For core annotations, highlight if parent protocluster is within selected range
+        const parentTrack = allTrackData[annotation.trackId]
+        const parentAnnotationId = annotation.id.replace('-core', '')
+        if (parentTrack) {
+          const parentAnnotation = parentTrack.annotations.find(ann => 
+            ann.id === parentAnnotationId
+          )
+          if (parentAnnotation) {
+            return parentAnnotation.start >= selectedAnnotation.start && 
+                   parentAnnotation.end <= selectedAnnotation.end
+          }
+        }
+        return false
+      }
+      
+      // Highlight annotations that fall completely within the selected annotation's range
+      return annotation.start >= selectedAnnotation.start && 
+             annotation.end <= selectedAnnotation.end
+    }
+    
+    // Update opacity on all annotations in allTrackData
+    const updateAnnotationHighlighting = () => {
+      // Iterate through all tracks and their annotations
+      Object.values(allTrackData).forEach(track => {
+        track.annotations.forEach(annotation => {
+          const shouldHighlight = shouldHighlightAnnotation(annotation)
+          
+          // Store the original opacity if not already stored
+          if (annotation._originalOpacity === undefined) {
+            annotation._originalOpacity = annotation.opacity !== undefined ? annotation.opacity : 1
+          }
+          
+          // Set opacity based on highlighting state
+          if (shouldHighlight) {
+            annotation.opacity = annotation._originalOpacity
+          } else {
+            annotation.opacity = annotation._originalOpacity * 0.5
+          }
+        })
+      })
+    }
+    
     // Clear the viewer and reset state
     const clearViewer = () => {
       selectedRegion.value = ''
+      selectedAnnotation = null
       allTrackData = {}
       availableTracks.value = []
       selectedTracks.value = []
