@@ -1086,9 +1086,13 @@ export class TrackViewer {
       .style('pointer-events', 'none') // Labels shouldn't interfere with mouse events
       .text(annotation.label);
 
-    // Handle show/hide behavior
-    if (showLabel === 'hover') {
-      labelElement.style('display', 'none');
+    // Handle show/hide behavior based on showLabel attribute and current toggle state
+    // Note: 'never' is filtered out earlier, so showLabel here is either 'always' or 'hover'
+    if (showLabel === 'always') {
+      labelElement.style('display', null);
+    } else {
+      // For hover labels, respect the showAllAnnotationLabels toggle
+      labelElement.style('display', this.showAllAnnotationLabels ? null : 'none');
     }
   }
 
