@@ -19,6 +19,13 @@ export type ContextMenuController = {
 export function initTrackViewerContextMenu(cb: ContextMenuCallbacks): ContextMenuController {
   const body = document.body || document.documentElement;
 
+  // Track mouse position globally for menu hiding logic
+  let lastMouseEvent: MouseEvent | null = null;
+  const trackMouse = (e: MouseEvent) => {
+    lastMouseEvent = e;
+  };
+  document.addEventListener('mousemove', trackMouse);
+
   // Ensure container has relative positioning for absolute child positioning
   const containerStyle = window.getComputedStyle(cb.containerElement);
   if (containerStyle.position === 'static') {
@@ -147,10 +154,28 @@ export function initTrackViewerContextMenu(cb: ContextMenuCallbacks): ContextMen
 
   function hideMenu() {
     menu.style('display', 'none');
-    // hide button if mouse not over container
+    
+    // Only hide button if mouse is not currently over the container
     const containerRect = cb.containerElement.getBoundingClientRect();
-    // fallback to hide immediately
-    button.style('opacity', '0').style('pointer-events', 'none');
+    
+    if (lastMouseEvent) {
+      const mouseX = lastMouseEvent.clientX;
+      const mouseY = lastMouseEvent.clientY;
+      
+      // Check if mouse is within container bounds
+      const isMouseOverContainer = 
+        mouseX >= containerRect.left &&
+        mouseX <= containerRect.right &&
+        mouseY >= containerRect.top &&
+        mouseY <= containerRect.bottom;
+      
+      if (!isMouseOverContainer) {
+        button.style('opacity', '0').style('pointer-events', 'none');
+      }
+    } else {
+      // If we don't have mouse position, keep button visible to be safe
+      // It will hide on next mouseleave event anyway
+    }
   }
 
   button.on('click', (event: MouseEvent) => {
@@ -165,6 +190,7 @@ export function initTrackViewerContextMenu(cb: ContextMenuCallbacks): ContextMen
 
   return {
     destroy() {
+      document.removeEventListener('mousemove', trackMouse);
       d3.select(cb.containerElement).on('mouseenter', null).on('mouseleave', null);
       d3.select(body).on('click.trackviewer-context', null);
       menu.remove();
