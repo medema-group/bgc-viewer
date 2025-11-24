@@ -41,37 +41,22 @@ For end-users, see this README: [backend/README.md](backend/README.md). For deve
 
 ### Build, install & run all modules
 
-To build all modules (viewer-components, frontend, backend), execute the build script from the repository root.
+To build both the frontend and the backend, execute the build script from the repository root.
 
 ```bash
 ./build.sh
 ```
 
-You can then install and run the built Python package as follows (replace {VERSION} with built version)
+You can then install and run the built Python package as follows (replace {VERSION} with built version):
 
 ```bash
 pip install backend/dist/bgc_viewer-{VERSION}-py3-none-any.whl
 bgc-viewer
 ```
 
-### Viewer-components development
-
-```bash
-cd viewer-components/
-
-# Install
-npm install
-
-# Run dev server
-npm run dev
-
-# Build
-npm run build
-```
-
 ### Frontend development
 
-TODO: some copying of assets from the viewer-components is required. See [./build.sh](./build.sh) script for now.
+Although the frontend is served by the backend (Python package) as "static" html/js, it can also be run separately and connect to a running backend API.
 
 ```bash
 cd frontend/
@@ -125,7 +110,7 @@ HTTPS_ENABLED=false              # Set to 'true' in production with HTTPS
 # In public mode, there won't be an option to access the file system; the database path will be fixed.
 # For local development: leave BGCV_PUBLIC_MODE unset or set to 'False'.
 # For Docker deployment: BGCV_PUBLIC_MODE is automatically set to 'True' by the Dockerfile (no manual configuration needed).
-BGCV_PUBLIC_MODE=True
+BGCV_PUBLIC_MODE=False
 
 # In public mode, the DATABASE_PATH and DATA_ROOT below are the locations on the host that will be mounted to fixed
 # paths inside the container, i.e. the values are used by docker-compose only.
