@@ -427,24 +427,43 @@ export class TrackViewer {
       }
     });
 
-    // Get styles from annotations
+    // Get styles from annotations and primitives - apply to actual shape elements, not container groups
     this.svg.selectAll('.annotation, .primitive').each(function() {
-      const element = this as SVGElement;
-      const computed = window.getComputedStyle(element);
-      if (!element.hasAttribute('data-styled')) {
-        element.setAttribute('data-styled', 'true');
-        const styleProps: string[] = [];
+      const container = this as SVGElement;
+      const containerComputed = window.getComputedStyle(container);
+      
+      // Find the actual shape element(s) inside the container (path, rect, circle, line, polygon, etc.)
+      const shapeElements = container.querySelectorAll('path, rect, circle, line, polygon, ellipse');
+      
+      shapeElements.forEach((shapeElement: Element) => {
+        const shape = shapeElement as SVGElement;
+        const computed = window.getComputedStyle(shape);
         
-        if (computed.fill && computed.fill !== 'none') styleProps.push(`fill: ${computed.fill}`);
-        if (computed.stroke && computed.stroke !== 'none') styleProps.push(`stroke: ${computed.stroke}`);
-        if (computed.strokeWidth) styleProps.push(`stroke-width: ${computed.strokeWidth}`);
-        if (computed.opacity && computed.opacity !== '1') styleProps.push(`opacity: ${computed.opacity}`);
-        
-        if (styleProps.length > 0) {
-          const existingStyle = element.getAttribute('style') || '';
-          element.setAttribute('style', existingStyle + styleProps.join('; ') + ';');
+        if (!shape.hasAttribute('data-styled')) {
+          shape.setAttribute('data-styled', 'true');
+          const styleProps: string[] = [];
+          
+          // For fill: use the shape's computed fill, or fall back to container's fill if shape has none/default
+          const shapeFill = computed.fill;
+          const containerFill = containerComputed.fill;
+          if (shapeFill && shapeFill !== 'none' && shapeFill !== 'rgb(0, 0, 0)') {
+            // Shape has explicit fill
+            styleProps.push(`fill: ${shapeFill}`);
+          } else if (containerFill && containerFill !== 'none' && containerFill !== 'rgb(0, 0, 0)') {
+            // Use container's fill (inherited)
+            styleProps.push(`fill: ${containerFill}`);
+          }
+          
+          if (computed.stroke && computed.stroke !== 'none') styleProps.push(`stroke: ${computed.stroke}`);
+          if (computed.strokeWidth) styleProps.push(`stroke-width: ${computed.strokeWidth}`);
+          if (computed.opacity && computed.opacity !== '1') styleProps.push(`opacity: ${computed.opacity}`);
+          
+          if (styleProps.length > 0) {
+            const existingStyle = shape.getAttribute('style') || '';
+            shape.setAttribute('style', existingStyle + ' ' + styleProps.join('; ') + ';');
+          }
         }
-      }
+      });
     });
 
     // Return combined CSS
