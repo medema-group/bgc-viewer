@@ -279,11 +279,19 @@ export class TrackViewer {
 
     const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
     
-    // Add styles inline for standalone SVG
+    // Apply inline styles from CSS before cloning
     const styleText = this.getInlineStyles();
+    
+    // Clean up temporary data-styled attributes from the original
+    this.svg.selectAll('[data-styled]').attr('data-styled', null);
+    
+    // Add styles inline for standalone SVG
     const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
     styleElement.textContent = styleText;
     svgClone.insertBefore(styleElement, svgClone.firstChild);
+
+    // Clean up data-styled attributes from clone
+    d3.select(svgClone).selectAll('[data-styled]').attr('data-styled', null);
 
     // Serialize to string
     const serializer = new XMLSerializer();
@@ -305,24 +313,33 @@ export class TrackViewer {
 
     const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
     
-    // Add styles inline
+    // Apply inline styles from CSS
     const styleText = this.getInlineStyles();
+    
+    // Clean up temporary data-styled attributes from the original
+    this.svg.selectAll('[data-styled]').attr('data-styled', null);
+    
+    // Add styles inline
     const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
     styleElement.textContent = styleText;
     svgClone.insertBefore(styleElement, svgClone.firstChild);
 
+    // Clean up data-styled attributes from clone
+    d3.select(svgClone).selectAll('[data-styled]').attr('data-styled', null);
+
     const serializer = new XMLSerializer();
     const svgString = serializer.serializeToString(svgClone);
     
-    // Create canvas
+    // Create canvas with margin
+    const margin = 20; // 20px margin on all sides
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Set canvas size with higher resolution for better quality
+    // Set canvas size with higher resolution for better quality + margin
     const scale = 2;
-    canvas.width = this.config.width * scale;
-    canvas.height = this.config.height * scale;
+    canvas.width = (this.config.width + margin * 2) * scale;
+    canvas.height = (this.config.height + margin * 2) * scale;
     ctx.scale(scale, scale);
 
     // Create image from SVG
@@ -333,10 +350,10 @@ export class TrackViewer {
     img.onload = () => {
       // Fill white background
       ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, this.config.width, this.config.height);
+      ctx.fillRect(0, 0, this.config.width + margin * 2, this.config.height + margin * 2);
       
-      // Draw image
-      ctx.drawImage(img, 0, 0);
+      // Draw image with margin offset
+      ctx.drawImage(img, margin, margin);
       URL.revokeObjectURL(url);
       
       // Convert to PNG and download
@@ -356,21 +373,82 @@ export class TrackViewer {
   }
 
   private getInlineStyles(): string {
-    // Collect all relevant CSS rules that apply to SVG elements
-    return `
-      .track-label { font-size: 14px; font-family: sans-serif; }
-      .annotation-label { 
-        font-size: 13px; 
-        font-family: sans-serif; 
-        stroke: white; 
-        stroke-width: 0.5px; 
-        paint-order: stroke fill; 
-        pointer-events: none; 
+    // Get all stylesheets
+    const sheets = Array.from(document.styleSheets);
+    const cssRules: string[] = [];
+
+    // Extract CSS rules that might apply to SVG content
+    sheets.forEach(sheet => {
+      try {
+        // Check if we can access the stylesheet (same-origin policy)
+        const rules = sheet.cssRules || sheet.rules;
+        if (rules) {
+          Array.from(rules).forEach((rule: any) => {
+            if (rule.selectorText) {
+              // Include rules that target SVG-related classes or elements
+              const selector = rule.selectorText;
+              if (
+                selector.includes('.track') ||
+                selector.includes('.annotation') ||
+                selector.includes('.axis') ||
+                selector.includes('.primitive') ||
+                selector.includes('svg') ||
+                selector.includes('text') ||
+                selector.includes('rect') ||
+                selector.includes('path') ||
+                selector.includes('circle') ||
+                selector.includes('line') ||
+                selector.includes('polygon')
+              ) {
+                cssRules.push(rule.cssText);
+              }
+            }
+          });
+        }
+      } catch (e) {
+        // Skip stylesheets we can't access (e.g., cross-origin)
       }
-      .axis-label { font-size: 14px; font-family: sans-serif; }
-      .x-axis { font-size: 14px; font-family: sans-serif; }
-      .x-axis path, .x-axis line { stroke: currentColor; }
-    `;
+    });
+
+    // Also capture computed styles from actual elements
+    const computedStyles: string[] = [];
+    
+    // Get styles from track labels
+    this.svg.selectAll('.track-label').each(function() {
+      const element = this as SVGTextElement;
+      const computed = window.getComputedStyle(element);
+      if (!element.hasAttribute('data-styled')) {
+        element.setAttribute('data-styled', 'true');
+        element.setAttribute('style', 
+          `font-family: ${computed.fontFamily}; ` +
+          `font-size: ${computed.fontSize}; ` +
+          `fill: ${computed.fill || 'currentColor'};`
+        );
+      }
+    });
+
+    // Get styles from annotations
+    this.svg.selectAll('.annotation, .primitive').each(function() {
+      const element = this as SVGElement;
+      const computed = window.getComputedStyle(element);
+      if (!element.hasAttribute('data-styled')) {
+        element.setAttribute('data-styled', 'true');
+        const styleProps: string[] = [];
+        
+        if (computed.fill && computed.fill !== 'none') styleProps.push(`fill: ${computed.fill}`);
+        if (computed.stroke && computed.stroke !== 'none') styleProps.push(`stroke: ${computed.stroke}`);
+        if (computed.strokeWidth) styleProps.push(`stroke-width: ${computed.strokeWidth}`);
+        if (computed.opacity && computed.opacity !== '1') styleProps.push(`opacity: ${computed.opacity}`);
+        
+        if (styleProps.length > 0) {
+          const existingStyle = element.getAttribute('style') || '';
+          element.setAttribute('style', existingStyle + styleProps.join('; ') + ';');
+        }
+      }
+    });
+
+    // Return combined CSS
+    return cssRules.join('\n');
   }
 
   private toggleTrackLabels(): void {
