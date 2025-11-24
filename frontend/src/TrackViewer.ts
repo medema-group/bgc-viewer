@@ -1,4 +1,5 @@
 import * as d3 from 'd3';
+import { initTrackViewerContextMenu } from './TrackViewerContextMenu';
 
 export type TrackData = {
   id: string;
@@ -86,6 +87,10 @@ export class TrackViewer {
   private containerElement!: HTMLElement; // Store reference to container
   private resizeHandler?: () => void; // Store resize handler for cleanup
   private static readonly LABEL_PADDING = 24; // Padding for labels that extend above tracks
+  private contextMenuController?: any;
+  private showTrackLabels: boolean = true;
+  private showAllAnnotationLabels: boolean = false;
+  private labelGroups!: d3.Selection<SVGGElement, TrackData, SVGGElement, unknown>;
 
   constructor(config: TrackViewerConfig) {
     // Check if width was explicitly provided
@@ -216,6 +221,9 @@ export class TrackViewer {
 
     // Initialize zoom behavior
     this.initializeZoom();
+
+    // Create context menu UI (delegated to separate module)
+    this.createContextMenu();
   }
 
   private initializeZoom(): void {
@@ -252,6 +260,155 @@ export class TrackViewer {
         d3.select(this).style('cursor', 'grab');
       });
   }
+  private createContextMenu(): void {
+    this.contextMenuController = initTrackViewerContextMenu({
+      containerElement: this.containerElement,
+      onSaveSVG: () => this.saveAsSVG(),
+      onSavePNG: () => this.saveAsPNG(),
+      getShowTrackLabels: () => this.showTrackLabels,
+      getShowAllAnnotationLabels: () => this.showAllAnnotationLabels,
+      onToggleTrackLabels: () => this.toggleTrackLabels(),
+      onToggleAllAnnotationLabels: () => this.toggleAllAnnotationLabels()
+    });
+  }
+
+  private saveAsSVG(): void {
+    // Clone the SVG node
+    const svgNode = this.svg.node();
+    if (!svgNode) return;
+
+    const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
+    
+    // Add styles inline for standalone SVG
+    const styleText = this.getInlineStyles();
+    const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    styleElement.textContent = styleText;
+    svgClone.insertBefore(styleElement, svgClone.firstChild);
+
+    // Serialize to string
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(svgClone);
+    
+    // Create blob and download
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'track-viewer.svg';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  private saveAsPNG(): void {
+    const svgNode = this.svg.node();
+    if (!svgNode) return;
+
+    const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
+    
+    // Add styles inline
+    const styleText = this.getInlineStyles();
+    const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    styleElement.textContent = styleText;
+    svgClone.insertBefore(styleElement, svgClone.firstChild);
+
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(svgClone);
+    
+    // Create canvas
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size with higher resolution for better quality
+    const scale = 2;
+    canvas.width = this.config.width * scale;
+    canvas.height = this.config.height * scale;
+    ctx.scale(scale, scale);
+
+    // Create image from SVG
+    const img = new Image();
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    
+    img.onload = () => {
+      // Fill white background
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, this.config.width, this.config.height);
+      
+      // Draw image
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      
+      // Convert to PNG and download
+      canvas.toBlob((pngBlob) => {
+        if (pngBlob) {
+          const pngUrl = URL.createObjectURL(pngBlob);
+          const link = document.createElement('a');
+          link.href = pngUrl;
+          link.download = 'track-viewer.png';
+          link.click();
+          URL.revokeObjectURL(pngUrl);
+        }
+      });
+    };
+    
+    img.src = url;
+  }
+
+  private getInlineStyles(): string {
+    // Collect all relevant CSS rules that apply to SVG elements
+    return `
+      .track-label { font-size: 14px; font-family: sans-serif; }
+      .annotation-label { 
+        font-size: 13px; 
+        font-family: sans-serif; 
+        stroke: white; 
+        stroke-width: 0.5px; 
+        paint-order: stroke fill; 
+        pointer-events: none; 
+      }
+      .axis-label { font-size: 14px; font-family: sans-serif; }
+      .x-axis { font-size: 14px; font-family: sans-serif; }
+      .x-axis path, .x-axis line { stroke: currentColor; }
+    `;
+  }
+
+  private toggleTrackLabels(): void {
+    this.showTrackLabels = !this.showTrackLabels;
+    
+    // Update visibility
+    if (this.labelGroups) {
+      this.labelGroups.style('display', this.showTrackLabels ? null : 'none');
+    }
+    
+    // Update checkbox in context menu UI
+    this.contextMenuController?.updateCheckbox('Show track labels', this.showTrackLabels);
+  }
+
+  private toggleAllAnnotationLabels(): void {
+    this.showAllAnnotationLabels = !this.showAllAnnotationLabels;
+    
+    // Update all annotation labels
+    this.svg.selectAll('.annotation-label').each(function() {
+      const label = d3.select(this);
+      const showLabel = label.attr('data-show-label');
+      
+      if (showLabel === 'never') {
+        // Never show these labels
+        label.style('display', 'none');
+      } else if (showLabel === 'always') {
+        // Always show these labels
+        label.style('display', null);
+      } else {
+        // 'hover' - controlled by toggle
+        label.style('display', this.showAllAnnotationLabels ? null : 'none');
+      }
+    }.bind(this));
+    
+    // Update checkbox in context menu UI
+    this.contextMenuController?.updateCheckbox('Show all annotation labels', this.showAllAnnotationLabels);
+  }
+ 
 
   // Helper methods for track heights
   private getTrackHeight(track: TrackData): number {
@@ -298,15 +455,16 @@ export class TrackViewer {
       .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
 
     // Add track labels (these should be outside the clipped area)
-    const labelGroups = this.chart
+    this.labelGroups = this.chart
       .selectAll<SVGGElement, TrackData>('.track-label-group')
       .data(this.data.tracks, d => d.id)
       .join('g')
       .attr('id', d => `${d.id}-label`)
       .attr('class', 'track-label-group')
-      .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
+      .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`)
+      .style('display', this.showTrackLabels ? null : 'none');
 
-    labelGroups
+    this.labelGroups
       .selectAll('.track-label')
       .data(d => [d])
       .join('text')
@@ -978,6 +1136,10 @@ export class TrackViewer {
       window.removeEventListener('resize', this.resizeHandler);
     }
     
+    // Destroy context menu UI
+    this.contextMenuController?.destroy();
+
+    // Remove UI elements
     this.tooltip.remove();
     this.svg.remove();
   }
