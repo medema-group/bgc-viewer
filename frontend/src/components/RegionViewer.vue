@@ -85,6 +85,7 @@
 
 <script>
 import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { TrackViewer } from '../TrackViewer'
 import './cand-cluster-styling.css'
 import './cluster-styling.css'
 import './gene-type-styling.css'
@@ -272,7 +273,7 @@ export default {
       }
       
       console.log('Creating TrackViewer...')
-      regionViewer = new window.BGCViewer.TrackViewer({
+      regionViewer = new TrackViewer({
         container: viewerContainer.value,
         // width is not specified, so it will be responsive
         height: 400,
