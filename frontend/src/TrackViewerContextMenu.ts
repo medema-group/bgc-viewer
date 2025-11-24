@@ -136,9 +136,13 @@ export function initTrackViewerContextMenu(cb: ContextMenuCallbacks): ContextMen
 
   function positionMenuBelowButton() {
     const buttonRect = (button.node() as HTMLElement).getBoundingClientRect();
+    // Add scroll offsets to get absolute position in document
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+    
     menu.style('display', 'block')
-      .style('top', `${buttonRect.bottom + 4}px`)
-      .style('left', `${buttonRect.right - 200}px`);
+      .style('top', `${buttonRect.bottom + scrollTop + 4}px`)
+      .style('left', `${buttonRect.right + scrollLeft - 200}px`);
   }
 
   function hideMenu() {
