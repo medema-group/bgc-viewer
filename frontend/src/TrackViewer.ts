@@ -67,6 +67,7 @@ export interface TrackViewerConfig {
   trackHeight?: number;
   domain?: [number, number];
   zoomExtent?: [number, number];
+  showTrackLabels?: boolean;
   onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
   onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
 }
@@ -91,7 +92,7 @@ export class TrackViewer {
   private resizeHandler?: () => void; // Store resize handler for cleanup
   private static readonly LABEL_PADDING = 24; // Padding for labels that extend above tracks
   private contextMenuController?: any;
-  private showTrackLabels: boolean = true;
+  private showTrackLabels: boolean;
   private showAllAnnotationLabels: boolean = false;
   private labelGroups!: Selection<SVGGElement, TrackData, SVGGElement, unknown>;
 
@@ -114,21 +115,34 @@ export class TrackViewer {
       ? this.calculateResponsiveWidth()
       : (config.width || 800);
 
+    // Determine default left margin based on showTrackLabels setting
+    const defaultLeftMargin = (config.showTrackLabels !== false) ? 60 : 10;
+    const margin = config.margin || { top: 20, right: 10, bottom: 20, left: defaultLeftMargin };
+
     // Set default configuration
     this.config = {
       container: config.container,
       width: calculatedWidth,
       height: config.height || 300,
-      margin: config.margin || { top: 20, right: 10, bottom: 20, left: 60 },
+      margin: margin,
       trackHeight: config.trackHeight || 30,
       domain: config.domain || [0, 100],
       zoomExtent: config.zoomExtent || [0.5, 20],
+      showTrackLabels: config.showTrackLabels !== undefined ? config.showTrackLabels : true,
       onAnnotationClick: config.onAnnotationClick || (() => {}),
       onAnnotationHover: config.onAnnotationHover || (() => {})
     };
 
     // Store the original left margin as minimum
     this.originalLeftMargin = this.config.margin.left;
+
+    // Initialize showTrackLabels from config
+    this.showTrackLabels = this.config.showTrackLabels;
+
+    // If track labels are hidden from the start, use minimal margin
+    if (!this.showTrackLabels) {
+      this.config.margin.left = this.originalLeftMargin;
+    }
 
     this.currentTransform = d3.zoomIdentity;
     this.initialize();
@@ -1122,6 +1136,11 @@ export class TrackViewer {
 
   // Calculate required left margin based on track label lengths
   private calculateRequiredLeftMargin(): number {
+    // If track labels are hidden, use the original minimal margin
+    if (!this.showTrackLabels) {
+      return this.originalLeftMargin;
+    }
+
     if (this.data.tracks.length === 0) {
       return this.originalLeftMargin;
     }

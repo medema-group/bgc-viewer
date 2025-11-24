@@ -283,6 +283,7 @@ export default {
         height: 400,
         domain: [minPos - padding, maxPos + padding],
         trackHeight: 40,
+        showTrackLabels: false,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
           handleAnnotationClick(annotation, track)
