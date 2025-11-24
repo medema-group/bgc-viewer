@@ -376,9 +376,33 @@ export class TrackViewer {
   private toggleTrackLabels(): void {
     this.showTrackLabels = !this.showTrackLabels;
     
-    // Update visibility
-    if (this.labelGroups) {
-      this.labelGroups.style('display', this.showTrackLabels ? null : 'none');
+    // Toggle visibility of the entire labels container
+    const labelsContainer = this.chart.select('.track-labels-container');
+    labelsContainer.style('display', this.showTrackLabels ? null : 'none');
+    
+    // Adjust left margin based on label visibility
+    if (this.showTrackLabels) {
+      // Restore the calculated margin for labels
+      this.updateMarginAndLayout();
+    } else {
+      // Use minimal margin when labels are hidden
+      this.config.margin.left = this.originalLeftMargin;
+      
+      // Update chart transform
+      this.chart.attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
+      
+      // Update x scale range
+      this.x.range([0, this.config.width - this.config.margin.left - this.config.margin.right]);
+      
+      // Update clipping path width
+      const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
+      this.svg.select('clipPath rect').attr('width', chartWidth);
+      
+      // Update chart background width
+      this.clippedChart.select('.chart-background').attr('width', chartWidth);
+      
+      // Redraw to apply new scale
+      this.drawTracks();
     }
     
     // Update checkbox in context menu UI
@@ -454,15 +478,23 @@ export class TrackViewer {
       .attr('class', 'track')
       .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
 
+    // Create or select a single container group for all track labels
+    let labelsContainer = this.chart.select<SVGGElement>('.track-labels-container');
+    if (labelsContainer.empty()) {
+      labelsContainer = this.chart
+        .append('g')
+        .attr('class', 'track-labels-container');
+    }
+    labelsContainer.style('display', this.showTrackLabels ? null : 'none');
+
     // Add track labels (these should be outside the clipped area)
-    this.labelGroups = this.chart
+    this.labelGroups = labelsContainer
       .selectAll<SVGGElement, TrackData>('.track-label-group')
       .data(this.data.tracks, d => d.id)
       .join('g')
       .attr('id', d => `${d.id}-label`)
       .attr('class', 'track-label-group')
-      .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`)
-      .style('display', this.showTrackLabels ? null : 'none');
+      .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
 
     this.labelGroups
       .selectAll('.track-label')
