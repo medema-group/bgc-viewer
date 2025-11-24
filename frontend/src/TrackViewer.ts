@@ -73,6 +73,7 @@ export class TrackViewer {
   private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
   private chart!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private clippedChart!: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private labelLayer!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private xAxisGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private tooltip!: d3.Selection<HTMLDivElement, unknown, null, undefined>;
   private x!: d3.ScaleLinear<number, number>;
@@ -209,6 +210,11 @@ export class TrackViewer {
       .append('g')
       .attr('clip-path', `url(#${this.clipId})`);
 
+    // Create unclipped layer for labels (rendered above clipped content)
+    this.labelLayer = this.chart
+      .append('g')
+      .attr('class', 'label-layer');
+
     // Initialize x scale
     this.x = d3.scaleLinear()
       .domain(this.config.domain)
@@ -333,6 +339,9 @@ export class TrackViewer {
       return;
     }
 
+    // Clear all existing labels before redrawing
+    this.labelLayer.selectAll('*').remove();
+
     // Update annotations and primitives for each track
     this.trackGroups.each((trackData, trackIndex, trackNodes) => {
       const trackGroup = d3.select(trackNodes[trackIndex]);
@@ -381,7 +390,7 @@ export class TrackViewer {
         if (d.type === 'primitive') {
           self.renderPrimitive(group, d.data, xz, trackData);
         } else {
-          self.renderAnnotation(group, d.data, xz, trackData);
+          self.renderAnnotation(group, d.data, xz, trackData, trackIndex);
         }
       });
     });
@@ -391,7 +400,8 @@ export class TrackViewer {
     container: d3.Selection<SVGGElement, unknown, null, undefined>,
     annotation: AnnotationData,
     xScale: d3.ScaleLinear<number, number>,
-    trackData: TrackData
+    trackData: TrackData,
+    trackIndex: number
   ): void {
     const x = xScale(annotation.start);
     const width = Math.max(1, xScale(annotation.end) - xScale(annotation.start));
@@ -450,7 +460,7 @@ export class TrackViewer {
       .on('mouseover', (event: any) => {
         element.classed('hovered', true);
         // Show hover labels if needed
-        container.selectAll(`.annotation-label[data-annotation-id="${annotation.id}"]`)
+        this.labelLayer.selectAll(`.annotation-label[data-annotation-id="${annotation.id}"]`)
           .style('display', 'block');
         // Only show tooltip if tooltip content is provided
         if (annotation.tooltip !== undefined) {
@@ -461,7 +471,7 @@ export class TrackViewer {
       .on('mouseout', () => {
         element.classed('hovered', false);
         // Hide hover labels if needed
-        container.selectAll(`.annotation-label[data-annotation-id="${annotation.id}"]`)
+        this.labelLayer.selectAll(`.annotation-label[data-annotation-id="${annotation.id}"]`)
           .style('display', function() {
             const labelElement = d3.select(this);
             const showLabel = labelElement.attr('data-show-label');
@@ -475,7 +485,7 @@ export class TrackViewer {
       });
 
     // Add label if specified
-    this.renderAnnotationLabel(container, annotation, x, y, width, height);
+    this.renderAnnotationLabel(annotation, x, y, width, height, trackIndex);
   }
 
   private renderPrimitive(
@@ -739,18 +749,21 @@ export class TrackViewer {
   }
 
   private renderAnnotationLabel(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
     annotation: AnnotationData,
     x: number,
     y: number,
     width: number,
-    height: number
+    height: number,
+    trackIndex: number
   ): void {
     // Check if label should be shown (default to 'hover')
     const showLabel = annotation.showLabel || 'hover';
     if (showLabel === 'never' || !annotation.label) {
       return;
     }
+
+    // Calculate track absolute Y position
+    const trackY = this.getTrackYPosition(trackIndex);
 
     // Calculate label position (default to 'above')
     const labelPosition = annotation.labelPosition || 'above';
@@ -762,22 +775,22 @@ export class TrackViewer {
       // For point annotations, position relative to the point
       labelX = x;
       if (labelPosition === 'above') {
-        labelY = y - height / 2 - 2; // Above the shape
+        labelY = trackY + y - height / 2 - 2; // Above the shape (absolute position)
       } else {
-        labelY = y; // Center of the shape
+        labelY = trackY + y; // Center of the shape (absolute position)
       }
     } else {
       // For box and arrow annotations, position relative to the shape
       labelX = x + width / 2; // Center horizontally
       if (labelPosition === 'above') {
-        labelY = y - height / 2 - 8; // Above the shape
+        labelY = trackY + y - height / 2 - 8; // Above the shape (absolute position)
       } else {
-        labelY = y; // Center of the shape
+        labelY = trackY + y; // Center of the shape (absolute position)
       }
     }
 
-    // Create label element
-    const labelElement = container
+    // Create label element in unclipped label layer
+    const labelElement = this.labelLayer
       .append('text')
       .attr('x', labelX)
       .attr('y', labelY)
