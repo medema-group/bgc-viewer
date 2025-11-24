@@ -143,8 +143,9 @@ data/custom_data.json
 Thumbs.db
 
 # Custom
-data/
-data-index/
+/data/
+/data-index/
+/specs/
 temp/
 *.db
 
@@ -159,5 +160,3 @@ backend/bgc_viewer/static/
 # Frontend build artifacts
 frontend/build/
 frontend/dist/
-frontend/public/viewer-components.umd.js
-frontend/public/viewer-components.umd.js.map

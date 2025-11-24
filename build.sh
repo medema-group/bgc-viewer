@@ -12,32 +12,6 @@ echo "Building BGC Viewer version ${VERSION}..."
 cd "$(dirname "$0")"
 
 
-### ---------- Viewer Components ---------- ####
-
-# Build viewer components first
-echo "=== Building Viewer Components ==="
-cd viewer-components
-
-# Clean previous build
-rm -rf dist/
-
-# Install dependencies and build
-npm install
-npm run build
-
-# Verify build output
-if [ ! -f "dist/index.js" ]; then
-    echo "Error: Viewer components build failed - index.js not found in dist/"
-    exit 1
-fi
-
-echo "Viewer components build completed successfully!"
-echo "Output: viewer-components/dist/"
-ls -la dist/
-
-cd ..
-
-
 ### ---------- Frontend ---------- ####
 
 # Build frontend first
@@ -51,20 +25,9 @@ rm -rf build/ dist/
 npm install
 npm run build
 
-# Copy viewer components to frontend public directory so Vite includes it in build
-echo "Copying viewer components to frontend public directory..."
-mkdir -p public
-if [ -f "../viewer-components/dist/index.umd.js" ]; then
-    cp ../viewer-components/dist/index.umd.js public/viewer-components.umd.js
-    if [ -f "../viewer-components/dist/index.umd.js.map" ]; then
-        cp ../viewer-components/dist/index.umd.js.map public/viewer-components.umd.js.map
-    fi
-elif [ -f "../viewer-components/dist/index.js" ]; then
-    cp ../viewer-components/dist/index.js public/viewer-components.umd.js
-    if [ -f "../viewer-components/dist/index.js.map" ]; then
-        cp ../viewer-components/dist/index.js.map public/viewer-components.umd.js.map
-    fi
-fi
+# Build web components
+echo "Building web components..."
+npm run build:web-components
 
 # Verify build output
 if [ ! -f "build/index.html" ]; then

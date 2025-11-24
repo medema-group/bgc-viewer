@@ -1,0 +1,53 @@
+{
+  "name": "@bgc-viewer/web-components",
+  "version": "0.1.0",
+  "description": "Reusable web components for visualizing antiSMASH BGC genomic data",
+  "type": "module",
+  "main": "./dist/web-components/bgc-viewer-components.umd.js",
+  "module": "./dist/web-components/bgc-viewer-components.es.js",
+  "exports": {
+    ".": {
+      "import": "./dist/web-components/bgc-viewer-components.es.js",
+      "require": "./dist/web-components/bgc-viewer-components.umd.js"
+    },
+    "./style.css": "./dist/web-components/style.css"
+  },
+  "files": [
+    "dist/web-components",
+    "WEB_COMPONENTS.md",
+    "QUICK_START_WEB_COMPONENTS.md"
+  ],
+  "keywords": [
+    "web-components",
+    "bioinformatics",
+    "genomics",
+    "antismash",
+    "bgc",
+    "biosynthetic-gene-clusters",
+    "visualization",
+    "vue",
+    "custom-elements"
+  ],
+  "author": "BGC Viewer Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medema-group/bgc-viewer.git",
+    "directory": "frontend"
+  },
+  "bugs": {
+    "url": "https://github.com/medema-group/bgc-viewer/issues"
+  },
+  "homepage": "https://github.com/medema-group/bgc-viewer#readme",
+  "peerDependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@vitejs/plugin-vue": "^4.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^5.0.0"
+  },
+  "dependencies": {},
+  "scripts": {
+    "build": "vite build --config vite.config.webcomponents.js"
+  }
+}
