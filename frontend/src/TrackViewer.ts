@@ -510,6 +510,7 @@ export class TrackViewer {
     this.showAllAnnotationLabels = !this.showAllAnnotationLabels;
     
     // Update all annotation labels
+    const showAll = this.showAllAnnotationLabels;
     this.svg.selectAll('.annotation-label').each(function() {
       const label = d3.select(this);
       const showLabel = label.attr('data-show-label');
@@ -522,9 +523,9 @@ export class TrackViewer {
         label.style('display', null);
       } else {
         // 'hover' - controlled by toggle
-        label.style('display', this.showAllAnnotationLabels ? null : 'none');
+        label.style('display', showAll ? null : 'none');
       }
-    }.bind(this));
+    });
     
     // Update checkbox in context menu UI
     this.contextMenuController?.updateCheckbox('Show all annotation labels', this.showAllAnnotationLabels);
@@ -747,11 +748,16 @@ export class TrackViewer {
       })
       .on('mouseout', () => {
         element.classed('hovered', false);
-        // Hide hover labels if needed
+        // Hide hover labels if needed, but respect the showAllAnnotationLabels toggle
+        const showAll = this.showAllAnnotationLabels;
         container.selectAll(`.annotation-label[data-annotation-id="${annotation.id}"]`)
           .style('display', function() {
             const labelElement = d3.select(this);
             const showLabel = labelElement.attr('data-show-label');
+            // If showAllAnnotationLabels is on, keep hover labels visible
+            if (showLabel === 'hover' && showAll) {
+              return null; // Keep visible
+            }
             return showLabel === 'hover' ? 'none' : null;
           });
         // Always try to hide tooltip on mouseout
