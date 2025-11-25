@@ -155,7 +155,7 @@ export default {
       if (props.features && props.features.length > 0) {
         rebuildViewer()
       }
-    }, { immediate: true })
+    })
 
     watch(() => props.selectedRegionId, (newVal) => {
       selectedRegion.value = newVal
@@ -164,12 +164,23 @@ export default {
     onMounted(() => {
       // Add event listeners
       document.addEventListener('click', handleClickOutside)
+      
+      // Initial build if we already have features
+      if (props.features && props.features.length > 0) {
+        rebuildViewer()
+      }
     })
-    
+
     onUnmounted(() => {
       document.removeEventListener('click', handleClickOutside)
+      
+      // Clean up TrackViewer instance to prevent stale references after HMR
+      if (regionViewer) {
+        regionViewer.destroy()
+        regionViewer = null
+      }
     })
-    
+
     const rebuildViewer = async () => {
       try {
         error.value = ''
