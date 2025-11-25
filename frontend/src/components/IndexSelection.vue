@@ -351,35 +351,37 @@ export default {
 .folder-selector-section {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  margin-bottom: 30px;
+  gap: 12px;
+  padding: 15px;
+  border-bottom: 1px solid #e0e0e0;
 }
 
 /* Current Index Section */
 .current-index-section {
   background: #e3f2fd;
   border: 1px solid #bbdefb;
-  border-radius: 8px;
-  padding: 20px;
+  border-radius: 6px;
+  padding: 12px;
 }
 
 .current-index-section h2 {
   margin-top: 0;
-  margin-bottom: 15px;
+  margin-bottom: 10px;
   color: #1976d2;
+  font-size: 16px;
 }
 
 .index-info {
   background: white;
   border: 1px solid #bbdefb;
-  border-radius: 6px;
-  padding: 15px;
-  margin-bottom: 15px;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 10px;
 }
 
 .info-row {
   display: flex;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .info-row:last-child {
@@ -389,33 +391,34 @@ export default {
 .info-label {
   font-weight: 500;
   color: #495057;
-  min-width: 100px;
-  font-size: 14px;
+  min-width: 90px;
+  font-size: 13px;
+  flex-shrink: 0;
 }
 
 .info-value {
   color: #212529;
-  font-size: 14px;
+  font-size: 13px;
   word-break: break-all;
 }
 
 .no-index-message {
   background: #fff3cd;
   border: 1px solid #ffc107;
-  border-radius: 6px;
-  padding: 15px;
-  margin-bottom: 15px;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 10px;
 }
 
 .no-index-message p {
   margin: 0;
   color: #856404;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .action-buttons {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -423,10 +426,10 @@ export default {
   background: #dc3545;
   color: white;
   border: none;
-  padding: 10px 16px;
+  padding: 8px 12px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   transition: background 0.2s;
 }
 
@@ -436,7 +439,7 @@ export default {
 
 .version-warning-inline {
   color: #856404;
-  font-size: 13px;
+  font-size: 12px;
   margin-left: 8px;
 }
 
@@ -445,10 +448,10 @@ export default {
   background: #1976d2;
   color: white;
   border: none;
-  padding: 10px 16px;
+  padding: 8px 12px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   transition: background 0.2s;
 }
 
