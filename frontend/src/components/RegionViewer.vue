@@ -652,6 +652,7 @@ export default {
     const updateAnnotationHighlighting = () => {
       // Iterate through all tracks and their annotations
       Object.values(allTrackData).forEach(track => {
+        if (track.id !== 'CDS' && track.id !== 'PFAM_domain') return
         track.annotations.forEach(annotation => {
           const shouldHighlight = shouldHighlightAnnotation(annotation)
           
