@@ -247,7 +247,7 @@ export default {
         // Use region boundaries if provided
         minPos = props.regionBoundaries.start
         maxPos = props.regionBoundaries.end
-        padding = (maxPos - minPos) * 0.1
+        padding = (maxPos - minPos) * 0.02
         console.log('Using region boundaries:', minPos, '-', maxPos)
       } else {
         // Fallback to calculating from features
@@ -272,7 +272,7 @@ export default {
           minPos = Math.min(...positions)
           maxPos = Math.max(...positions)
         }
-        padding = (maxPos - minPos) * 0.1
+        padding = (maxPos - minPos) * 0.02  // Reduced padding from 0.1 to 0.02 for more zoomed-in view
         console.log('Calculated domain:', minPos - padding, 'to', maxPos + padding)
       }
       
