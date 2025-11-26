@@ -50,31 +50,38 @@
             </template>
           </span>
         </div>
-      </div>
-      
-      <!-- PFAM Domain Information (for CDS features) -->
-      <div v-if="pfamDomains.length > 0" class="info-section">
-        <h4>Pfam hits</h4>
-        <table class="pfam-table">
-          <thead>
-            <tr>
-              <th>Domain</th>
-              <th>Description</th>
-              <th>Location</th>
-              <th>Score</th>
-              <th>E-value</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(domain, index) in pfamDomains" :key="index">
-              <td class="pfam-id">{{ domain.id }}</td>
-              <td class="pfam-description">{{ domain.description }}</td>
-              <td class="pfam-location">{{ domain.location }}</td>
-              <td class="pfam-score">{{ domain.score }}</td>
-              <td class="pfam-evalue">{{ domain.evalue }}</td>
-            </tr>
-          </tbody>
-        </table>
+        
+        <!-- PFAM Domain Information (for CDS features) -->
+        <div v-if="pfamDomains.length > 0" class="info-row">
+          <span class="info-label">Pfam hits</span>
+          <span class="info-value">
+            <details class="expandable-list">
+              <summary>{{ pfamDomains.length }} items</summary>
+              <div class="expanded-content">
+                <table class="pfam-table">
+                  <thead>
+                    <tr>
+                      <th>Domain</th>
+                      <th>Description</th>
+                      <th>Location</th>
+                      <th>Score</th>
+                      <th>E-value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(domain, index) in pfamDomains" :key="index">
+                      <td class="pfam-id">{{ domain.id }}</td>
+                      <td class="pfam-description">{{ domain.description }}</td>
+                      <td class="pfam-location">{{ domain.location }}</td>
+                      <td class="pfam-score">{{ domain.score }}</td>
+                      <td class="pfam-evalue">{{ domain.evalue }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </span>
+        </div>
       </div>
       
       <!-- Gene Ontology Terms -->
@@ -87,17 +94,22 @@
       
       <!-- Sequences (for CDS features) -->
       <div v-if="feature.type === 'CDS'" class="info-section sequences">
-        <h4>Sequences</h4>
-        
-        <div v-if="feature.qualifiers?.translation?.[0]" class="sequence-block">
-          <div class="sequence-header">
-            <span class="sequence-label">AA sequence</span>
-            <button @click="copyToClipboard(feature.qualifiers.translation[0], 'amino acid')" 
-                    class="copy-button">
-              Copy to clipboard
-            </button>
-          </div>
-          <pre class="sequence-text">{{ formatSequence(feature.qualifiers.translation[0]) }}</pre>
+        <div v-if="feature.qualifiers?.translation?.[0]" class="info-row">
+          <span class="info-label">AA sequence</span>
+          <span class="info-value">
+            <details class="expandable-list">
+              <summary>
+                Show sequence
+                <button @click.stop="copyToClipboard(feature.qualifiers.translation[0], 'amino acid')" 
+                        class="copy-button copy-button-inline">
+                  Copy to clipboard
+                </button>
+              </summary>
+              <div class="expanded-content">
+                <pre class="sequence-text">{{ formatSequence(feature.qualifiers.translation[0]) }}</pre>
+              </div>
+            </details>
+          </span>
         </div>
         
         <div v-if="feature.qualifiers?.nucleotide?.[0]" class="sequence-block">
@@ -584,6 +596,10 @@ export default {
 
 .copy-button:hover {
   background: #0056b3;
+}
+
+.copy-button-inline {
+  margin-left: 8px;
 }
 
 .sequence-text {
