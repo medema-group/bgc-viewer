@@ -32,6 +32,12 @@
           <span class="info-label">Gene kind</span>
           <span class="info-value">{{ feature.qualifiers.gene_kind[0] }}</span>
         </div>
+        
+        <!-- Additional qualifiers below primary ones -->
+        <div v-for="(value, key) in getAdditionalQualifiers()" :key="key" class="info-row">
+          <span class="info-label">{{ formatQualifierKey(key) }}</span>
+          <span class="info-value">{{ formatQualifierValue(value) }}</span>
+        </div>
       </div>
       
       <!-- PFAM Domain Information (for CDS features) -->
@@ -57,15 +63,6 @@
         <h4>Gene Ontology terms</h4>
         <div v-for="(term, index) in goTerms" :key="index" class="go-term">
           {{ term }}
-        </div>
-      </div>
-      
-      <!-- Additional Qualifiers -->
-      <div v-if="hasAdditionalQualifiers()" class="info-section">
-        <h4>Additional information</h4>
-        <div v-for="(value, key) in getAdditionalQualifiers()" :key="key" class="info-row">
-          <span class="info-label">{{ formatQualifierKey(key) }}</span>
-          <span class="info-value">{{ formatQualifierValue(value) }}</span>
         </div>
       </div>
       
