@@ -12,7 +12,7 @@
     <!-- Main content area with sidebar and viewer -->
     <div class="main-content">
       <!-- Left sidebar for controls (30%) -->
-      <aside class="sidebar">
+      <aside class="sidebar" :style="{ width: sidebarWidth + 'px' }">
         <!-- Index Selection Section - Only shown in local mode and when not creating an index -->
         <IndexSelection 
           v-if="!isPublicMode && !folderForIndexing"
@@ -44,6 +44,12 @@
         />
       </aside>
 
+      <!-- Draggable divider -->
+      <div 
+        class="divider"
+        @mousedown="startDragging"
+      ></div>
+
       <!-- Right main viewer area (70%) -->
       <main class="viewer-area">
         <RegionViewerContainer 
@@ -66,7 +72,7 @@
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import RegionViewerContainer from './components/RegionViewerContainer.vue'
 import IndexSelection from './components/IndexSelection.vue'
@@ -109,6 +115,12 @@ export default {
     const currentRecordId = ref('')
     const currentRecordData = ref(null)
     const initialRegionId = ref('')
+    
+    // Draggable divider state
+    const sidebarWidth = ref(350) // Default width in pixels
+    const isDragging = ref(false)
+    const minSidebarWidth = 250
+    const maxSidebarWidth = 800
     
     const handleFolderSelected = async (folderPath) => {
       // Update the selected data root
@@ -202,6 +214,33 @@ export default {
       needsPreprocessing.value = false
     }
     
+    // Draggable divider functions
+    const startDragging = (e) => {
+      isDragging.value = true
+      e.preventDefault()
+      document.addEventListener('mousemove', onDrag)
+      document.addEventListener('mouseup', stopDragging)
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    }
+    
+    const onDrag = (e) => {
+      if (!isDragging.value) return
+      
+      const newWidth = e.clientX
+      if (newWidth >= minSidebarWidth && newWidth <= maxSidebarWidth) {
+        sidebarWidth.value = newWidth
+      }
+    }
+    
+    const stopDragging = () => {
+      isDragging.value = false
+      document.removeEventListener('mousemove', onDrag)
+      document.removeEventListener('mouseup', stopDragging)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    
     const fetchVersion = async () => {
       try {
         const response = await axios.get('/api/version')
@@ -234,6 +273,12 @@ export default {
       dataProvider.value = new BGCViewerAPIProvider()
     })
     
+    // Cleanup on unmount
+    onUnmounted(() => {
+      document.removeEventListener('mousemove', onDrag)
+      document.removeEventListener('mouseup', stopDragging)
+    })
+    
     return {
       regionViewerRef,
       recordListSelectorRef,
@@ -251,6 +296,7 @@ export default {
       currentRecordId,
       currentRecordData,
       initialRegionId,
+      sidebarWidth,
       handleFolderSelected,
       handleFolderChanged,
       handleIndexChanged,
@@ -260,7 +306,8 @@ export default {
       handleViewerError,
       handleCreateIndexForFolder,
       handlePreprocessingCompleted,
-      handleCancelIndexCreation
+      handleCancelIndexCreation,
+      startDragging
     }
   }
 }
@@ -328,15 +375,29 @@ html,
 
 /* Left sidebar (30%) */
 .sidebar {
-  width: 30%;
-  min-width: 300px;
-  max-width: 450px;
+  flex-shrink: 0;
   background: white;
-  border-right: 1px solid #e0e0e0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  box-shadow: 2px 0 4px rgba(0,0,0,0.05);
+}
+
+/* Draggable divider */
+.divider {
+  width: 4px;
+  background: #e0e0e0;
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background-color 0.2s;
+  position: relative;
+}
+
+.divider:hover {
+  background: #1976d2;
+}
+
+.divider:active {
+  background: #1565c0;
 }
 
 /* Right viewer area (70%) */
