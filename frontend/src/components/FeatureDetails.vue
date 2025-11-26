@@ -55,19 +55,26 @@
       <!-- PFAM Domain Information (for CDS features) -->
       <div v-if="pfamDomains.length > 0" class="info-section">
         <h4>Pfam hits</h4>
-        <div v-for="(domain, index) in pfamDomains" :key="index" class="pfam-domain">
-          <div class="pfam-header">
-            <strong>{{ domain.id }}</strong>
-            <span v-if="domain.description" class="pfam-description">
-              ({{ domain.description }})
-            </span>
-          </div>
-          <div class="pfam-details">
-            <span v-if="domain.location">{{ domain.location }}</span>
-            <span v-if="domain.score">(score: {{ domain.score }}</span>
-            <span v-if="domain.evalue">, e-value: {{ domain.evalue }})</span>
-          </div>
-        </div>
+        <table class="pfam-table">
+          <thead>
+            <tr>
+              <th>Domain</th>
+              <th>Description</th>
+              <th>Location</th>
+              <th>Score</th>
+              <th>E-value</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(domain, index) in pfamDomains" :key="index">
+              <td class="pfam-id">{{ domain.id }}</td>
+              <td class="pfam-description">{{ domain.description }}</td>
+              <td class="pfam-location">{{ domain.location }}</td>
+              <td class="pfam-score">{{ domain.score }}</td>
+              <td class="pfam-evalue">{{ domain.evalue }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       
       <!-- Gene Ontology Terms -->
@@ -491,33 +498,49 @@ export default {
   word-break: break-word;
 }
 
-.pfam-domain {
-  margin: 4px 0;
-  padding: 6px 10px;
+.pfam-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.pfam-table th {
   background: #f8f9fa;
-  border-radius: 4px;
-  border-left: 3px solid #2196F3;
+  border: 1px solid #dee2e6;
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 600;
+  color: #495057;
 }
 
-.pfam-header {
-  margin-bottom: 2px;
+.pfam-table td {
+  border: 1px solid #dee2e6;
+  padding: 6px 8px;
+  vertical-align: top;
 }
 
-.pfam-header strong {
-  color: #1976D2;
-  font-family: 'Courier New', monospace;
+.pfam-table tbody tr:nth-child(even) {
+  background-color: #f8f9fa;
+}
+
+.pfam-id {
+  font-weight: 600;
 }
 
 .pfam-description {
   color: #666;
-  font-style: italic;
-  margin-left: 8px;
 }
 
-.pfam-details {
-  font-size: 12px;
-  color: #666;
+.pfam-location {
   font-family: 'Courier New', monospace;
+  color: #495057;
+}
+
+.pfam-score,
+.pfam-evalue {
+  font-family: 'Courier New', monospace;
+  text-align: right;
 }
 
 .go-term {
