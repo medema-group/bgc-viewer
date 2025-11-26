@@ -40,7 +40,9 @@
             <template v-if="Array.isArray(value) && value.length > 1">
               <details class="expandable-list">
                 <summary>{{ value.length }} items</summary>
-                <div class="expanded-content">{{ value.join(', ') }}</div>
+                <div class="expanded-content">
+                  <component :is="renderQualifierValue(key, value)" />
+                </div>
               </details>
             </template>
             <template v-else>
@@ -111,7 +113,8 @@
 </template>
 
 <script>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, h } from 'vue'
+import SimpleTable from './SimpleTable.vue'
 
 export default {
   name: 'FeatureDetails',
@@ -307,6 +310,119 @@ export default {
       }
     }
     
+    // Render function for qualifier values based on key type
+    const renderQualifierValue = (key, values) => {
+      // Hard-coded renderers for known formats
+      const renderers = {
+        'NRPS_PKS': renderNRPSPKS,
+        'sec_met_domain': renderSecMetDomain,
+      }
+      
+      // Use specific renderer if available, otherwise fall back to default
+      const renderer = renderers[key] || renderDefaultList
+      return renderer(values)
+    }
+    
+    // Renderer for NRPS_PKS format
+    // "Domain: PKS_KS(Hybrid-KS) (10-463). E-value: 9.5e-118. Score: 385.7. Matches aSDomain: ..."
+    const renderNRPSPKS = (values) => {
+      const parsedItems = values.map((item) => {
+        // Split by ". " to separate domain header from properties
+        const parts = item.split(/\.\s+/)
+        if (parts.length === 0) {
+          return { domain: item }
+        }
+        
+        // First part is the domain (everything before first ". ")
+        const domain = parts[0].replace(/^Domain:\s*/, '').trim()
+        const data = { domain }
+        
+        // Parse remaining parts as key-value pairs
+        parts.slice(1).forEach(prop => {
+          const colonIndex = prop.indexOf(':')
+          if (colonIndex > -1) {
+            const key = prop.substring(0, colonIndex).trim()
+            const val = prop.substring(colonIndex + 1).trim()
+            data[key] = val
+          }
+        })
+        
+        return data
+      })
+      
+      // Get keys from first item (excluding 'domain')
+      const firstItem = parsedItems[0] || {}
+      const keys = Object.keys(firstItem).filter(k => k !== 'domain')
+      const headers = ['', ...keys] // Empty string for domain column
+      
+      const rows = [
+        headers,
+        ...parsedItems.map(item => {
+          const row = [item.domain || '']
+          keys.forEach(key => {
+            row.push(item[key] || '')
+          })
+          return row
+        })
+      ]
+      
+      return h(SimpleTable, { rows })
+    }
+    
+    // Renderer for sec_met_domain format
+    // "hglE (E-value: 1.4e-217, bitscore: 720.9, seeds: 4, tool: rule-based-clusters)"
+    const renderSecMetDomain = (values) => {
+      const parsedItems = values.map((item) => {
+        const match = item.match(/^([^(]+)\s*\(([^)]+)\)/)
+        if (!match) {
+          return { name: item }
+        }
+        
+        const name = match[1].trim()
+        const details = match[2]
+        const data = { name }
+        
+        // Parse key-value pairs
+        const pairs = details.split(/,\s*/)
+        pairs.forEach(pair => {
+          const colonIndex = pair.indexOf(':')
+          if (colonIndex > -1) {
+            const key = pair.substring(0, colonIndex).trim()
+            const val = pair.substring(colonIndex + 1).trim()
+            data[key] = val
+          }
+        })
+        
+        return data
+      })
+      
+      // Get keys from first item (excluding 'name')
+      const firstItem = parsedItems[0] || {}
+      const keys = Object.keys(firstItem).filter(k => k !== 'name')
+      const headers = ['', ...keys] // Empty string for name column
+      
+      const rows = [
+        headers,
+        ...parsedItems.map(item => {
+          const row = [item.name || '']
+          keys.forEach(key => {
+            row.push(item[key] || '')
+          })
+          return row
+        })
+      ]
+      
+      return h(SimpleTable, { rows })
+    }
+    
+    // Default renderer for unstructured lists
+    const renderDefaultList = (values) => {
+      const items = values.map((item, idx) => 
+        h('li', { key: idx }, item)
+      )
+      return h('ul', { class: 'qualifier-list' }, items)
+    }
+    
     return {
       pfamDomains,
       goTerms,
@@ -317,7 +433,8 @@ export default {
       hasAdditionalQualifiers,
       getAdditionalQualifiers,
       formatSequence,
-      copyToClipboard
+      copyToClipboard,
+      renderQualifierValue
     }
   }
 }
@@ -517,5 +634,49 @@ export default {
 .expanded-content {
   display: inline;
   margin-left: 4px;
+}
+
+.qualifier-list {
+  margin: 4px 0 0 0;
+  padding-left: 20px;
+  list-style: disc;
+}
+
+.qualifier-list li {
+  margin: 2px 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.qualifier-table {
+  margin: 4px 0 0 0;
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+
+.qualifier-table td {
+  padding: 3px 8px;
+  border: 1px solid #dee2e6;
+  vertical-align: top;
+}
+
+.qualifier-table tr:nth-child(even) {
+  background-color: #f8f9fa;
+}
+
+.qualifier-table td.col-domain,
+.qualifier-table td.col-name,
+.qualifier-table td.col-key {
+  font-weight: 600;
+  color: #495057;
+}
+
+.qualifier-table td.col-e_value,
+.qualifier-table td.col-evalue,
+.qualifier-table td.col-score,
+.qualifier-table td.col-bitscore {
+  font-family: 'Courier New', monospace;
+  text-align: right;
 }
 </style>
