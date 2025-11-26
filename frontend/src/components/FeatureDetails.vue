@@ -1,47 +1,42 @@
 <template>
   <div v-if="feature" class="feature-details">
-    <div class="feature-header">
-      <h3>{{ getFeatureTitle() }}</h3>
-      <button @click="$emit('close')" class="close-button" title="Close">×</button>
-    </div>
-    
     <div class="feature-content">
       <!-- Primary Information -->
       <div class="info-section">
         <div class="info-row" v-if="feature.qualifiers?.locus_tag?.[0]">
-          <span class="info-label">Locus tag:</span>
+          <span class="info-label">Locus tag</span>
           <span class="info-value">{{ feature.qualifiers.locus_tag[0] }}</span>
         </div>
         
         <div class="info-row" v-if="feature.qualifiers?.protein_id?.[0]">
-          <span class="info-label">Protein ID:</span>
+          <span class="info-label">Protein ID</span>
           <span class="info-value">{{ feature.qualifiers.protein_id[0] }}</span>
         </div>
         
         <div class="info-row" v-if="feature.qualifiers?.gene?.[0]">
-          <span class="info-label">Gene:</span>
+          <span class="info-label">Gene</span>
           <span class="info-value">{{ feature.qualifiers.gene[0] }}</span>
         </div>
         
         <div class="info-row" v-if="feature.qualifiers?.product?.[0]">
-          <span class="info-label">Product:</span>
+          <span class="info-label">Product</span>
           <span class="info-value">{{ feature.qualifiers.product[0] }}</span>
         </div>
         
         <div class="info-row" v-if="feature.location">
-          <span class="info-label">Location:</span>
+          <span class="info-label">Location</span>
           <span class="info-value">{{ formatLocation(feature.location) }}</span>
         </div>
         
         <div class="info-row" v-if="feature.qualifiers?.gene_kind?.[0]">
-          <span class="info-label">Gene kind:</span>
+          <span class="info-label">Gene kind</span>
           <span class="info-value">{{ feature.qualifiers.gene_kind[0] }}</span>
         </div>
       </div>
       
       <!-- PFAM Domain Information (for CDS features) -->
       <div v-if="pfamDomains.length > 0" class="info-section">
-        <h4>Pfam hits:</h4>
+        <h4>Pfam hits</h4>
         <div v-for="(domain, index) in pfamDomains" :key="index" class="pfam-domain">
           <div class="pfam-header">
             <strong>{{ domain.id }}</strong>
@@ -59,7 +54,7 @@
       
       <!-- Gene Ontology Terms -->
       <div v-if="goTerms.length > 0" class="info-section">
-        <h4>Gene Ontology terms:</h4>
+        <h4>Gene Ontology terms</h4>
         <div v-for="(term, index) in goTerms" :key="index" class="go-term">
           {{ term }}
         </div>
@@ -67,20 +62,20 @@
       
       <!-- Additional Qualifiers -->
       <div v-if="hasAdditionalQualifiers()" class="info-section">
-        <h4>Additional information:</h4>
+        <h4>Additional information</h4>
         <div v-for="(value, key) in getAdditionalQualifiers()" :key="key" class="info-row">
-          <span class="info-label">{{ formatQualifierKey(key) }}:</span>
+          <span class="info-label">{{ formatQualifierKey(key) }}</span>
           <span class="info-value">{{ formatQualifierValue(value) }}</span>
         </div>
       </div>
       
       <!-- Sequences (for CDS features) -->
       <div v-if="feature.type === 'CDS'" class="info-section sequences">
-        <h4>Sequences:</h4>
+        <h4>Sequences</h4>
         
         <div v-if="feature.qualifiers?.translation?.[0]" class="sequence-block">
           <div class="sequence-header">
-            <span class="sequence-label">AA sequence:</span>
+            <span class="sequence-label">AA sequence</span>
             <button @click="copyToClipboard(feature.qualifiers.translation[0], 'amino acid')" 
                     class="copy-button">
               Copy to clipboard
@@ -91,7 +86,7 @@
         
         <div v-if="feature.qualifiers?.nucleotide?.[0]" class="sequence-block">
           <div class="sequence-header">
-            <span class="sequence-label">Nucleotide sequence:</span>
+            <span class="sequence-label">Nucleotide sequence</span>
             <button @click="copyToClipboard(feature.qualifiers.nucleotide[0], 'nucleotide')" 
                     class="copy-button">
               Copy to clipboard
@@ -324,62 +319,20 @@ export default {
 <style scoped>
 .feature-details {
   border: 1px solid #ddd;
-  border-radius: 8px;
+  border-radius: 6px;
   background: white;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.feature-header {
-  background: #f8f9fa;
-  border-bottom: 1px solid #ddd;
-  padding: 15px 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.feature-header h3 {
-  margin: 0;
-  color: #2c3e50;
-  font-size: 18px;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.close-button {
-  background: none;
-  border: none;
-  font-size: 28px;
-  color: #666;
-  cursor: pointer;
-  padding: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  transition: background-color 0.2s, color 0.2s;
-  flex-shrink: 0;
-  margin-left: 10px;
-}
-
-.close-button:hover {
-  background: #e0e0e0;
-  color: #333;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
 .feature-content {
-  padding: 20px;
-  max-height: 600px;
+  padding: 12px;
+  max-height: 500px;
   overflow-y: auto;
 }
 
 .info-section {
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
 .info-section:last-child {
@@ -387,24 +340,24 @@ export default {
 }
 
 .info-section h4 {
-  margin: 0 0 10px 0;
+  margin: 0 0 6px 0;
   color: #495057;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   border-bottom: 1px solid #e9ecef;
-  padding-bottom: 5px;
+  padding-bottom: 3px;
 }
 
 .info-row {
   display: flex;
-  padding: 6px 0;
-  gap: 10px;
+  /* padding: 3px 0; */
+  gap: 8px;
 }
 
 .info-label {
   font-weight: 600;
   color: #495057;
-  min-width: 120px;
+  min-width: 100px;
   flex-shrink: 0;
 }
 
@@ -415,15 +368,15 @@ export default {
 }
 
 .pfam-domain {
-  margin: 8px 0;
-  padding: 8px 12px;
+  margin: 4px 0;
+  padding: 6px 10px;
   background: #f8f9fa;
   border-radius: 4px;
   border-left: 3px solid #2196F3;
 }
 
 .pfam-header {
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .pfam-header strong {
@@ -438,25 +391,25 @@ export default {
 }
 
 .pfam-details {
-  font-size: 13px;
+  font-size: 12px;
   color: #666;
   font-family: 'Courier New', monospace;
 }
 
 .go-term {
-  padding: 4px 0;
+  padding: 2px 0;
   color: #495057;
   font-size: 14px;
 }
 
 .sequences {
-  border-top: 2px solid #e9ecef;
-  padding-top: 20px;
-  margin-top: 20px;
+  border-top: 1px solid #e9ecef;
+  padding-top: 12px;
+  margin-top: 12px;
 }
 
 .sequence-block {
-  margin: 15px 0;
+  margin: 10px 0;
 }
 
 .sequence-header {
@@ -490,13 +443,13 @@ export default {
   background: #f8f9fa;
   border: 1px solid #dee2e6;
   border-radius: 4px;
-  padding: 12px;
+  padding: 8px;
   font-family: 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.4;
   color: #212529;
   overflow-x: auto;
-  max-height: 200px;
+  max-height: 150px;
   overflow-y: auto;
   white-space: pre;
 }

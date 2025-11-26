@@ -927,12 +927,12 @@ export default {
 
 .viewer-container {
   width: 100%;
-  min-height: 350px;
   border: 1px solid #e0e0e0;
   border-radius: 6px;
   overflow-x: auto;
   background: white;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
 }
 
 .loading {
