@@ -241,11 +241,11 @@ export default {
     }
     
     const formatQualifierKey = (key) => {
-      // Convert snake_case to Title Case
-      return key
-        .split('_')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ')
+      // Convert snake_case to Sentence case (only first word capitalized)
+      const words = key.split('_')
+      return words.map((word, index) => 
+        index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word
+      ).join(' ')
     }
     
     const formatQualifierValue = (value) => {
@@ -481,7 +481,7 @@ export default {
 .info-label {
   font-weight: 600;
   color: #495057;
-  min-width: 100px;
+  min-width: 180px;
   flex-shrink: 0;
 }
 
@@ -615,12 +615,11 @@ export default {
 
 .expandable-list summary {
   cursor: pointer;
-  color: #007bff;
+  color: #212529;
 }
 
 .expandable-list summary:hover {
-  color: #0056b3;
-  text-decoration: underline;
+  color: #495057;
 }
 
 .expandable-list[open] summary {
@@ -628,12 +627,12 @@ export default {
 }
 
 .expandable-list[open] summary:hover {
-  text-decoration: none;
+  color: #495057;
 }
 
 .expanded-content {
-  display: inline;
-  margin-left: 4px;
+  display: block;
+  margin-left: 0;
 }
 
 .qualifier-list {
