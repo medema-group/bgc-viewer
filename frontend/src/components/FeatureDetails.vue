@@ -137,12 +137,12 @@ export default {
       if (!props.feature || props.feature.type !== 'CDS') return []
       if (!props.allFeatures || props.allFeatures.length === 0) return []
       
-      const locusTag = props.feature.qualifiers?.locus_tag?.[0]
+      const locusTag = props.feature.qualifiers?.locus_tag?.[0] || props.feature.qualifiers?.gene?.[0]
       if (!locusTag) return []
       
-      // Find all PFAM_domain features with matching locus_tag
+      // Find all PFAM_domain features with matching locus_tag or gene
       return props.allFeatures
-        .filter(f => f.type === 'PFAM_domain' && f.qualifiers?.locus_tag?.[0] === locusTag)
+        .filter(f => f.type === 'PFAM_domain' && (f.qualifiers?.locus_tag?.[0] === locusTag || f.qualifiers?.gene?.[0] === locusTag))
         .map(f => ({
           id: f.qualifiers?.db_xref?.[0]?.replace('PFAM:', '') || 
               f.qualifiers?.inference?.[0]?.match(/PFAM:([^,\s]+)/)?.[1] || 
