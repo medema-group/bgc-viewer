@@ -36,7 +36,17 @@
         <!-- Additional qualifiers below primary ones -->
         <div v-for="(value, key) in getAdditionalQualifiers()" :key="key" class="info-row">
           <span class="info-label">{{ formatQualifierKey(key) }}</span>
-          <span class="info-value">{{ formatQualifierValue(value) }}</span>
+          <span class="info-value">
+            <template v-if="Array.isArray(value) && value.length > 1">
+              <details class="expandable-list">
+                <summary>{{ value.length }} items</summary>
+                <div class="expanded-content">{{ value.join(', ') }}</div>
+              </details>
+            </template>
+            <template v-else>
+              {{ formatQualifierValue(value) }}
+            </template>
+          </span>
         </div>
       </div>
       
@@ -480,5 +490,32 @@ export default {
 .feature-content::-webkit-scrollbar-thumb:hover,
 .sequence-text::-webkit-scrollbar-thumb:hover {
   background: #555;
+}
+
+.expandable-list {
+  display: inline;
+}
+
+.expandable-list summary {
+  cursor: pointer;
+  color: #007bff;
+}
+
+.expandable-list summary:hover {
+  color: #0056b3;
+  text-decoration: underline;
+}
+
+.expandable-list[open] summary {
+  color: #212529;
+}
+
+.expandable-list[open] summary:hover {
+  text-decoration: none;
+}
+
+.expanded-content {
+  display: inline;
+  margin-left: 4px;
 }
 </style>
