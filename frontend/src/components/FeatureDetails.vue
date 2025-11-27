@@ -466,12 +466,12 @@ export default {
   background: white;
   overflow: hidden;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
 }
 
 .feature-content {
   padding: 12px;
-  max-height: 500px;
-  overflow-y: auto;
 }
 
 .info-section {
