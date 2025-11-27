@@ -403,6 +403,7 @@ export default {
               showLabel: 'always',
               start: location.start,
               end: location.end,
+              data: feature
             })
             break
 
@@ -429,7 +430,8 @@ export default {
               start: location.start,
               end: location.end,
               fill: domainColor,
-              stroke: domainColor
+              stroke: domainColor,
+              data: feature
             }
             
             allTrackData[trackId].annotations.push(annotation)
@@ -450,7 +452,8 @@ export default {
               start: location.start,
               end: location.end,
               direction: location.direction,
-              stroke: 'black'
+              stroke: 'black',
+              data: feature
             })
             break
             
@@ -487,7 +490,8 @@ export default {
               start: location.start,
               end: location.end,
               stroke: 'none',
-              opacity: 0.5
+              opacity: 0.5,
+              data: feature
             })
             // Protocluster core
             if (core_location) {
@@ -501,7 +505,8 @@ export default {
                 showLabel: 'always',
                 start: core_location.start,
                 end: core_location.end,
-                stroke: 'black'
+                stroke: 'black',
+                data: feature
               })
             }
             break
@@ -518,7 +523,8 @@ export default {
               classes: classes,
               label: getFeatureLabel(feature),
               start: location.start,
-              end: location.end
+              end: location.end,
+              data: feature
             })
             break
         }
@@ -612,8 +618,8 @@ export default {
     
     // Handle annotation click for highlighting
     const handleAnnotationClick = (annotation, track) => {
-      // Find the corresponding feature from props.features
-      const feature = findFeatureForAnnotation(annotation)
+      // Use the feature reference stored in annotation.data
+      const feature = annotation.data
       if (feature) {
         // Toggle: if clicking the same feature, deselect it
         if (selectedFeature.value === feature) {
@@ -648,31 +654,6 @@ export default {
       
       // Update the viewer with new opacity values
       updateViewer()
-    }
-    
-    // Find the feature object corresponding to an annotation
-    const findFeatureForAnnotation = (annotation) => {
-      if (!props.features || !annotation) return null
-      
-      // Parse the annotation ID to match with feature
-      // Annotation IDs are like: "CDS-164-2414", "PFAM_domain-150-339", etc.
-      const idParts = annotation.id.split('-')
-      const featureType = idParts[0]
-      
-      // For CDS and PFAM_domain, match by location
-      if (featureType === 'CDS' || featureType === 'PFAM_domain') {
-        const start = parseInt(idParts[1])
-        const end = parseInt(idParts[2])
-        
-        return props.features.find(f => {
-          if (f.type !== featureType) return false
-          const location = parseGeneLocation(f.location)
-          return location && location.start === start && location.end === end
-        })
-      }
-      
-      // For other types, try to match by type and qualifiers
-      return props.features.find(f => f.type === featureType)
     }
     
     // Clear selected feature

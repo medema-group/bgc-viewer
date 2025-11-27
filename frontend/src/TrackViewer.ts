@@ -31,6 +31,7 @@ export type AnnotationData = {
   opacity?: number;
   corner_radius?: number;
   tooltip?: string; // Optional custom tooltip content
+  data?: any; // Optional reference to original data object
 }
 
 export type DrawingPrimitiveType = 'horizontal-line' | 'background';
