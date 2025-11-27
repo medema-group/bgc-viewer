@@ -237,5 +237,8 @@ export default {
 <style scoped>
 .region-viewer-container {
   width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 </style>
