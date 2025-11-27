@@ -71,6 +71,7 @@ export interface TrackViewerConfig {
   showTrackLabels?: boolean;
   onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
   onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
+  onBackgroundClick?: () => void;
 }
 
 
@@ -131,7 +132,8 @@ export class TrackViewer {
       zoomExtent: config.zoomExtent || [0.5, 20],
       showTrackLabels: config.showTrackLabels !== undefined ? config.showTrackLabels : true,
       onAnnotationClick: config.onAnnotationClick || (() => {}),
-      onAnnotationHover: config.onAnnotationHover || (() => {})
+      onAnnotationHover: config.onAnnotationHover || (() => {}),
+      onBackgroundClick: config.onBackgroundClick || (() => {})
     };
 
     // Store the original left margin as minimum
@@ -276,6 +278,9 @@ export class TrackViewer {
       })
       .on('mouseup', function(this: SVGRectElement) {
         d3.select(this).style('cursor', 'grab');
+      })
+      .on('click', () => {
+        this.config.onBackgroundClick();
       });
   }
   private createContextMenu(): void {

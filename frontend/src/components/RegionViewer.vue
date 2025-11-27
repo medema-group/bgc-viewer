@@ -322,6 +322,13 @@ export default {
         onAnnotationHover: (annotation, track, event) => {
           // Hover is handled by the TrackViewer's built-in tooltip
           emit('annotation-hovered', { annotation, track, event })
+        },
+        onBackgroundClick: () => {
+          // Clear selection when clicking background
+          selectedAnnotation = null
+          selectedFeature.value = null
+          updateAnnotationHighlighting()
+          updateViewer()
         }
       })
       console.log('TrackViewer created successfully')
@@ -621,30 +628,21 @@ export default {
       // Use the feature reference stored in annotation.data
       const feature = annotation.data
       if (feature) {
-        // Toggle: if clicking the same feature, deselect it
-        if (selectedFeature.value === feature) {
-          selectedFeature.value = null
-        } else {
-          selectedFeature.value = feature
-        }
+        selectedFeature.value = feature
       }
       
-      // Toggle selection: if clicking the same annotation, deselect it
-      if (selectedAnnotation?.id === annotation.id) {
-        selectedAnnotation = null
-      } else {
-        selectedAnnotation = annotation
-        if (annotation.id.endsWith('-core')) {
-          // If core annotation clicked, find parent protocluster annotation
-          const parentTrack = allTrackData[annotation.trackId]
-          const parentAnnotationId = annotation.id.replace('-core', '')
-          if (parentTrack) {
-            const parentAnnotation = parentTrack.annotations.find(ann => 
-              ann.id === parentAnnotationId
-            )
-            if (parentAnnotation) {
-              selectedAnnotation = parentAnnotation
-            }
+      // Set selected annotation (don't toggle)
+      selectedAnnotation = annotation
+      if (annotation.id.endsWith('-core')) {
+        // If core annotation clicked, find parent protocluster annotation
+        const parentTrack = allTrackData[annotation.trackId]
+        const parentAnnotationId = annotation.id.replace('-core', '')
+        if (parentTrack) {
+          const parentAnnotation = parentTrack.annotations.find(ann => 
+            ann.id === parentAnnotationId
+          )
+          if (parentAnnotation) {
+            selectedAnnotation = parentAnnotation
           }
         }
       }
