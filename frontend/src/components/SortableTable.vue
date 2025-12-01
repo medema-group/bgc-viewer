@@ -69,8 +69,14 @@ export default {
     
     const toggleSort = (columnIndex) => {
       if (sortColumn.value === columnIndex) {
-        // Toggle direction if clicking same column
-        sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
+        // Cycle through: asc -> desc -> no sort
+        if (sortDirection.value === 'asc') {
+          sortDirection.value = 'desc'
+        } else {
+          // Reset to no sorting
+          sortColumn.value = null
+          sortDirection.value = 'asc'
+        }
       } else {
         // Set new column and default to ascending
         sortColumn.value = columnIndex
