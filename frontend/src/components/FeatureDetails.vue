@@ -58,26 +58,10 @@
             <details class="expandable-list">
               <summary>{{ pfamDomains.length }} items</summary>
               <div class="expanded-content">
-                <table class="pfam-table">
-                  <thead>
-                    <tr>
-                      <th>Domain</th>
-                      <th>Description</th>
-                      <th>Location</th>
-                      <th>Score</th>
-                      <th>E-value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(domain, index) in pfamDomains" :key="index">
-                      <td class="pfam-id">{{ domain.id }}</td>
-                      <td class="pfam-description">{{ domain.description }}</td>
-                      <td class="pfam-location">{{ domain.location }}</td>
-                      <td class="pfam-score">{{ domain.score }}</td>
-                      <td class="pfam-evalue">{{ domain.evalue }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <SortableTable 
+                  :headers="pfamTableHeaders" 
+                  :rows="pfamTableRows"
+                />
               </div>
             </details>
           </span>
@@ -90,36 +74,10 @@
             <details class="expandable-list">
               <summary>{{ mibigEntries.length }} items</summary>
               <div class="expanded-content">
-                <table class="mibig-table">
-                  <thead>
-                    <tr>
-                      <th>MIBiG Protein</th>
-                      <th>Description</th>
-                      <th>MIBiG Cluster</th>
-                      <th>Product</th>
-                      <th>% ID</th>
-                      <th>BLAST Score</th>
-                      <th>% Coverage</th>
-                      <th>E-value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(entry, idx) in mibigEntries" :key="idx">
-                      <td class="mibig-protein">{{ entry.mibig_protein }}</td>
-                      <td class="mibig-description">{{ entry.description }}</td>
-                      <td class="mibig-cluster">
-                        <a :href="`https://mibig.secondarymetabolites.org/go/${entry.mibig_cluster}`" target="_blank" rel="noopener noreferrer">
-                          {{ entry.mibig_cluster }}
-                        </a>
-                      </td>
-                      <td class="mibig-product">{{ entry.mibig_product }}</td>
-                      <td class="mibig-percent">{{ entry.percent_identity.toFixed(1) }}%</td>
-                      <td class="mibig-score">{{ entry.blast_score.toFixed(1) }}</td>
-                      <td class="mibig-percent">{{ entry.percent_coverage.toFixed(1) }}%</td>
-                      <td class="mibig-evalue">{{ formatEvalue(entry.evalue) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <SortableTable 
+                  :headers="mibigTableHeaders" 
+                  :rows="mibigTableRows"
+                />
               </div>
             </details>
           </span>
@@ -185,9 +143,14 @@
 <script>
 import { ref, computed, watch, h } from 'vue'
 import SimpleTable from './SimpleTable.vue'
+import SortableTable from './SortableTable.vue'
 
 export default {
   name: 'FeatureDetails',
+  components: {
+    SimpleTable,
+    SortableTable
+  },
   props: {
     // The selected feature object
     feature: {
@@ -551,6 +514,54 @@ export default {
       return evalue
     }
     
+    // Prepare PFAM table data for SortableTable
+    const pfamTableHeaders = [
+      { label: 'Domain', cellClass: 'pfam-id' },
+      { label: 'Description', cellClass: 'pfam-description' },
+      { label: 'Location', cellClass: 'pfam-location' },
+      { label: 'Score', cellClass: 'pfam-score' },
+      { label: 'E-value', cellClass: 'pfam-evalue' }
+    ]
+    
+    const pfamTableRows = computed(() => {
+      return pfamDomains.value.map(domain => [
+        domain.id,
+        domain.description,
+        domain.location,
+        domain.score,
+        domain.evalue
+      ])
+    })
+    
+    // Prepare MiBIG table data for SortableTable
+    const mibigTableHeaders = [
+      { label: 'MIBiG Protein', cellClass: 'mibig-protein' },
+      { label: 'Description', cellClass: 'mibig-description' },
+      { label: 'MIBiG Cluster', cellClass: 'mibig-cluster' },
+      { label: 'Product', cellClass: 'mibig-product' },
+      { label: '% ID', cellClass: 'mibig-percent' },
+      { label: 'BLAST Score', cellClass: 'mibig-score' },
+      { label: '% Coverage', cellClass: 'mibig-percent' },
+      { label: 'E-value', cellClass: 'mibig-evalue' }
+    ]
+    
+    const mibigTableRows = computed(() => {
+      return mibigEntries.value.map(entry => [
+        entry.mibig_protein,
+        entry.description,
+        h('a', {
+          href: `https://mibig.secondarymetabolites.org/go/${entry.mibig_cluster}`,
+          target: '_blank',
+          rel: 'noopener noreferrer'
+        }, entry.mibig_cluster),
+        entry.mibig_product,
+        `${entry.percent_identity.toFixed(1)}%`,
+        entry.blast_score.toFixed(1),
+        `${entry.percent_coverage.toFixed(1)}%`,
+        formatEvalue(entry.evalue)
+      ])
+    })
+    
     return {
       pfamDomains,
       goTerms,
@@ -566,7 +577,11 @@ export default {
       formatSequence,
       copyToClipboard,
       renderQualifierValue,
-      formatEvalue
+      formatEvalue,
+      pfamTableHeaders,
+      pfamTableRows,
+      mibigTableHeaders,
+      mibigTableRows
     }
   }
 }
@@ -621,51 +636,6 @@ export default {
   color: #212529;
   flex: 1;
   word-break: break-word;
-}
-
-.pfam-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-  margin-top: 6px;
-}
-
-.pfam-table th {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 6px 8px;
-  text-align: left;
-  font-weight: 600;
-  color: #495057;
-}
-
-.pfam-table td {
-  border: 1px solid #dee2e6;
-  padding: 6px 8px;
-  vertical-align: top;
-}
-
-.pfam-table tbody tr:nth-child(even) {
-  background-color: #f8f9fa;
-}
-
-.pfam-id {
-  font-weight: 600;
-}
-
-.pfam-description {
-  color: #666;
-}
-
-.pfam-location {
-  font-family: 'Courier New', monospace;
-  color: #495057;
-}
-
-.pfam-score,
-.pfam-evalue {
-  font-family: 'Courier New', monospace;
-  text-align: right;
 }
 
 .go-term {
@@ -843,68 +813,6 @@ export default {
   text-align: right;
 }
 
-/* MiBIG table styling */
-.mibig-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-  margin-top: 6px;
-}
-
-.mibig-table th {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 6px 8px;
-  text-align: left;
-  font-weight: 600;
-  color: #495057;
-  white-space: nowrap;
-}
-
-.mibig-table td {
-  border: 1px solid #dee2e6;
-  padding: 6px 8px;
-  vertical-align: top;
-}
-
-.mibig-table tbody tr:nth-child(even) {
-  background-color: #f8f9fa;
-}
-
-.mibig-protein {
-  font-family: 'Courier New', monospace;
-  font-weight: 600;
-  color: #495057;
-}
-
-.mibig-description {
-  color: #666;
-  max-width: 200px;
-}
-
-.mibig-cluster a {
-  color: #007bff;
-  text-decoration: none;
-  font-family: 'Courier New', monospace;
-}
-
-.mibig-cluster a:hover {
-  text-decoration: underline;
-}
-
-.mibig-product {
-  color: #495057;
-  font-size: 11px;
-}
-
-.mibig-percent,
-.mibig-score,
-.mibig-evalue {
-  font-family: 'Courier New', monospace;
-  text-align: right;
-  white-space: nowrap;
-}
-
 .loading-text {
   color: #666;
   font-style: italic;
@@ -914,5 +822,55 @@ export default {
 .error-text {
   color: #dc3545;
   margin: 4px 0;
+}
+
+/* PFAM and MiBIG table cell styling */
+:deep(.sortable-table td.pfam-id),
+:deep(.sortable-table td.mibig-protein) {
+  font-weight: 600;
+  color: #495057;
+}
+
+:deep(.sortable-table td.mibig-protein) {
+  font-family: 'Courier New', monospace;
+}
+
+:deep(.sortable-table td.pfam-description),
+:deep(.sortable-table td.mibig-description) {
+  color: #666;
+}
+
+:deep(.sortable-table td.mibig-description) {
+  max-width: 200px;
+}
+
+:deep(.sortable-table td.pfam-location) {
+  font-family: 'Courier New', monospace;
+  color: #495057;
+}
+
+:deep(.sortable-table td.mibig-cluster a) {
+  color: #007bff;
+  text-decoration: none;
+  font-family: 'Courier New', monospace;
+}
+
+:deep(.sortable-table td.mibig-cluster a:hover) {
+  text-decoration: underline;
+}
+
+:deep(.sortable-table td.mibig-product) {
+  color: #495057;
+  font-size: 11px;
+}
+
+:deep(.sortable-table td.pfam-score),
+:deep(.sortable-table td.pfam-evalue),
+:deep(.sortable-table td.mibig-percent),
+:deep(.sortable-table td.mibig-score),
+:deep(.sortable-table td.mibig-evalue) {
+  font-family: 'Courier New', monospace;
+  text-align: right;
+  white-space: nowrap;
 }
 </style>
