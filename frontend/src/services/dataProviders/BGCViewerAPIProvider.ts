@@ -115,9 +115,10 @@ export class BGCViewerAPIProvider extends DataProvider {
   /**
    * Get MiBIG entries for a specific locus_tag
    */
-  async getMiBIGEntries(recordId: string, locusTag: string): Promise<MiBIGEntriesResponse> {
+  async getMiBIGEntries(recordId: string, locusTag: string, region: string = '1'): Promise<MiBIGEntriesResponse> {
     const response = await this.axiosInstance.get<MiBIGEntriesResponse>(
-      `/api/records/${recordId}/mibig-entries/${locusTag}`
+      `/api/records/${recordId}/mibig-entries/${locusTag}`,
+      { params: { region } }
     )
     return response.data
   }

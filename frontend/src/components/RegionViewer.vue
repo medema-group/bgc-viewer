@@ -90,6 +90,7 @@
         :all-features="features"
         :data-provider="dataProvider"
         :record-info="recordInfo"
+        :region-number="currentRegionNumber"
         @close="clearSelectedFeature"
       />
     </div>
@@ -97,7 +98,7 @@
 </template>
 
 <script>
-import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { TrackViewer } from '../TrackViewer'
 import FeatureDetails from './FeatureDetails.vue'
 import './cand-cluster-styling.css'
@@ -170,6 +171,15 @@ export default {
     
     // Feature details
     const selectedFeature = ref(null)
+    
+    // Compute current region number from selected region
+    const currentRegionNumber = computed(() => {
+      if (!selectedRegion.value || !props.regions.length) {
+        return '1' // Default to region 1 if no region selected
+      }
+      const region = props.regions.find(r => r.id === selectedRegion.value)
+      return region ? String(region.region_number) : '1'
+    })
     
     let regionViewer = null
     let allTrackData = {} // Store all generated tracks
@@ -750,6 +760,7 @@ export default {
       selectedTracks,
       dropdownOpen,
       selectedFeature,
+      currentRegionNumber,
       onRegionChange,
       updateViewer,
       toggleDropdown,

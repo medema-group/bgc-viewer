@@ -594,8 +594,14 @@ def get_mibig_entries(record_id, locus_tag):
     """API endpoint to get MiBIG entries for a specific locus_tag.
     
     Returns MiBIG database matches for the specified BGC/locus_tag.
-    Data structure: records[i].modules["antismash.modules.clusterblast"]["knowncluster"].mibig_entries["1"][locus_tag]
+    Data structure: records[i].modules["antismash.modules.clusterblast"]["knowncluster"].mibig_entries[region][locus_tag]
+    
+    Query parameters:
+        region: Region number to query (default: "1")
     """
+    # Get region parameter from query string (defaults to "1")
+    region = request.args.get('region', '1')
+    
     # Get data from session cache
     antismash_data, data_root = get_current_entry_data()
     
@@ -607,7 +613,7 @@ def get_mibig_entries(record_id, locus_tag):
     if not record:
         return jsonify({"error": "Record not found"}), 404
     
-    # Navigate to MiBIG entries: modules -> antismash.modules.clusterblast -> knowncluster -> mibig_entries -> "1" -> locus_tag
+    # Navigate to MiBIG entries: modules -> antismash.modules.clusterblast -> knowncluster -> mibig_entries -> region -> locus_tag
     modules = record.get("modules", {})
     print(f"DEBUG: Available modules: {list(modules.keys())}")
     
@@ -618,26 +624,27 @@ def get_mibig_entries(record_id, locus_tag):
     print(f"DEBUG: knowncluster keys: {list(knowncluster.keys())}")
     
     mibig_entries = knowncluster.get("mibig_entries", {})
-    print(f"DEBUG: mibig_entries keys: {list(mibig_entries.keys())}")
+    print(f"DEBUG: mibig_entries keys (regions): {list(mibig_entries.keys())}")
     
-    # Check if "1" key exists (not sure what it refers to yet)
-    if "1" not in mibig_entries:
-        print(f"DEBUG: '1' key not found in mibig_entries")
-        return jsonify({"error": "No MiBIG entries available for this record"}), 404
+    # Check if region key exists
+    if region not in mibig_entries:
+        print(f"DEBUG: Region '{region}' not found in mibig_entries")
+        return jsonify({"error": f"No MiBIG entries available for region {region}"}), 404
     
-    # Get entries for the specific locus_tag
-    print(f"DEBUG: Available locus tags in mibig_entries['1']: {list(mibig_entries['1'].keys())}")
+    # Get entries for the specific locus_tag in this region
+    region_data = mibig_entries[region]
+    print(f"DEBUG: Available locus tags in region '{region}': {list(region_data.keys())}")
     print(f"DEBUG: Looking for locus_tag: '{locus_tag}'")
-    locus_entries = mibig_entries["1"].get(locus_tag, [])
+    locus_entries = region_data.get(locus_tag, [])
     
     if not locus_entries:
-        print(f"DEBUG: No entries found for locus_tag '{locus_tag}'")
-        return jsonify({"error": f"No MiBIG entries found for locus_tag '{locus_tag}'"}), 404
+        print(f"DEBUG: No entries found for locus_tag '{locus_tag}' in region '{region}'")
+        return jsonify({"error": f"No MiBIG entries found for locus_tag '{locus_tag}' in region {region}"}), 404
     
-    print(f"DEBUG: Found {len(locus_entries)} MiBIG entries for '{locus_tag}'")
+    print(f"DEBUG: Found {len(locus_entries)} MiBIG entries for '{locus_tag}' in region '{region}'")
     
     # Format the entries with proper field names
-    # Array format: [MIBiG Protein, Description, MIBiG Cluster, unknown integer, MiBiG Product, % ID, BLAST Score, % Coverage, E-value]
+    # Array format: [MIBiG Protein, Description, MIBiG Cluster, rank, MiBiG Product, % ID, BLAST Score, % Coverage, E-value]
     formatted_entries = []
     for entry in locus_entries:
         if len(entry) >= 9:
@@ -645,7 +652,7 @@ def get_mibig_entries(record_id, locus_tag):
                 "mibig_protein": entry[0],
                 "description": entry[1],
                 "mibig_cluster": entry[2],
-                "rank": entry[3],  # unknown integer - possibly rank/order
+                "rank": entry[3],
                 "mibig_product": entry[4],
                 "percent_identity": entry[5],
                 "blast_score": entry[6],
@@ -658,6 +665,7 @@ def get_mibig_entries(record_id, locus_tag):
     return jsonify({
         "record_id": record_id,
         "locus_tag": locus_tag,
+        "region": region,
         "count": len(formatted_entries),
         "entries": formatted_entries
     })

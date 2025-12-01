@@ -217,26 +217,26 @@ export class JSONFileProvider extends DataProvider {
   /**
    * Get MiBIG entries for a specific locus_tag
    */
-  async getMiBIGEntries(recordId: string, locusTag: string): Promise<MiBIGEntriesResponse> {
+  async getMiBIGEntries(recordId: string, locusTag: string, region: string = '1'): Promise<MiBIGEntriesResponse> {
     const record = this.findRecord(recordId)
     if (!record) {
       throw new Error(`Record not found: ${recordId}`)
     }
 
-    // Navigate to MiBIG entries: modules -> antismash.modules.clusterblast -> knowncluster -> mibig_entries -> "1" -> locus_tag
+    // Navigate to MiBIG entries: modules -> antismash.modules.clusterblast -> knowncluster -> mibig_entries -> region -> locus_tag
     const modules = record.modules || {}
     const clusterblast = modules['antismash.modules.clusterblast'] || {}
     const knowncluster = clusterblast.knowncluster || {}
     const mibigEntries = knowncluster.mibig_entries || {}
     
-    if (!mibigEntries['1']) {
-      throw new Error('No MiBIG entries available for this record')
+    if (!mibigEntries[region]) {
+      throw new Error(`No MiBIG entries available for region ${region}`)
     }
     
-    const locusEntries = mibigEntries['1'][locusTag] || []
+    const locusEntries = mibigEntries[region][locusTag] || []
     
     if (locusEntries.length === 0) {
-      throw new Error(`No MiBIG entries found for locus_tag '${locusTag}'`)
+      throw new Error(`No MiBIG entries found for locus_tag '${locusTag}' in region ${region}`)
     }
     
     // Format the entries
@@ -255,6 +255,7 @@ export class JSONFileProvider extends DataProvider {
     return {
       record_id: recordId,
       locus_tag: locusTag,
+      region: region,
       count: formattedEntries.length,
       entries: formattedEntries
     }

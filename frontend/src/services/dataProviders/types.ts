@@ -102,7 +102,7 @@ export abstract class DataProvider {
   abstract getPfamColorMap(): Promise<PfamColorMap>
 
   /**
-   * Get MiBIG entries for a specific locus_tag
+   * Get MiBIG entries for a specific locus tag
    */
-  abstract getMiBIGEntries(recordId: string, locusTag: string): Promise<MiBIGEntriesResponse>
+  getMiBIGEntries(recordId: string, locusTag: string, region?: string): Promise<MiBIGEntriesResponse>
 }

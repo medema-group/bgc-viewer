@@ -171,6 +171,11 @@ export default {
     recordInfo: {
       type: Object,
       default: null
+    },
+    // Region number for MiBIG entry retrieval
+    regionNumber: {
+      type: String,
+      default: '1'
     }
   },
   emits: ['close'],
@@ -195,7 +200,7 @@ export default {
       mibigLoading.value = true
       
       try {
-        const response = await props.dataProvider.getMiBIGEntries(props.recordInfo.recordId, locusTag)
+        const response = await props.dataProvider.getMiBIGEntries(props.recordInfo.recordId, locusTag, props.regionNumber)
         mibigEntries.value = response.entries || []
       } catch (error) {
         // Don't show error if it's just "not found" - many features won't have MiBIG entries
