@@ -25,11 +25,31 @@ export interface Feature {
   type: string
   location: string
   qualifiers?: Record<string, any>
+  [key: string]: any
 }
 
 export interface RegionBoundaries {
   start: number
   end: number
+}
+
+export interface MiBIGEntry {
+  mibig_protein: string
+  description: string
+  mibig_cluster: string
+  rank: number
+  mibig_product: string
+  percent_identity: number
+  blast_score: number
+  percent_coverage: number
+  evalue: number
+}
+
+export interface MiBIGEntriesResponse {
+  record_id: string
+  locus_tag: string
+  count: number
+  entries: MiBIGEntry[]
 }
 
 export interface FeaturesResponse {
@@ -80,4 +100,9 @@ export abstract class DataProvider {
    * Get PFAM domain color mapping
    */
   abstract getPfamColorMap(): Promise<PfamColorMap>
+
+  /**
+   * Get MiBIG entries for a specific locus_tag
+   */
+  abstract getMiBIGEntries(recordId: string, locusTag: string): Promise<MiBIGEntriesResponse>
 }

@@ -7,6 +7,7 @@
       :region-boundaries="regionBoundaries"
       :pfam-color-map="pfamColorMap"
       :selected-region-id="selectedRegionId"
+      :data-provider="dataProvider"
       @region-changed="handleRegionChanged"
       @annotation-clicked="handleAnnotationClicked"
       @error="handleError"

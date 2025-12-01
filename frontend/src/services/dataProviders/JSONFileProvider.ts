@@ -5,7 +5,9 @@ import {
   RegionsResponse, 
   FeaturesResponse, 
   PfamColorMap,
-  Feature 
+  Feature,
+  MiBIGEntriesResponse,
+  MiBIGEntry
 } from './types'
 
 export interface JSONFileProviderOptions {
@@ -210,6 +212,52 @@ export class JSONFileProvider extends DataProvider {
     return this.records.find((r, idx) => 
       (r.id || `record-${idx}`) === recordId
     )
+  }
+
+  /**
+   * Get MiBIG entries for a specific locus_tag
+   */
+  async getMiBIGEntries(recordId: string, locusTag: string): Promise<MiBIGEntriesResponse> {
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Navigate to MiBIG entries: modules -> antismash.modules.clusterblast -> knowncluster -> mibig_entries -> "1" -> locus_tag
+    const modules = record.modules || {}
+    const clusterblast = modules['antismash.modules.clusterblast'] || {}
+    const knowncluster = clusterblast.knowncluster || {}
+    const mibigEntries = knowncluster.mibig_entries || {}
+    
+    if (!mibigEntries['1']) {
+      throw new Error('No MiBIG entries available for this record')
+    }
+    
+    const locusEntries = mibigEntries['1'][locusTag] || []
+    
+    if (locusEntries.length === 0) {
+      throw new Error(`No MiBIG entries found for locus_tag '${locusTag}'`)
+    }
+    
+    // Format the entries
+    const formattedEntries: MiBIGEntry[] = locusEntries.map((entry: any[]) => ({
+      mibig_protein: entry[0],
+      description: entry[1],
+      mibig_cluster: entry[2],
+      rank: entry[3],
+      mibig_product: entry[4],
+      percent_identity: entry[5],
+      blast_score: entry[6],
+      percent_coverage: entry[7],
+      evalue: entry[8]
+    }))
+    
+    return {
+      record_id: recordId,
+      locus_tag: locusTag,
+      count: formattedEntries.length,
+      entries: formattedEntries
+    }
   }
 
   /**

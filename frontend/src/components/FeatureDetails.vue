@@ -92,6 +92,54 @@
         </div>
       </div>
       
+      <!-- MiBIG Entries (for CDS features with locus_tag) -->
+      <div v-if="feature.type === 'CDS' && mibigEntries.length > 0" class="info-section">
+        <h4>MiBIG Hits</h4>
+        <details class="expandable-list" open>
+          <summary>{{ mibigEntries.length }} matching entr{{ mibigEntries.length === 1 ? 'y' : 'ies' }}</summary>
+          <div class="expanded-content">
+            <table class="mibig-table">
+              <thead>
+                <tr>
+                  <th>MIBiG Protein</th>
+                  <th>Description</th>
+                  <th>MIBiG Cluster</th>
+                  <th>Product</th>
+                  <th>% ID</th>
+                  <th>BLAST Score</th>
+                  <th>% Coverage</th>
+                  <th>E-value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(entry, idx) in mibigEntries" :key="idx">
+                  <td class="mibig-protein">{{ entry.mibig_protein }}</td>
+                  <td class="mibig-description">{{ entry.description }}</td>
+                  <td class="mibig-cluster">
+                    <a :href="`https://mibig.secondarymetabolites.org/go/${entry.mibig_cluster}`" target="_blank" rel="noopener noreferrer">
+                      {{ entry.mibig_cluster }}
+                    </a>
+                  </td>
+                  <td class="mibig-product">{{ entry.mibig_product }}</td>
+                  <td class="mibig-percent">{{ entry.percent_identity.toFixed(1) }}%</td>
+                  <td class="mibig-score">{{ entry.blast_score.toFixed(1) }}</td>
+                  <td class="mibig-percent">{{ entry.percent_coverage.toFixed(1) }}%</td>
+                  <td class="mibig-evalue">{{ formatEvalue(entry.evalue) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+      <div v-else-if="feature.type === 'CDS' && mibigLoading" class="info-section">
+        <h4>MiBIG Database Matches</h4>
+        <p class="loading-text">Loading MiBIG entries...</p>
+      </div>
+      <div v-else-if="feature.type === 'CDS' && mibigError" class="info-section">
+        <h4>MiBIG Database Matches</h4>
+        <p class="error-text">{{ mibigError }}</p>
+      </div>
+      
       <!-- Sequences (for CDS features) -->
       <div v-if="feature.type === 'CDS'" class="info-section sequences">
         <div v-if="feature.qualifiers?.translation?.[0]" class="info-row">
@@ -147,10 +195,60 @@ export default {
     allFeatures: {
       type: Array,
       default: () => []
+    },
+    // Data provider for fetching MiBIG entries
+    dataProvider: {
+      type: Object,
+      default: null
+    },
+    // Record information containing recordId
+    recordInfo: {
+      type: Object,
+      default: null
     }
   },
   emits: ['close'],
   setup(props) {
+    // MiBIG entries state
+    const mibigEntries = ref([])
+    const mibigLoading = ref(false)
+    const mibigError = ref(null)
+    
+    // Fetch MiBIG entries when CDS feature is selected
+    const fetchMiBIGEntries = async () => {
+      mibigEntries.value = []
+      mibigLoading.value = false
+      mibigError.value = null
+      
+      if (!props.feature || props.feature.type !== 'CDS') return
+      if (!props.dataProvider || !props.recordInfo) return
+      
+      const locusTag = props.feature.qualifiers?.locus_tag?.[0]
+      if (!locusTag) return
+      
+      mibigLoading.value = true
+      
+      try {
+        const response = await props.dataProvider.getMiBIGEntries(props.recordInfo.recordId, locusTag)
+        mibigEntries.value = response.entries || []
+      } catch (error) {
+        // Don't show error if it's just "not found" - many features won't have MiBIG entries
+        if (error.response?.status === 404) {
+          mibigEntries.value = []
+        } else {
+          console.error('Error fetching MiBIG entries:', error)
+          mibigError.value = 'Failed to load MiBIG entries'
+        }
+      } finally {
+        mibigLoading.value = false
+      }
+    }
+    
+    // Watch for feature changes
+    watch(() => props.feature, () => {
+      fetchMiBIGEntries()
+    }, { immediate: true })
+    
     // Extract PFAM domains for CDS features
     const pfamDomains = computed(() => {
       if (!props.feature || props.feature.type !== 'CDS') return []
@@ -442,9 +540,20 @@ export default {
       return h('ul', { class: 'qualifier-list' }, items)
     }
     
+    // Format E-value for display
+    const formatEvalue = (evalue) => {
+      if (typeof evalue === 'number') {
+        return evalue.toExponential(2)
+      }
+      return evalue
+    }
+    
     return {
       pfamDomains,
       goTerms,
+      mibigEntries,
+      mibigLoading,
+      mibigError,
       formatLocation,
       getFeatureTitle,
       formatQualifierKey,
@@ -453,7 +562,8 @@ export default {
       getAdditionalQualifiers,
       formatSequence,
       copyToClipboard,
-      renderQualifierValue
+      renderQualifierValue,
+      formatEvalue
     }
   }
 }
@@ -716,5 +826,78 @@ export default {
 .qualifier-table td.col-bitscore {
   font-family: 'Courier New', monospace;
   text-align: right;
+}
+
+/* MiBIG table styling */
+.mibig-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.mibig-table th {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 600;
+  color: #495057;
+  white-space: nowrap;
+}
+
+.mibig-table td {
+  border: 1px solid #dee2e6;
+  padding: 6px 8px;
+  vertical-align: top;
+}
+
+.mibig-table tbody tr:nth-child(even) {
+  background-color: #f8f9fa;
+}
+
+.mibig-protein {
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  color: #495057;
+}
+
+.mibig-description {
+  color: #666;
+  max-width: 200px;
+}
+
+.mibig-cluster a {
+  color: #007bff;
+  text-decoration: none;
+  font-family: 'Courier New', monospace;
+}
+
+.mibig-cluster a:hover {
+  text-decoration: underline;
+}
+
+.mibig-product {
+  color: #495057;
+  font-size: 11px;
+}
+
+.mibig-percent,
+.mibig-score,
+.mibig-evalue {
+  font-family: 'Courier New', monospace;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.loading-text {
+  color: #666;
+  font-style: italic;
+  margin: 4px 0;
+}
+
+.error-text {
+  color: #dc3545;
+  margin: 4px 0;
 }
 </style>

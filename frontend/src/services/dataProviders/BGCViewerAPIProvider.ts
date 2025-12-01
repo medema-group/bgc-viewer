@@ -4,7 +4,8 @@ import {
   RecordInfo, 
   RegionsResponse, 
   FeaturesResponse, 
-  PfamColorMap 
+  PfamColorMap,
+  MiBIGEntriesResponse
 } from './types'
 
 export interface BGCViewerAPIProviderOptions {
@@ -109,5 +110,15 @@ export class BGCViewerAPIProvider extends DataProvider {
     }
     
     return colorMap
+  }
+
+  /**
+   * Get MiBIG entries for a specific locus_tag
+   */
+  async getMiBIGEntries(recordId: string, locusTag: string): Promise<MiBIGEntriesResponse> {
+    const response = await this.axiosInstance.get<MiBIGEntriesResponse>(
+      `/api/records/${recordId}/mibig-entries/${locusTag}`
+    )
+    return response.data
   }
 }

@@ -88,6 +88,8 @@
       <FeatureDetails 
         :feature="selectedFeature"
         :all-features="features"
+        :data-provider="dataProvider"
+        :record-info="recordInfo"
         @close="clearSelectedFeature"
       />
     </div>
@@ -142,6 +144,11 @@ export default {
     selectedRegionId: {
       type: String,
       default: ''
+    },
+    // Data provider for fetching additional data
+    dataProvider: {
+      type: Object,
+      default: null
     }
   },
   emits: [

@@ -589,6 +589,79 @@ def get_version():
         "name": "BGC Viewer"
     })
 
+@app.route('/api/records/<record_id>/mibig-entries/<locus_tag>')
+def get_mibig_entries(record_id, locus_tag):
+    """API endpoint to get MiBIG entries for a specific locus_tag.
+    
+    Returns MiBIG database matches for the specified BGC/locus_tag.
+    Data structure: records[i].modules["antismash.modules.clusterblast"]["knowncluster"].mibig_entries["1"][locus_tag]
+    """
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
+    
+    if not antismash_data:
+        return jsonify({"error": "No data loaded. Please load an entry first."}), 404
+    
+    # Find the specified record
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
+    if not record:
+        return jsonify({"error": "Record not found"}), 404
+    
+    # Navigate to MiBIG entries: modules -> antismash.modules.clusterblast -> knowncluster -> mibig_entries -> "1" -> locus_tag
+    modules = record.get("modules", {})
+    print(f"DEBUG: Available modules: {list(modules.keys())}")
+    
+    clusterblast = modules.get("antismash.modules.clusterblast", {})
+    print(f"DEBUG: clusterblast keys: {list(clusterblast.keys())}")
+    
+    knowncluster = clusterblast.get("knowncluster", {})
+    print(f"DEBUG: knowncluster keys: {list(knowncluster.keys())}")
+    
+    mibig_entries = knowncluster.get("mibig_entries", {})
+    print(f"DEBUG: mibig_entries keys: {list(mibig_entries.keys())}")
+    
+    # Check if "1" key exists (not sure what it refers to yet)
+    if "1" not in mibig_entries:
+        print(f"DEBUG: '1' key not found in mibig_entries")
+        return jsonify({"error": "No MiBIG entries available for this record"}), 404
+    
+    # Get entries for the specific locus_tag
+    print(f"DEBUG: Available locus tags in mibig_entries['1']: {list(mibig_entries['1'].keys())}")
+    print(f"DEBUG: Looking for locus_tag: '{locus_tag}'")
+    locus_entries = mibig_entries["1"].get(locus_tag, [])
+    
+    if not locus_entries:
+        print(f"DEBUG: No entries found for locus_tag '{locus_tag}'")
+        return jsonify({"error": f"No MiBIG entries found for locus_tag '{locus_tag}'"}), 404
+    
+    print(f"DEBUG: Found {len(locus_entries)} MiBIG entries for '{locus_tag}'")
+    
+    # Format the entries with proper field names
+    # Array format: [MIBiG Protein, Description, MIBiG Cluster, unknown integer, MiBiG Product, % ID, BLAST Score, % Coverage, E-value]
+    formatted_entries = []
+    for entry in locus_entries:
+        if len(entry) >= 9:
+            formatted_entries.append({
+                "mibig_protein": entry[0],
+                "description": entry[1],
+                "mibig_cluster": entry[2],
+                "rank": entry[3],  # unknown integer - possibly rank/order
+                "mibig_product": entry[4],
+                "percent_identity": entry[5],
+                "blast_score": entry[6],
+                "percent_coverage": entry[7],
+                "evalue": entry[8]
+            })
+    
+    print(f"DEBUG: Successfully formatted {len(formatted_entries)} entries")
+    
+    return jsonify({
+        "record_id": record_id,
+        "locus_tag": locus_tag,
+        "count": len(formatted_entries),
+        "entries": formatted_entries
+    })
+
 # Database management endpoints - only available in local mode
 if not PUBLIC_MODE:
     @app.route('/api/select-database', methods=['POST'])
