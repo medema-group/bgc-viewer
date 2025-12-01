@@ -41,7 +41,7 @@ import { ref, computed } from 'vue'
 export default {
   name: 'SortableTable',
   props: {
-    // Array of header objects: [{ label: 'Column Name', key: 'propertyKey', cellClass: 'custom-class' }]
+    // Array of header objects: [{ label: 'Column Name', cellClass: 'custom-class' }]
     headers: {
       type: Array,
       required: true
