@@ -82,62 +82,65 @@
             </details>
           </span>
         </div>
-      </div>
-      
-      <!-- Gene Ontology Terms -->
-      <div v-if="goTerms.length > 0" class="info-section">
-        <h4>Gene Ontology terms</h4>
-        <div v-for="(term, index) in goTerms" :key="index" class="go-term">
-          {{ term }}
+        
+        <!-- MiBIG Entries (for CDS features with locus_tag) -->
+        <div v-if="feature.type === 'CDS' && mibigEntries.length > 0" class="info-row">
+          <span class="info-label">MiBIG hits</span>
+          <span class="info-value">
+            <details class="expandable-list">
+              <summary>{{ mibigEntries.length }} items</summary>
+              <div class="expanded-content">
+                <table class="mibig-table">
+                  <thead>
+                    <tr>
+                      <th>MIBiG Protein</th>
+                      <th>Description</th>
+                      <th>MIBiG Cluster</th>
+                      <th>Product</th>
+                      <th>% ID</th>
+                      <th>BLAST Score</th>
+                      <th>% Coverage</th>
+                      <th>E-value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(entry, idx) in mibigEntries" :key="idx">
+                      <td class="mibig-protein">{{ entry.mibig_protein }}</td>
+                      <td class="mibig-description">{{ entry.description }}</td>
+                      <td class="mibig-cluster">
+                        <a :href="`https://mibig.secondarymetabolites.org/go/${entry.mibig_cluster}`" target="_blank" rel="noopener noreferrer">
+                          {{ entry.mibig_cluster }}
+                        </a>
+                      </td>
+                      <td class="mibig-product">{{ entry.mibig_product }}</td>
+                      <td class="mibig-percent">{{ entry.percent_identity.toFixed(1) }}%</td>
+                      <td class="mibig-score">{{ entry.blast_score.toFixed(1) }}</td>
+                      <td class="mibig-percent">{{ entry.percent_coverage.toFixed(1) }}%</td>
+                      <td class="mibig-evalue">{{ formatEvalue(entry.evalue) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </span>
         </div>
-      </div>
-      
-      <!-- MiBIG Entries (for CDS features with locus_tag) -->
-      <div v-if="feature.type === 'CDS' && mibigEntries.length > 0" class="info-section">
-        <h4>MiBIG Hits</h4>
-        <details class="expandable-list" open>
-          <summary>{{ mibigEntries.length }} matching entr{{ mibigEntries.length === 1 ? 'y' : 'ies' }}</summary>
-          <div class="expanded-content">
-            <table class="mibig-table">
-              <thead>
-                <tr>
-                  <th>MIBiG Protein</th>
-                  <th>Description</th>
-                  <th>MIBiG Cluster</th>
-                  <th>Product</th>
-                  <th>% ID</th>
-                  <th>BLAST Score</th>
-                  <th>% Coverage</th>
-                  <th>E-value</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(entry, idx) in mibigEntries" :key="idx">
-                  <td class="mibig-protein">{{ entry.mibig_protein }}</td>
-                  <td class="mibig-description">{{ entry.description }}</td>
-                  <td class="mibig-cluster">
-                    <a :href="`https://mibig.secondarymetabolites.org/go/${entry.mibig_cluster}`" target="_blank" rel="noopener noreferrer">
-                      {{ entry.mibig_cluster }}
-                    </a>
-                  </td>
-                  <td class="mibig-product">{{ entry.mibig_product }}</td>
-                  <td class="mibig-percent">{{ entry.percent_identity.toFixed(1) }}%</td>
-                  <td class="mibig-score">{{ entry.blast_score.toFixed(1) }}</td>
-                  <td class="mibig-percent">{{ entry.percent_coverage.toFixed(1) }}%</td>
-                  <td class="mibig-evalue">{{ formatEvalue(entry.evalue) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </details>
-      </div>
-      <div v-else-if="feature.type === 'CDS' && mibigLoading" class="info-section">
-        <h4>MiBIG Database Matches</h4>
-        <p class="loading-text">Loading MiBIG entries...</p>
-      </div>
-      <div v-else-if="feature.type === 'CDS' && mibigError" class="info-section">
-        <h4>MiBIG Database Matches</h4>
-        <p class="error-text">{{ mibigError }}</p>
+        
+        <!-- Gene Ontology Terms -->
+        <div v-if="goTerms.length > 0" class="info-row">
+          <span class="info-label">GO terms</span>
+          <span class="info-value">
+            <details class="expandable-list">
+              <summary>{{ goTerms.length }} items</summary>
+              <div class="expanded-content">
+                <ul class="go-term-list">
+                  <li v-for="(term, index) in goTerms" :key="index" class="go-term">
+                    {{ term }}
+                  </li>
+                </ul>
+              </div>
+            </details>
+          </span>
+        </div>
       </div>
       
       <!-- Sequences (for CDS features) -->
@@ -669,6 +672,18 @@ export default {
   padding: 2px 0;
   color: #495057;
   font-size: 14px;
+}
+
+.go-term-list {
+  margin: 4px 0 0 0;
+  padding-left: 20px;
+  list-style: disc;
+}
+
+.go-term-list li {
+  margin: 2px 0;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .sequences {
