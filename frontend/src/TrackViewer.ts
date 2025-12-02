@@ -1219,7 +1219,7 @@ export class TrackViewer {
         (update) => update,
         (exit) => exit.remove()
       )
-      .attr('class', 'annotation-label-group')
+      .attr('class', (d) => `annotation-label-group ${d.annotation.classes.join(' ')}`)
       .attr('data-annotation-id', (d) => d.annotation.id)
       .attr('transform', (d) => `translate(0, ${d.trackY})`)
       .style('pointer-events', 'none');
