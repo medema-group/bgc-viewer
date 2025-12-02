@@ -1082,7 +1082,12 @@ export class TrackViewer {
       // For point annotations, position relative to the point
       labelX = x;
       if (labelPosition === 'above') {
-        labelY = y - height / 2 - 2; // Above the shape
+        if (annotation.type === 'pin') {
+          // Pins extend upward, so label should be above the pin head
+          labelY = y - height - 8; // Above the pin head
+        } else {
+          labelY = y - height / 2 - 2; // Above the shape
+        }
       } else {
         labelY = y; // Center of the shape
       }

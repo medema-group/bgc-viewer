@@ -667,6 +667,54 @@ def get_mibig_entries(record_id, locus_tag):
         "entries": formatted_entries
     })
 
+@app.route('/api/records/<record_id>/tfbs-hits')
+def get_tfbs_hits(record_id):
+    """API endpoint to get TFBS finder binding sites for a specific record.
+    
+    Returns binding site predictions from the antismash.modules.tfbs_finder module.
+    Data structure: records[i].modules["antismash.modules.tfbs_finder"]["hits_by_region"][region]
+    
+    Query parameters:
+        region: Region number to query (default: "1")
+    """
+    # Get region parameter from query string (defaults to "1")
+    region = request.args.get('region', '1')
+    
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
+    
+    if not antismash_data:
+        return jsonify({"error": "No data loaded"}), 400
+    
+    # Find the specified record
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
+    if not record:
+        return jsonify({"error": f"Record '{record_id}' not found"}), 404
+    
+    # Navigate to TFBS hits: modules -> antismash.modules.tfbs_finder -> hits_by_region -> region
+    modules = record.get("modules", {})
+    tfbs_finder = modules.get("antismash.modules.tfbs_finder", {})
+    hits_by_region = tfbs_finder.get("hits_by_region", {})
+    
+    # Check if region key exists
+    if region not in hits_by_region:
+        return jsonify({
+            "record_id": record_id,
+            "region": region,
+            "count": 0,
+            "hits": []
+        })
+    
+    # Get binding sites for this region
+    binding_sites = hits_by_region[region]
+    
+    return jsonify({
+        "record_id": record_id,
+        "region": region,
+        "count": len(binding_sites),
+        "hits": binding_sites
+    })
+
 # Database management endpoints - only available in local mode
 if not PUBLIC_MODE:
     @app.route('/api/select-database', methods=['POST'])

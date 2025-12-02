@@ -150,6 +150,12 @@ export default {
     dataProvider: {
       type: Object,
       default: null
+    },
+    // TFBS binding site hits
+    tfbsHits: {
+      type: Array,
+      default: () => []
+      // Expected shape: [{ name, start, species, link, description, consensus, confidence, strand, score, max_score }]
     }
   },
   emits: [
@@ -187,6 +193,13 @@ export default {
 
     // Watch for prop changes and rebuild the viewer
     watch(() => props.features, () => {
+      if (props.features && props.features.length > 0) {
+        rebuildViewer()
+      }
+    })
+
+    watch(() => props.tfbsHits, () => {
+      // Rebuild viewer when TFBS hits change
       if (props.features && props.features.length > 0) {
         rebuildViewer()
       }
@@ -553,6 +566,35 @@ export default {
             break
         }
       })
+      
+      // Add TFBS hits as pins on the CDS track
+      if (props.tfbsHits && props.tfbsHits.length > 0) {
+        const cdsTrackId = 'CDS'
+        makeSureTrackExists(cdsTrackId, cdsTrackId)
+        
+        props.tfbsHits.forEach((hit, idx) => {
+          // Only show medium or strong confidence hits
+          if (hit.confidence !== 'strong') {
+            return
+          }
+          
+          allTrackData[cdsTrackId].annotations.push({
+            id: `tfbs-${idx}-${hit.start}`,
+            trackId: cdsTrackId,
+            type: 'pin',
+            classes: ['tfbs-hit', `tfbs-${hit.confidence}`],
+            label: hit.name,
+            labelPosition: 'above',
+            showLabel: 'hover',
+            start: hit.start,
+            end: hit.start, // Pins are at a single position
+            fy: 0.5, // Middle of the track
+            heightFraction: 0.5,
+            opacity: 0.8,
+            data: hit
+          })
+        })
+      }
     }
 
     const updateViewer = () => {

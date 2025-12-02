@@ -5,7 +5,8 @@ import {
   RegionsResponse, 
   FeaturesResponse, 
   PfamColorMap,
-  MiBIGEntriesResponse
+  MiBIGEntriesResponse,
+  TFBSHitsResponse
 } from './types'
 
 export interface BGCViewerAPIProviderOptions {
@@ -118,6 +119,17 @@ export class BGCViewerAPIProvider extends DataProvider {
   async getMiBIGEntries(recordId: string, locusTag: string, region: string = '1'): Promise<MiBIGEntriesResponse> {
     const response = await this.axiosInstance.get<MiBIGEntriesResponse>(
       `/api/records/${recordId}/mibig-entries/${locusTag}`,
+      { params: { region } }
+    )
+    return response.data
+  }
+
+  /**
+   * Get TFBS finder binding site hits for a specific region
+   */
+  async getTFBSHits(recordId: string, region: string = '1'): Promise<TFBSHitsResponse> {
+    const response = await this.axiosInstance.get<TFBSHitsResponse>(
+      `/api/records/${recordId}/tfbs-hits`,
       { params: { region } }
     )
     return response.data

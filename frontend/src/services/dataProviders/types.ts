@@ -52,6 +52,26 @@ export interface MiBIGEntriesResponse {
   entries: MiBIGEntry[]
 }
 
+export interface TFBSHit {
+  name: string
+  start: number
+  species: string
+  link: string
+  description: string
+  consensus: string
+  confidence: string
+  strand: number
+  score: number
+  max_score: number
+}
+
+export interface TFBSHitsResponse {
+  record_id: string
+  region: string
+  count: number
+  hits: TFBSHit[]
+}
+
 export interface FeaturesResponse {
   features: Feature[]
   region_boundaries?: RegionBoundaries
@@ -105,4 +125,9 @@ export abstract class DataProvider {
    * Get MiBIG entries for a specific locus tag
    */
   getMiBIGEntries(recordId: string, locusTag: string, region?: string): Promise<MiBIGEntriesResponse>
+
+  /**
+   * Get TFBS finder binding site hits for a specific region
+   */
+  getTFBSHits(recordId: string, region?: string): Promise<TFBSHitsResponse>
 }

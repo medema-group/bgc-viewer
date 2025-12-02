@@ -7,7 +7,8 @@ import {
   PfamColorMap,
   Feature,
   MiBIGEntriesResponse,
-  MiBIGEntry
+  MiBIGEntry,
+  TFBSHitsResponse
 } from './types'
 
 export interface JSONFileProviderOptions {
@@ -258,6 +259,39 @@ export class JSONFileProvider extends DataProvider {
       region: region,
       count: formattedEntries.length,
       entries: formattedEntries
+    }
+  }
+
+  /**
+   * Get TFBS finder binding site hits for a specific region
+   */
+  async getTFBSHits(recordId: string, region: string = '1'): Promise<TFBSHitsResponse> {
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Navigate to TFBS hits: modules -> antismash.modules.tfbs_finder -> hits_by_region -> region
+    const modules = record.modules || {}
+    const tfbsFinder = modules['antismash.modules.tfbs_finder'] || {}
+    const hitsByRegion = tfbsFinder.hits_by_region || {}
+    
+    if (!hitsByRegion[region]) {
+      return {
+        record_id: recordId,
+        region: region,
+        count: 0,
+        hits: []
+      }
+    }
+    
+    const bindingSites = hitsByRegion[region] || []
+    
+    return {
+      record_id: recordId,
+      region: region,
+      count: bindingSites.length,
+      hits: bindingSites
     }
   }
 
