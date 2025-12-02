@@ -6,7 +6,8 @@ import {
   FeaturesResponse, 
   PfamColorMap,
   MiBIGEntriesResponse,
-  TFBSHitsResponse
+  TFBSHitsResponse,
+  TTACodonsResponse
 } from './types'
 
 export interface BGCViewerAPIProviderOptions {
@@ -131,6 +132,16 @@ export class BGCViewerAPIProvider extends DataProvider {
     const response = await this.axiosInstance.get<TFBSHitsResponse>(
       `/api/records/${recordId}/tfbs-hits`,
       { params: { region } }
+    )
+    return response.data
+  }
+
+  /**
+   * Get TTA codon positions for a record
+   */
+  async getTTACodons(recordId: string): Promise<TTACodonsResponse> {
+    const response = await this.axiosInstance.get<TTACodonsResponse>(
+      `/api/records/${recordId}/tta-codons`
     )
     return response.data
   }

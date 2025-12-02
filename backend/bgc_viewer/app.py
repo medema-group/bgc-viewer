@@ -715,6 +715,37 @@ def get_tfbs_hits(record_id):
         "hits": binding_sites
     })
 
+@app.route('/api/records/<record_id>/tta-codons')
+def get_tta_codons(record_id):
+    """API endpoint to get TTA codon positions for a specific record.
+    
+    Returns TTA codon positions from the antismash.modules.tta module.
+    Data structure: records[i].modules["antismash.modules.tta"]["TTA codons"]
+    
+    Note: TTA codons are not region-specific and apply to the entire record.
+    """
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
+    
+    if not antismash_data:
+        return jsonify({"error": "No data loaded"}), 400
+    
+    # Find the specified record
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
+    if not record:
+        return jsonify({"error": f"Record '{record_id}' not found"}), 404
+    
+    # Navigate to TTA codons: modules -> antismash.modules.tta -> TTA codons
+    modules = record.get("modules", {})
+    tta_module = modules.get("antismash.modules.tta", {})
+    tta_codons = tta_module.get("TTA codons", [])
+    
+    return jsonify({
+        "record_id": record_id,
+        "count": len(tta_codons),
+        "codons": tta_codons
+    })
+
 # Database management endpoints - only available in local mode
 if not PUBLIC_MODE:
     @app.route('/api/select-database', methods=['POST'])

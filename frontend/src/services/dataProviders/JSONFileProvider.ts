@@ -8,7 +8,8 @@ import {
   Feature,
   MiBIGEntriesResponse,
   MiBIGEntry,
-  TFBSHitsResponse
+  TFBSHitsResponse,
+  TTACodonsResponse
 } from './types'
 
 export interface JSONFileProviderOptions {
@@ -292,6 +293,27 @@ export class JSONFileProvider extends DataProvider {
       region: region,
       count: bindingSites.length,
       hits: bindingSites
+    }
+  }
+
+  /**
+   * Get TTA codon positions for a record
+   */
+  async getTTACodons(recordId: string): Promise<TTACodonsResponse> {
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Navigate to TTA codons: modules -> antismash.modules.tta -> TTA codons
+    const modules = record.modules || {}
+    const ttaModule = modules['antismash.modules.tta'] || {}
+    const ttaCodons = ttaModule['TTA codons'] || []
+    
+    return {
+      record_id: recordId,
+      count: ttaCodons.length,
+      codons: ttaCodons
     }
   }
 

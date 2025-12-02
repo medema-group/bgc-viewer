@@ -72,6 +72,17 @@ export interface TFBSHitsResponse {
   hits: TFBSHit[]
 }
 
+export interface TTACodon {
+  start: number
+  strand: number
+}
+
+export interface TTACodonsResponse {
+  record_id: string
+  count: number
+  codons: TTACodon[]
+}
+
 export interface FeaturesResponse {
   features: Feature[]
   region_boundaries?: RegionBoundaries
@@ -130,4 +141,9 @@ export abstract class DataProvider {
    * Get TFBS finder binding site hits for a specific region
    */
   getTFBSHits(recordId: string, region?: string): Promise<TFBSHitsResponse>
+
+  /**
+   * Get TTA codon positions for a record (not region-specific)
+   */
+  getTTACodons(recordId: string): Promise<TTACodonsResponse>
 }

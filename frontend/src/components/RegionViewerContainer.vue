@@ -9,6 +9,7 @@
       :selected-region-id="selectedRegionId"
       :data-provider="dataProvider"
       :tfbs-hits="tfbsHits"
+      :tta-codons="ttaCodons"
       @region-changed="handleRegionChanged"
       @annotation-clicked="handleAnnotationClicked"
       @error="handleError"
@@ -60,6 +61,7 @@ export default {
     const regionBoundaries = ref(null)
     const pfamColorMap = ref({})
     const tfbsHits = ref([])
+    const ttaCodons = ref([])
     const selectedRegionId = ref('')
     const loading = ref(false)
     const error = ref('')
@@ -71,6 +73,7 @@ export default {
       features.value = []
       regionBoundaries.value = null
       tfbsHits.value = []
+      ttaCodons.value = []
       selectedRegionId.value = ''
     }
 
@@ -95,6 +98,18 @@ export default {
       } catch (err) {
         console.warn('Failed to load TFBS hits:', err.message)
         tfbsHits.value = [] // Clear on error
+      }
+    }
+
+    const loadTTACodons = async (recordId) => {
+      if (!provider.value) return
+      try {
+        const ttaData = await provider.value.getTTACodons(recordId)
+        ttaCodons.value = ttaData.codons || []
+        console.log('Loaded', ttaCodons.value.length, 'TTA codons for record', recordId)
+      } catch (err) {
+        console.warn('Failed to load TTA codons:', err.message)
+        ttaCodons.value = [] // Clear on error
       }
     }
 
@@ -127,6 +142,9 @@ export default {
         const regionsData = await provider.value.getRegions(recordInfo.value.recordId)
         regions.value = regionsData.regions || []
         regionBoundaries.value = regionsData.boundaries || null
+        
+        // Load TTA codons (not region-specific)
+        await loadTTACodons(recordInfo.value.recordId)
         
         // Load features based on whether there are regions
         if (regions.value && regions.value.length > 0) {
@@ -248,6 +266,7 @@ export default {
       regionBoundaries,
       pfamColorMap,
       tfbsHits,
+      ttaCodons,
       selectedRegionId,
       loading,
       error,

@@ -156,6 +156,12 @@ export default {
       type: Array,
       default: () => []
       // Expected shape: [{ name, start, species, link, description, consensus, confidence, strand, score, max_score }]
+    },
+    // TTA codon positions
+    ttaCodons: {
+      type: Array,
+      default: () => []
+      // Expected shape: [{ start, strand }]
     }
   },
   emits: [
@@ -200,6 +206,13 @@ export default {
 
     watch(() => props.tfbsHits, () => {
       // Rebuild viewer when TFBS hits change
+      if (props.features && props.features.length > 0) {
+        rebuildViewer()
+      }
+    })
+
+    watch(() => props.ttaCodons, () => {
+      // Rebuild viewer when TTA codons change
       if (props.features && props.features.length > 0) {
         rebuildViewer()
       }
@@ -592,6 +605,28 @@ export default {
             heightFraction: 0.5,
             opacity: 0.8,
             data: hit
+          })
+        })
+      }
+      
+      // Add TTA codons as triangles on the CDS track
+      if (props.ttaCodons && props.ttaCodons.length > 0) {
+        const cdsTrackId = 'CDS'
+        makeSureTrackExists(cdsTrackId, cdsTrackId)
+        
+        props.ttaCodons.forEach((codon, idx) => {
+          allTrackData[cdsTrackId].annotations.push({
+            id: `tta-${idx}-${codon.start}`,
+            trackId: cdsTrackId,
+            type: 'triangle',
+            classes: ['tta-codon'],
+            showLabel: 'none',
+            start: codon.start,
+            end: codon.start, // Triangles are at a single position
+            fy: 0.2, // Middle of the track
+            heightFraction: 0.4,
+            opacity: 0.9,
+            data: codon
           })
         })
       }
