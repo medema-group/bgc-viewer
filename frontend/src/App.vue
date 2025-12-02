@@ -158,10 +158,11 @@ export default {
       }
       
       // Set the record ID to trigger the container to load
-      currentRecordId.value = recordData.recordId
+      // Use entryId (which includes filename) for uniqueness, not recordId
+      currentRecordId.value = recordData.entryId
       initialRegionId.value = '' // Reset region selection for new record
       
-      console.log('Record selected:', recordData.recordId)
+      console.log('Record selected:', recordData.recordId, 'from', recordData.filename, '(entryId:', recordData.entryId, ')')
     }
     
     const handleRegionChanged = (regionId) => {

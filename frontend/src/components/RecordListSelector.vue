@@ -59,8 +59,8 @@
         <div class="records-list" :class="{ 'refreshing': loading, 'loading-state': loading }">
           <div
             v-for="record in entriesData"
-            :key="record.id"
-            :class="['record-item', { 'selected': selectedRecordId === record.id, 'loading': loadingRecordId === record.id }]"
+            :key="record.entry_id"
+            :class="['record-item', { 'selected': selectedEntryId === record.entry_id, 'loading': loadingRecordId === record.entry_id }]"
             @click="selectRecord(record)"
           >
             <div class="record-content">
@@ -88,7 +88,7 @@
                 </span>
               </div>
             </div>
-            <div v-if="loadingRecordId === record.id" class="spinner-container">
+            <div v-if="loadingRecordId === record.entry_id" class="spinner-container">
               <LoadingSpinner />
             </div>
           </div>
@@ -131,7 +131,7 @@ export default {
     const entriesData = ref([])
     const loading = ref(false)
     const error = ref('')
-    const selectedRecordId = ref('')
+    const selectedEntryId = ref('')
     const loadingRecordId = ref('')
     const hasDatabase = ref(false)
     
@@ -161,7 +161,12 @@ export default {
         
         const response = await axios.get('/api/database-entries', { params })
         
-        entriesData.value = response.data.entries
+        // Map backend response to use entry_id consistently
+        // Backend returns 'id' but we use 'entry_id' in frontend for clarity
+        entriesData.value = response.data.entries.map(entry => ({
+          ...entry,
+          entry_id: entry.id  // Map id to entry_id for consistency
+        }))
         total.value = response.data.total
         totalPages.value = response.data.total_pages
         currentPage.value = response.data.page
@@ -191,13 +196,16 @@ export default {
     }
     
     const selectRecord = async (record) => {
-      if (loadingRecordId.value || selectedRecordId.value === record.id) return
+      if (loadingRecordId.value) return
       
-      selectedRecordId.value = record.id
+      // Check if this is actually the same entry (using unique entry_id)
+      if (selectedEntryId.value === record.entry_id) return
+      
+      selectedEntryId.value = record.entry_id
       
       // Simply emit the selected record - let the parent handle loading
       emit('record-selected', {
-        entryId: record.id,
+        entryId: record.entry_id,
         recordId: record.record_id,
         filename: record.filename
       })
@@ -242,7 +250,7 @@ export default {
       total.value = 0
       totalPages.value = 0
       currentPage.value = 1
-      selectedRecordId.value = ''
+      selectedEntryId.value = ''
       loadingRecordId.value = ''
       searchQuery.value = ''
       hasDatabase.value = false
@@ -274,7 +282,7 @@ export default {
       entriesData,
       loading,
       error,
-      selectedRecordId,
+      selectedEntryId,
       loadingRecordId,
       hasDatabase,
       currentPage,
