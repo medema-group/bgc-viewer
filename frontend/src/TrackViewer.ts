@@ -532,21 +532,22 @@ export class TrackViewer {
   private toggleAllAnnotationLabels(): void {
     this.showAllAnnotationLabels = !this.showAllAnnotationLabels;
     
-    // Update all annotation labels
+    // Update all annotation labels in the labels layer
     const showAll = this.showAllAnnotationLabels;
-    this.svg.selectAll<SVGTextElement, unknown>('.annotation-label').each(function() {
-      const label = d3.select(this);
+    this.clippedChart.selectAll<SVGGElement, unknown>('.annotation-labels-layer .annotation-label-group').each(function() {
+      const labelGroup = d3.select(this);
+      const label = labelGroup.select('.annotation-label');
       const showLabel = label.attr('data-show-label');
       
       if (showLabel === 'never') {
         // Never show these labels
-        label.style('display', 'none');
+        labelGroup.style('display', 'none');
       } else if (showLabel === 'always') {
         // Always show these labels
-        label.style('display', '');
+        labelGroup.style('display', '');
       } else {
         // 'hover' - controlled by toggle
-        label.style('display', showAll ? '' : 'none');
+        labelGroup.style('display', showAll ? '' : 'none');
       }
     });
     
@@ -644,9 +645,13 @@ export class TrackViewer {
       return;
     }
 
+    // Collect all labels data to render them in a separate layer on top
+    const allLabelsData: Array<{ annotation: AnnotationData; trackData: TrackData; x: number; y: number; width: number; height: number; trackY: number }> = [];
+
     // Update annotations and primitives for each track
     this.trackGroups.each((trackData: TrackData, trackIndex: number, trackNodes: SVGGElement[] | ArrayLike<SVGGElement>) => {
       const trackGroup = d3.select(trackNodes[trackIndex]);
+      const trackY = this.getTrackYPosition(trackIndex);
 
       // Get annotations and primitives for this track
       const trackAnnotations = this.data.annotations.filter(ann => ann.trackId === trackData.id);
@@ -662,7 +667,7 @@ export class TrackViewer {
       // Use proper D3 data binding to manage element lifecycle
       type ElementType = { type: 'primitive'; data: DrawingPrimitive } | { type: 'annotation'; data: AnnotationData };
       const elementGroups = (trackGroup
-        .selectAll('g') as Selection<SVGGElement, ElementType, SVGGElement, unknown>)
+        .selectAll('g.element') as Selection<SVGGElement, ElementType, SVGGElement, unknown>)
         .data(allElements, (d: ElementType) => d.data.id)
         .join(
           // Enter: create new groups
@@ -675,9 +680,9 @@ export class TrackViewer {
         .attr('id', (d: ElementType) => d.data.id)
         .attr('class', (d: ElementType) => {
           if (d.type === 'primitive') {
-            return `${d.type} ${d.data.type} ${d.data.class}`;
+            return `element ${d.type} ${d.data.type} ${d.data.class}`;
           } else {
-            return `${d.type} ${d.data.type} ${d.data.classes.join(' ')}`;
+            return `element ${d.type} ${d.data.type} ${d.data.classes.join(' ')}`;
           }
         });
 
@@ -693,17 +698,22 @@ export class TrackViewer {
         if (d.type === 'primitive') {
           self.renderPrimitive(group, d.data, xz, trackData);
         } else {
-          self.renderAnnotation(group, d.data, xz, trackData);
+          self.renderAnnotation(group, d.data, xz, trackData, allLabelsData, trackY);
         }
       });
     });
+
+    // Render all labels in a separate layer on top
+    this.renderAllLabels(allLabelsData, xz);
   }
 
   private renderAnnotation(
     container: Selection<SVGGElement, unknown, null, undefined>,
     annotation: AnnotationData,
     xScale: ScaleLinear<number, number>,
-    trackData: TrackData
+    trackData: TrackData,
+    labelsData?: Array<{ annotation: AnnotationData; trackData: TrackData; x: number; y: number; width: number; height: number; trackY: number }>,
+    trackY: number = 0
   ): void {
     const x = xScale(annotation.start);
     const width = Math.max(1, xScale(annotation.end) - xScale(annotation.start));
@@ -761,9 +771,11 @@ export class TrackViewer {
     element
       .on('mouseover', (event: any) => {
         element.classed('hovered', true);
-        // Show hover labels if needed
-        container.selectAll(`.annotation-label[data-annotation-id="${annotation.id}"]`)
-          .style('display', 'block');
+        // Show hover labels if needed - find label in the labels layer
+        this.clippedChart.selectAll(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
+          .style('display', 'block')
+          .select('.annotation-label-background')
+          .style('display', ''); // Show background on hover
         // Only show tooltip if tooltip content is provided
         if (annotation.tooltip !== undefined) {
           this.showTooltip(event, annotation, trackData);
@@ -774,18 +786,21 @@ export class TrackViewer {
         element.classed('hovered', false);
         // Hide hover labels if needed, but respect the showAllAnnotationLabels toggle
         const showAll = this.showAllAnnotationLabels;
-        container.selectAll<SVGTextElement, unknown>(`.annotation-label[data-annotation-id="${annotation.id}"]`)
+        this.clippedChart.selectAll<SVGGElement, unknown>(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
           .each(function() {
-            const labelElement = d3.select(this);
+            const labelGroup = d3.select(this);
+            const labelElement = labelGroup.select('.annotation-label');
             const showLabel = labelElement.attr('data-show-label');
             // If showAllAnnotationLabels is on, keep hover labels visible
             if (showLabel === 'hover' && showAll) {
-              labelElement.style('display', ''); // Keep visible
+              labelGroup.style('display', ''); // Keep visible
             } else if (showLabel === 'hover') {
-              labelElement.style('display', 'none');
+              labelGroup.style('display', 'none');
             } else {
-              labelElement.style('display', '');
+              labelGroup.style('display', '');
             }
+            // Always hide background on mouseout
+            labelGroup.select('.annotation-label-background').style('display', 'none');
           });
         // Always try to hide tooltip on mouseout
         this.hideTooltip();
@@ -794,8 +809,10 @@ export class TrackViewer {
         this.config.onAnnotationClick(annotation, trackData);
       });
 
-    // Add label if specified
-    this.renderAnnotationLabel(container, annotation, x, y, width, height);
+    // Collect label data for rendering in a separate layer
+    if (labelsData && annotation.label && annotation.showLabel !== 'never') {
+      labelsData.push({ annotation, trackData, x, y, width, height, trackY });
+    }
   }
 
   private renderPrimitive(
@@ -1068,7 +1085,7 @@ export class TrackViewer {
   ): void {
     // Check if label should be shown (default to 'hover')
     const showLabel = annotation.showLabel || 'hover';
-    if (showLabel === 'never' || !annotation.label) {
+    if (!annotation.label) {
       return;
     }
 
@@ -1101,7 +1118,7 @@ export class TrackViewer {
       }
     }
 
-    // Create label element
+    // Create the text element first to measure its dimensions
     const labelElement = container
       .append('text')
       .attr('x', labelX)
@@ -1112,20 +1129,82 @@ export class TrackViewer {
       .attr('data-annotation-id', annotation.id)
       .attr('data-show-label', showLabel)
       .style('fill', 'currentColor') // Use currentColor to inherit from CSS color property
-      .style('stroke', 'white') // White outline for better readability
-      .style('stroke-width', '0.5px')
-      .style('paint-order', 'stroke fill') // Ensure stroke renders behind fill
-      .style('pointer-events', 'none') // Labels shouldn't interfere with mouse events
       .text(annotation.label);
 
+    // Only add background for hover labels - it will be shown/hidden based on hover state
+    if (showLabel === 'hover') {
+      // Get text dimensions to create background
+      const textNode = labelElement.node() as SVGTextElement;
+      if (textNode && typeof textNode.getBBox === 'function') {
+        try {
+          const bbox = textNode.getBBox();
+          const padding = 0;
+          
+          // Insert background rectangle before the text
+          const background = container
+            .insert('rect', 'text')
+            .attr('x', bbox.x - padding)
+            .attr('y', bbox.y - padding)
+            .attr('width', bbox.width + padding * 2)
+            .attr('height', bbox.height + padding * 2)
+            .attr('rx', 2)
+            .attr('ry', 2)
+            .attr('class', 'annotation-label-background')
+            .style('fill', 'white')
+            .style('opacity', '0.8');
+          
+          // Initially hide the background - it will only show on actual hover
+          background.style('display', 'none');
+        } catch (error) {
+          // If getBBox fails, continue without background
+        }
+      }
+    }
+
     // Handle show/hide behavior based on showLabel attribute and current toggle state
-    // Note: 'never' is filtered out earlier, so showLabel here is either 'always' or 'hover'
     if (showLabel === 'always') {
-      labelElement.style('display', '');
+      container.style('display', '');
+    } else if (showLabel === 'never') {
+      container.style('display', 'none');
     } else {
       // For hover labels, respect the showAllAnnotationLabels toggle
-      labelElement.style('display', this.showAllAnnotationLabels ? '' : 'none');
+      container.style('display', this.showAllAnnotationLabels ? '' : 'none');
     }
+  }
+
+  private renderAllLabels(
+    labelsData: Array<{ annotation: AnnotationData; trackData: TrackData; x: number; y: number; width: number; height: number; trackY: number }>,
+    xScale: ScaleLinear<number, number>
+  ): void {
+    // Create or select a labels layer that renders on top of everything
+    let labelsLayer = this.clippedChart.select<SVGGElement>('.annotation-labels-layer');
+    if (labelsLayer.empty()) {
+      labelsLayer = this.clippedChart
+        .append('g')
+        .attr('class', 'annotation-labels-layer');
+    }
+
+    // Bind label data
+    const labelGroups = labelsLayer
+      .selectAll<SVGGElement, typeof labelsData[0]>('.annotation-label-group')
+      .data(labelsData, (d) => d.annotation.id)
+      .join(
+        (enter) => enter.append('g'),
+        (update) => update,
+        (exit) => exit.remove()
+      )
+      .attr('class', 'annotation-label-group')
+      .attr('data-annotation-id', (d) => d.annotation.id)
+      .attr('transform', (d) => `translate(0, ${d.trackY})`)
+      .style('pointer-events', 'none');
+
+    // Clear and re-render each label group
+    const self = this;
+    labelGroups.each(function(d) {
+      const group = d3.select(this);
+      group.selectAll('*').remove();
+      self.renderAnnotationLabel(group, d.annotation, d.x, d.y, d.width, d.height);
+    });
   }
 
   private showTooltip(event: MouseEvent, annotation: AnnotationData, trackData: TrackData): void {
