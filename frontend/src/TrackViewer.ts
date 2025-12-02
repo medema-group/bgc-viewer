@@ -92,6 +92,7 @@ export class TrackViewer {
   private isResponsiveWidth: boolean; // Track if width should be responsive
   private containerElement!: HTMLElement; // Store reference to container
   private resizeHandler?: () => void; // Store resize handler for cleanup
+  private resizeObserver?: ResizeObserver; // Store ResizeObserver for cleanup
   private static readonly LABEL_PADDING = 24; // Padding for labels that extend above tracks
   private contextMenuController?: any;
   private showTrackLabels: boolean;
@@ -165,15 +166,18 @@ export class TrackViewer {
   private setupAutoResize(): void {
     let resizeTimeout: NodeJS.Timeout;
     
-    this.resizeHandler = () => {
+    // Use ResizeObserver to watch for container size changes
+    // This handles both window resizes AND container resizes (e.g., from draggable dividers)
+    this.resizeObserver = new ResizeObserver((entries) => {
       // Throttle resize events to avoid excessive recalculation
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         this.resize();
       }, 100);
-    };
+    });
     
-    window.addEventListener('resize', this.resizeHandler);
+    // Observe the container element
+    this.resizeObserver.observe(this.containerElement);
   }
 
   private initialize(): void {
@@ -1386,9 +1390,9 @@ export class TrackViewer {
   }
 
   public destroy(): void {
-    // Remove resize listener if it was set up
-    if (this.resizeHandler) {
-      window.removeEventListener('resize', this.resizeHandler);
+    // Disconnect ResizeObserver if it was set up
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
     }
     
     // Destroy context menu UI
