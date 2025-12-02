@@ -98,6 +98,7 @@ export class TrackViewer {
   private showTrackLabels: boolean;
   private showAllAnnotationLabels: boolean = false;
   private labelGroups!: Selection<SVGGElement, TrackData, SVGGElement, unknown>;
+  private isDragging: boolean = false;
 
   constructor(config: TrackViewerConfig) {
     // Check if width was explicitly provided
@@ -249,7 +250,6 @@ export class TrackViewer {
     // Create context menu UI (delegated to separate module)
     this.createContextMenu();
   }
-
   private initializeZoom(): void {
     const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
     const chartHeight = this.config.height - this.config.margin.top - this.config.margin.bottom;
@@ -258,9 +258,33 @@ export class TrackViewer {
       .scaleExtent(this.config.zoomExtent)
       .translateExtent([[0, 0], [chartWidth, chartHeight]])
       .extent([[0, 0], [chartWidth, chartHeight]])
+      .filter((event: any) => {
+        // Track when dragging starts (mousedown without wheel)
+        if (event.type === 'mousedown' && event.button === 0) {
+          this.isDragging = true;
+        }
+        // Reset dragging flag on mouseup
+        if (event.type === 'mouseup') {
+          this.isDragging = false;
+        }
+        // Allow default zoom behavior
+        return !event.ctrlKey && !event.button;
+      })
       .on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
         this.currentTransform = event.transform;
         this.drawTracks();
+      })
+      .on('start', (event: any) => {
+        // Only change cursor to grabbing if it's a drag (not a wheel zoom)
+        if (event.sourceEvent && event.sourceEvent.type === 'mousedown') {
+          this.clippedChart.select('.chart-background').style('cursor', 'grabbing');
+          this.svg.style('cursor', 'grabbing');
+        }
+      })
+      .on('end', () => {
+        this.isDragging = false;
+        this.clippedChart.select('.chart-background').style('cursor', 'grab');
+        this.svg.style('cursor', '');
       });
 
     // Apply zoom behavior to the main SVG instead of an overlay
@@ -277,16 +301,11 @@ export class TrackViewer {
       .style('fill', 'transparent')
       .style('pointer-events', 'all')
       .style('cursor', 'grab')
-      .on('mousedown', function(this: SVGRectElement) {
-        d3.select(this).style('cursor', 'grabbing');
-      })
-      .on('mouseup', function(this: SVGRectElement) {
-        d3.select(this).style('cursor', 'grab');
-      })
       .on('click', () => {
         this.config.onBackgroundClick();
       });
   }
+  
   private createContextMenu(): void {
     this.contextMenuController = initTrackViewerContextMenu({
       containerElement: this.containerElement,
@@ -774,6 +793,9 @@ export class TrackViewer {
 
     element
       .on('mouseover', (event: any) => {
+        // Don't change appearance if we're currently dragging
+        if (this.isDragging) return;
+        
         element.classed('hovered', true);
         // Show hover labels if needed - find label in the labels layer
         this.clippedChart.selectAll(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
