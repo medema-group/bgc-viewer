@@ -200,10 +200,10 @@ export default {
       
       if (!regionId) {
         // Load all features
-        await loadAllFeatures(props.recordId)
+        await loadAllFeatures(recordInfo.value.recordId)
       } else {
         // Load region-specific features
-        await loadRegionFeatures(props.recordId, regionId)
+        await loadRegionFeatures(recordInfo.value.recordId, regionId)
       }
       
       emit('region-changed', regionId)
