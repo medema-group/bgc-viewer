@@ -383,7 +383,20 @@ export default {
           id: trackId,
           label: trackLabel,
           height: trackHeight,
-          annotations: []
+          annotations: [],
+          primitives: []
+        }
+        // Add line to CDS track
+        if (trackId === 'CDS') {
+          allTrackData[trackId].primitives.push({
+            id: 'cds-baseline',
+            trackId: trackId,
+            type: 'horizontal-line',
+            class: 'cds-baseline',
+            fy: 0.5,
+            stroke: 'black',
+            opacity: 1
+          })
         }
       }
     }
@@ -652,8 +665,10 @@ export default {
       
       const annotations = selectedTrackData
         .flatMap(track => track.annotations)
+      const primitives = selectedTrackData
+        .flatMap(track => track.primitives)
       
-      regionViewer.setData({ tracks, annotations })
+      regionViewer.setData({ tracks, annotations, primitives })
     }
     
     const getFeatureClass = (type) => {
@@ -786,6 +801,8 @@ export default {
       // Iterate through all tracks and their annotations
       Object.values(allTrackData).forEach(track => {
         if (track.id !== 'CDS' && track.id !== 'PFAM_domain') return
+        
+        // Update annotations
         track.annotations.forEach(annotation => {
           const shouldHighlight = shouldHighlightAnnotation(annotation)
           
@@ -801,6 +818,25 @@ export default {
             annotation.opacity = annotation._originalOpacity * 0.5
           }
         })
+        
+        // Also update the baseline primitive for CDS track
+        if (track.id === 'CDS' && track.primitives) {
+          track.primitives.forEach(primitive => {
+            if (primitive.id === 'cds-baseline') {
+              // Store the original opacity if not already stored
+              if (primitive._originalOpacity === undefined) {
+                primitive._originalOpacity = primitive.opacity !== undefined ? primitive.opacity : 1
+              }
+              
+              // Dim the baseline when any annotation is selected
+              if (selectedAnnotation) {
+                primitive.opacity = primitive._originalOpacity * 0.1
+              } else {
+                primitive.opacity = primitive._originalOpacity
+              }
+            }
+          })
+        }
       })
     }
     
