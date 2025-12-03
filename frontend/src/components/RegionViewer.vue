@@ -600,7 +600,7 @@ export default {
         
         props.tfbsHits.forEach((hit, idx) => {
           // Only show medium or strong confidence hits
-          if (hit.confidence !== 'strong') {
+          if (hit.confidence !== 'strong' && hit.confidence !== 'medium') {
             return
           }
           
