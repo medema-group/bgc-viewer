@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bgc-viewer"
-version = "0.1.15"
+version = "0.2.0"
 description = "A viewer to explore and visualize Biosynthetic Gene Cluster data"
 authors = [
     {name = "Medema Group (see CITATION.cff for full citation)"},
@@ -61,7 +61,7 @@ line-length = 88
 target-version = ['py311']
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "0.2.0"
 ignore_missing_imports = true
 warn_unused_configs = true
 # Disable strict typing for first version

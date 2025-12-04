@@ -101,7 +101,8 @@ function increment_version() {
 # Main logic
 if [ $# -eq 0 ]; then
     echo "Current version: $(get_current_version)"
-    echo "Usage: $0 [patch|minor|major|specific_version] [--commit]"
+    echo "Usage: $0 <version> [--commit]"
+    echo "  version: Specific version like 0.2.3"
     echo "  --commit: Automatically commit changes, create tag, and push"
     exit 0
 fi
@@ -125,19 +126,19 @@ done
 
 if [ -z "$version_arg" ]; then
     echo "Error: Version argument required"
-    echo "Usage: $0 [patch|minor|major|specific_version] [--commit]"
+    echo "Usage: $0 <version> [--commit]"
+    echo "  Example: $0 0.2.3"
     exit 1
 fi
 
 current_version=$(get_current_version)
 
-if [[ $version_arg =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    # Specific version provided
-    new_version=$version_arg
-else
-    # Increment type provided
-    new_version=$(increment_version "$current_version" "$version_arg")
+if [[ ! $version_arg =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid version format. Please use semantic versioning (e.g., 0.2.3)"
+    exit 1
 fi
+
+new_version=$version_arg
 
 echo "Updating version from $current_version to $new_version"
 
