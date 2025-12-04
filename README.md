@@ -19,14 +19,18 @@ You are reading the development README. There are a few other READMEs:
 The projects consists of a number of modules, which are available in their respective folders as self-contained packages:
 
 - **backend**: Python Flask server that serves the API and statically built frontend.
-- **frontend**: The frontend folder contains the code for both the web components (npm package) and the stand-alone viewer frontend that works together with the backend API (separate build target).
-- **viewer-components**: Reusable TS/JS components for the frontend.
+- **frontend**: The frontend folder contains the code for both the web components (npm package) and the viewer as a stand-alone web application (separate build target).
 
-The backend is a comprehensive server that preprocesses, searches and dynamically loads data from a root directory containing huge amounts of data. The backend is not strictly necessary; the viewer can also run with other types of data sources. The backend serves from the local file system in local mode, or from a fixed data directory in public mode [see configuration](#configuration).
+The backend has two functions:
+- An API that preprocesses, searches and serves data from a root directory containing huge amounts of data. The backend serves from the local file system in local mode, or from a fixed data directory in public mode [see configuration](#configuration).
+- It serves the statically built frontend (html + javascript); the Python package contains everything to run the viewer as a stand-alone application.
 
-The BGC Viewer is a stand-alone application, but the frontend components can be used separately in other applications.
+The frontend also has multiple functions:
+- The BGC Viewer is a web application that can either use the backend API or other data sources.
+- The frontend components can be used separately in other applications. They are available as an npm package.
 
-The frontend contains a built copy of the viewer-components. Similarly, the backend (Python package) contains a built copy of the frontend, so the resulting Python package will contain everything that is needed to run the application.
+In other words, the frontend can act as a web application with or without the backend. It is packaged with the backend for convenience for end-users, but could perfectly be run in a separate process.
+
 
 
 ## Installation & usage

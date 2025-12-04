@@ -62,10 +62,10 @@ function regenerate_lockfiles() {
         echo "  ⚠️  uv not found, skipping backend/uv.lock regeneration"
     fi
     
-    # Regenerate package-lock.json for viewer-components
+    # Regenerate package-lock.json for frontend
     if command -v npm &> /dev/null; then
-        (cd "$ROOT_DIR/viewer-components" && npm install --package-lock-only)
-        echo "  ✅ Regenerated viewer-components/package-lock.json"
+        (cd "$ROOT_DIR/frontend" && npm install --package-lock-only)
+        echo "  ✅ Regenerated frontend/package-lock.json"
     else
         echo "  ⚠️  npm not found, skipping package-lock.json regeneration"
     fi
@@ -143,7 +143,6 @@ echo "Updating version from $current_version to $new_version"
 
 # Update all package.json files
 update_version "$new_version" "$ROOT_DIR/frontend/package.json"
-update_version "$new_version" "$ROOT_DIR/viewer-components/package.json"
 
 # Update Python backend version
 update_python_version "$new_version" "$ROOT_DIR/backend/pyproject.toml"
@@ -154,7 +153,7 @@ update_python_init_version "$new_version" "$ROOT_DIR/backend/bgc_viewer/__init__
 # Regenerate lock files to match new versions
 regenerate_lockfiles
 
-echo "✅ Version updated to $new_version in all packages (frontend, viewer-components, backend)"
+echo "✅ Version updated to $new_version in all packages (frontend, backend)"
 echo "✅ Lock files regenerated to match new version"
 
 if [ "$auto_commit" = true ]; then

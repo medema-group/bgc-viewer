@@ -26,7 +26,6 @@ npm install @kretep/bgc-viewer-components d3
   <bgc-region-viewer-container id="viewer"></bgc-region-viewer-container>
 
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <script src="node_modules/bgc-viewer-components/public/viewer-components.umd.js"></script>
   
   <script type="module">
     import { JSONFileProvider } from '@kretep/bgc-viewer-components';
