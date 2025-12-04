@@ -12,9 +12,8 @@ The BGC Viewer provides reusable web components for visualizing genomic data (an
 ### 1. Load Required Dependencies and Web Components
 
 ```html
-<!-- Required: D3.js and TrackViewer component -->
+<!-- Required: D3.js -->
 <script src="https://d3js.org/d3.v7.min.js"></script>
-<script src="../../frontend/public/viewer-components.umd.js"></script>
 
 <!-- Web components library -->
 <script type="module" src="../../frontend/dist/web-components/bgc-viewer-components.es.js"></script>

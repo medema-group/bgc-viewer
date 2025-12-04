@@ -1,96 +1,126 @@
 <template>
-  <!-- Region Selector (shown when record is loaded) -->
-  <div v-if="recordInfo" class="controls">
-    <select v-if="regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
-      <option value="">Show all features</option>
-      <option v-for="region in regions" :key="region.id" :value="region.id">
-        Region {{ region.region_number }} - {{ region.product.join(', ') }}
-      </option>
-    </select>
+  <div class="region-viewer-wrapper">
+    <!-- Region Selector (shown when record is loaded) -->
+    <div v-if="recordInfo" class="controls">
+      <select v-if="regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
+        <option value="">Show all features</option>
+        <option v-for="region in regions" :key="region.id" :value="region.id">
+          Region {{ region.region_number }} - {{ region.product.join(', ') }}
+        </option>
+      </select>
 
-    <!-- Show message when no regions are available -->
-    <div v-if="regions.length === 0 && !loading" class="no-regions-message">
-      No regions found - showing all features for this record
-    </div>
-    
-    <div v-if="availableTracks.length > 0" class="feature-controls">
-      <div class="multi-select-container">
-        <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
-          <div class="selected-display">
-            <span v-if="selectedTracks.length === availableTracks.length">
-              All tracks ({{ selectedTracks.length }})
-            </span>
-            <span v-else-if="selectedTracks.length === 0">
-              No tracks selected
-            </span>
-            <span v-else>
-              {{ selectedTracks.length }} tracks selected
-            </span>
-            <span class="dropdown-arrow">▼</span>
-          </div>
-          <div v-if="dropdownOpen" class="dropdown-options" @click.stop>
-            <div class="select-all-option">
-              <label>
-                <input 
-                  type="checkbox" 
-                  :checked="selectedTracks.length === availableTracks.length"
-                  :indeterminate="selectedTracks.length > 0 && selectedTracks.length < availableTracks.length"
-                  @change="toggleSelectAll"
-                >
-                Select All
-              </label>
+      <!-- Show message when no regions are available -->
+      <div v-if="regions.length === 0 && !loading" class="no-regions-message">
+        No regions found - showing all features for this record
+      </div>
+      
+      <div v-if="availableTracks.length > 0" class="feature-controls">
+        <div class="multi-select-container">
+          <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
+            <div class="selected-display">
+              <span v-if="selectedTracks.length === availableTracks.length">
+                All tracks ({{ selectedTracks.length }})
+              </span>
+              <span v-else-if="selectedTracks.length === 0">
+                No tracks selected
+              </span>
+              <span v-else>
+                {{ selectedTracks.length }} tracks selected
+              </span>
+              <span class="dropdown-arrow">▼</span>
             </div>
-            <div class="option-separator"></div>
-            <div 
-              v-for="track in availableTracks" 
-              :key="track.id" 
-              class="dropdown-option"
-            >
-              <label>
-                <input 
-                  type="checkbox" 
-                  :value="track.id"
-                  v-model="selectedTracks"
-                  @change="updateViewer"
-                >
-                {{ track.label }} ({{ track.annotationCount }})
-              </label>
+            <div v-if="dropdownOpen" class="dropdown-options" @click.stop>
+              <div class="select-all-option">
+                <label>
+                  <input 
+                    type="checkbox" 
+                    :checked="selectedTracks.length === availableTracks.length"
+                    :indeterminate="selectedTracks.length > 0 && selectedTracks.length < availableTracks.length"
+                    @change="toggleSelectAll"
+                  >
+                  Select All
+                </label>
+              </div>
+              <div class="option-separator"></div>
+              <div 
+                v-for="track in availableTracks" 
+                :key="track.id" 
+                class="dropdown-option"
+              >
+                <label>
+                  <input 
+                    type="checkbox" 
+                    :value="track.id"
+                    v-model="selectedTracks"
+                    @change="updateViewer"
+                  >
+                  {{ track.label }} ({{ track.annotationCount }})
+                </label>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- Current Record Info -->
-  <div v-if="recordInfo" class="current-record-info">
-    <span>Current Record: {{ recordInfo.recordId }} ({{ recordInfo.filename }})</span>
-    <div class="record-details">
-      <span v-if="recordInfo.recordInfo?.description" class="description">
-        {{ recordInfo.recordInfo.description }}
-      </span>
+    <!-- Current Record Info -->
+    <div v-if="recordInfo" class="current-record-info">
+      <span>Current Record: {{ recordInfo.recordId }} ({{ recordInfo.filename }})</span>
+      <div class="record-details">
+        <span v-if="recordInfo.recordInfo?.description" class="description">
+          {{ recordInfo.recordInfo.description }}
+        </span>
+      </div>
     </div>
-  </div>
-  
-  <div ref="viewerContainer" class="viewer-container" v-show="recordInfo"></div>
-  
-  <div v-if="loading" class="loading">
-    Loading region data...
-  </div>
-  
-  <div v-if="error" class="error">
-    {{ error }}
+    
+    <div ref="viewerContainer" class="viewer-container" v-show="recordInfo"></div>
+    
+    <div v-if="loading" class="loading">
+      Loading region data...
+    </div>
+    
+    <div v-if="error" class="error">
+      {{ error }}
+    </div>
+    
+    <!-- Feature Details Panel -->
+    <div v-if="recordInfo" class="feature-details-container">
+      <!-- Show FeatureDetails for actual record features -->
+      <FeatureDetails 
+        v-if="selectedElement && selectedElement.type && selectedElement.qualifiers"
+        :feature="selectedElement"
+        :all-features="features"
+        :data-provider="dataProvider"
+        :record-info="recordInfo"
+        :region-number="currentRegionNumber"
+        @close="clearSelectedElement"
+      />
+      
+      <!-- Show SimpleDetails for non-feature elements (TTA codons, resistance, TFBS) -->
+      <SimpleDetails 
+        v-else-if="selectedElement"
+        :data="selectedElement"
+        :element-type="selectedElement._elementType"
+      />
+    </div>
   </div>
 </template>
 
 <script>
-import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { TrackViewer } from '../TrackViewer'
+import FeatureDetails from './FeatureDetails.vue'
+import SimpleDetails from './SimpleDetails.vue'
 import './cand-cluster-styling.css'
 import './cluster-styling.css'
 import './gene-type-styling.css'
 
 export default {
   name: 'RegionViewerComponent',
+  components: {
+    FeatureDetails,
+    SimpleDetails
+  },
   props: {
     // Current record information
     recordInfo: {
@@ -126,6 +156,29 @@ export default {
     selectedRegionId: {
       type: String,
       default: ''
+    },
+    // Data provider for fetching additional data
+    dataProvider: {
+      type: Object,
+      default: null
+    },
+    // TFBS binding site hits
+    tfbsHits: {
+      type: Array,
+      default: () => []
+      // Expected shape: [{ name, start, species, link, description, consensus, confidence, strand, score, max_score }]
+    },
+    // TTA codon positions
+    ttaCodons: {
+      type: Array,
+      default: () => []
+      // Expected shape: [{ start, strand }]
+    },
+    // Resistance features
+    resistanceFeatures: {
+      type: Array,
+      default: () => []
+      // Expected shape: [{ locus_tag, query_id, reference_id, subfunctions, description, bitscore, evalue, query_start, query_end }]
     }
   },
   emits: [
@@ -145,15 +198,51 @@ export default {
     const selectedTracks = ref([])
     const dropdownOpen = ref(false)
     
+    // Compute current region number from selected region
+    const currentRegionNumber = computed(() => {
+      if (!selectedRegion.value || !props.regions.length) {
+        return '1' // Default to region 1 if no region selected
+      }
+      const region = props.regions.find(r => r.id === selectedRegion.value)
+      return region ? String(region.region_number) : '1'
+    })
+    
     let regionViewer = null
     let allTrackData = {} // Store all generated tracks
+    const selectedAnnotation = ref(null) // Track the selected annotation for highlighting
+    
+    // Derive selected element from selected annotation
+    const selectedElement = computed(() => {
+      return selectedAnnotation.value?.data || null
+    })
 
     // Watch for prop changes and rebuild the viewer
     watch(() => props.features, () => {
       if (props.features && props.features.length > 0) {
         rebuildViewer()
       }
-    }, { immediate: true })
+    })
+
+    watch(() => props.tfbsHits, () => {
+      // Rebuild viewer when TFBS hits change
+      if (props.features && props.features.length > 0) {
+        rebuildViewer()
+      }
+    })
+
+    watch(() => props.ttaCodons, () => {
+      // Rebuild viewer when TTA codons change
+      if (props.features && props.features.length > 0) {
+        rebuildViewer()
+      }
+    })
+
+    watch(() => props.resistanceFeatures, () => {
+      // Rebuild viewer when resistance features change
+      if (props.features && props.features.length > 0) {
+        rebuildViewer()
+      }
+    })
 
     watch(() => props.selectedRegionId, (newVal) => {
       selectedRegion.value = newVal
@@ -162,12 +251,23 @@ export default {
     onMounted(() => {
       // Add event listeners
       document.addEventListener('click', handleClickOutside)
+      
+      // Initial build if we already have features
+      if (props.features && props.features.length > 0) {
+        rebuildViewer()
+      }
     })
-    
+
     onUnmounted(() => {
       document.removeEventListener('click', handleClickOutside)
+      
+      // Clean up TrackViewer instance to prevent stale references after HMR
+      if (regionViewer) {
+        regionViewer.destroy()
+        regionViewer = null
+      }
     })
-    
+
     const rebuildViewer = async () => {
       try {
         error.value = ''
@@ -178,6 +278,9 @@ export default {
         }
         
         console.log('Building viewer with', props.features.length, 'features')
+        
+        // Clear selection when rebuilding
+        selectedAnnotation.value = null
         
         // Build all tracks from features
         buildAllTracks()
@@ -242,7 +345,7 @@ export default {
         // Use region boundaries if provided
         minPos = props.regionBoundaries.start
         maxPos = props.regionBoundaries.end
-        padding = (maxPos - minPos) * 0.1
+        padding = (maxPos - minPos) * 0.02
         console.log('Using region boundaries:', minPos, '-', maxPos)
       } else {
         // Fallback to calculating from features
@@ -267,24 +370,32 @@ export default {
           minPos = Math.min(...positions)
           maxPos = Math.max(...positions)
         }
-        padding = (maxPos - minPos) * 0.1
+        padding = (maxPos - minPos) * 0.02  // Reduced padding from 0.1 to 0.02 for more zoomed-in view
         console.log('Calculated domain:', minPos - padding, 'to', maxPos + padding)
       }
       
       console.log('Creating TrackViewer...')
-      regionViewer = new window.BGCViewer.TrackViewer({
+      regionViewer = new TrackViewer({
         container: viewerContainer.value,
         // width is not specified, so it will be responsive
         height: 400,
         domain: [minPos - padding, maxPos + padding],
         trackHeight: 40,
+        showTrackLabels: false,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
+          handleAnnotationClick(annotation, track)
           emit('annotation-clicked', { annotation, track })
         },
         onAnnotationHover: (annotation, track, event) => {
           // Hover is handled by the TrackViewer's built-in tooltip
           emit('annotation-hovered', { annotation, track, event })
+        },
+        onBackgroundClick: () => {
+          // Clear selection when clicking background
+          selectedAnnotation.value = null
+          updateAnnotationHighlighting()
+          updateViewer()
         }
       })
       console.log('TrackViewer created successfully')
@@ -296,7 +407,20 @@ export default {
           id: trackId,
           label: trackLabel,
           height: trackHeight,
-          annotations: []
+          annotations: [],
+          primitives: []
+        }
+        // Add line to CDS track
+        if (trackId === 'CDS') {
+          allTrackData[trackId].primitives.push({
+            id: 'cds-baseline',
+            trackId: trackId,
+            type: 'horizontal-line',
+            class: 'cds-baseline',
+            fy: 0.5,
+            stroke: 'black',
+            opacity: 1
+          })
         }
       }
     }
@@ -366,6 +490,7 @@ export default {
               showLabel: 'always',
               start: location.start,
               end: location.end,
+              data: feature
             })
             break
 
@@ -392,7 +517,8 @@ export default {
               start: location.start,
               end: location.end,
               fill: domainColor,
-              stroke: domainColor
+              stroke: domainColor,
+              data: feature
             }
             
             allTrackData[trackId].annotations.push(annotation)
@@ -413,7 +539,8 @@ export default {
               start: location.start,
               end: location.end,
               direction: location.direction,
-              stroke: 'black'
+              stroke: 'black',
+              data: feature
             })
             break
             
@@ -450,7 +577,8 @@ export default {
               start: location.start,
               end: location.end,
               stroke: 'none',
-              opacity: 0.5
+              opacity: 0.5,
+              data: feature
             })
             // Protocluster core
             if (core_location) {
@@ -464,7 +592,8 @@ export default {
                 showLabel: 'always',
                 start: core_location.start,
                 end: core_location.end,
-                stroke: 'black'
+                stroke: 'black',
+                data: feature
               })
             }
             break
@@ -481,12 +610,105 @@ export default {
               classes: classes,
               label: getFeatureLabel(feature),
               start: location.start,
-              end: location.end
+              end: location.end,
+              data: feature
             })
             break
         }
       })
+      
+      // Add TFBS hits as pins on the CDS track
+      if (props.tfbsHits && props.tfbsHits.length > 0) {
+        const cdsTrackId = 'CDS'
+        makeSureTrackExists(cdsTrackId, cdsTrackId)
+        
+        props.tfbsHits.forEach((hit, idx) => {
+          // Only show medium or strong confidence hits
+          if (hit.confidence !== 'strong' && hit.confidence !== 'medium') {
+            return
+          }
+          
+          allTrackData[cdsTrackId].annotations.push({
+            id: `tfbs-${idx}-${hit.start}`,
+            trackId: cdsTrackId,
+            type: 'pin',
+            classes: ['tfbs-hit', `tfbs-${hit.confidence}`],
+            label: hit.name,
+            labelPosition: 'above',
+            showLabel: 'hover',
+            start: hit.start,
+            end: hit.start, // Pins are at a single position
+            fy: 0.5, // Middle of the track
+            heightFraction: 0.5,
+            opacity: 0.8,
+            data: { ...hit, _elementType: 'Binding Site' }
+          })
+        })
+      }
+      
+      // Add TTA codons as triangles on the CDS track
+      if (props.ttaCodons && props.ttaCodons.length > 0) {
+        const cdsTrackId = 'CDS'
+        makeSureTrackExists(cdsTrackId, cdsTrackId)
+        
+        props.ttaCodons.forEach((codon, idx) => {
+          allTrackData[cdsTrackId].annotations.push({
+            id: `tta-${idx}-${codon.start}`,
+            trackId: cdsTrackId,
+            type: 'triangle',
+            classes: ['tta-codon'],
+            showLabel: 'none',
+            start: codon.start,
+            end: codon.start, // Triangles are at a single position
+            fy: 0.2, // Middle of the track
+            heightFraction: 0.4,
+            opacity: 0.9,
+            data: { ...codon, _elementType: 'TTA Codon' }
+          })
+        })
+      }
+      
+      // Add resistance features as boxes on the CDS track
+      if (props.resistanceFeatures && props.resistanceFeatures.length > 0) {
+        const cdsTrackId = 'CDS'
+        makeSureTrackExists(cdsTrackId, cdsTrackId)
+        
+        // Build a lookup map of locus_tag to CDS feature location
+        const locusTagMap = {}
+        props.features.forEach(feature => {
+          if (feature.type === 'CDS' && feature.qualifiers?.locus_tag?.[0]) {
+            const locusTag = feature.qualifiers.locus_tag[0]
+            const location = parseGeneLocation(feature.location)
+            if (location) {
+              locusTagMap[locusTag] = location
+            }
+          }
+        })
+        
+        props.resistanceFeatures.forEach((resistFeature, idx) => {
+          const locusTag = resistFeature.locus_tag
+          const location = locusTagMap[locusTag]
+          console.log('Mapping resistance feature', resistFeature.reference_id, 'to locus tag', locusTag, 'with location', location)
+          
+          if (location) {
+            allTrackData[cdsTrackId].annotations.push({
+              id: `resistance-${idx}-${locusTag}`,
+              trackId: cdsTrackId,
+              type: 'box',
+              classes: ['resistance'],
+              showLabel: 'never',
+              start: location.start,
+              end: location.end,
+              fy: 0.1,
+              heightFraction: 0.2,
+              fill: '#BBB',
+              data: { ...resistFeature, _elementType: 'Resistance' }
+            })
+          }
+        })
+      }
     }
+
 
     const updateViewer = () => {
       if (!regionViewer || !Object.keys(allTrackData).length) return
@@ -508,8 +730,10 @@ export default {
       
       const annotations = selectedTrackData
         .flatMap(track => track.annotations)
+      const primitives = selectedTrackData
+        .flatMap(track => track.primitives)
       
-      regionViewer.setData({ tracks, annotations })
+      regionViewer.setData({ tracks, annotations, primitives })
     }
     
     const getFeatureClass = (type) => {
@@ -573,9 +797,112 @@ export default {
       }
     }
     
+    // Handle annotation click for highlighting
+    const handleAnnotationClick = (annotation, track) => {
+      // Set selected annotation (don't toggle)
+      selectedAnnotation.value = annotation
+      if (annotation.id.endsWith('-core')) {
+        // If core annotation clicked, find parent protocluster annotation
+        const parentTrack = allTrackData[annotation.trackId]
+        const parentAnnotationId = annotation.id.replace('-core', '')
+        if (parentTrack) {
+          const parentAnnotation = parentTrack.annotations.find(ann => 
+            ann.id === parentAnnotationId
+          )
+          if (parentAnnotation) {
+            selectedAnnotation.value = parentAnnotation
+          }
+        }
+      }
+      
+      // Update highlighting in allTrackData
+      updateAnnotationHighlighting()
+      
+      // Update the viewer with new opacity values
+      updateViewer()
+    }
+    
+    // Clear selected element
+    const clearSelectedElement = () => {
+      selectedAnnotation.value = null
+    }
+    
+    // Determine if an annotation should be highlighted
+    const shouldHighlightAnnotation = (annotation) => {
+      // If no annotation is selected, highlight all
+      if (!selectedAnnotation.value) {
+        return true
+      }
+
+      if (annotation.id.endsWith('-core')) {
+        // For core annotations, highlight if parent protocluster is within selected range
+        const parentTrack = allTrackData[annotation.trackId]
+        const parentAnnotationId = annotation.id.replace('-core', '')
+        if (parentTrack) {
+          const parentAnnotation = parentTrack.annotations.find(ann => 
+            ann.id === parentAnnotationId
+          )
+          if (parentAnnotation) {
+            return parentAnnotation.start >= selectedAnnotation.value.start && 
+                   parentAnnotation.end <= selectedAnnotation.value.end
+          }
+        }
+        return false
+      }
+      
+      // Highlight annotations that fall completely within the selected annotation's range
+      return annotation.start >= selectedAnnotation.value.start && 
+             annotation.end <= selectedAnnotation.value.end
+    }
+    
+    // Update opacity on all annotations in allTrackData
+    const updateAnnotationHighlighting = () => {
+      // Iterate through all tracks and their annotations
+      Object.values(allTrackData).forEach(track => {
+        if (track.id !== 'CDS' && track.id !== 'PFAM_domain') return
+        
+        // Update annotations
+        track.annotations.forEach(annotation => {
+          const shouldHighlight = shouldHighlightAnnotation(annotation)
+          
+          // Store the original opacity if not already stored
+          if (annotation._originalOpacity === undefined) {
+            annotation._originalOpacity = annotation.opacity !== undefined ? annotation.opacity : 1
+          }
+          
+          // Set opacity based on highlighting state
+          if (shouldHighlight) {
+            annotation.opacity = annotation._originalOpacity
+          } else {
+            annotation.opacity = annotation._originalOpacity * 0.5
+          }
+        })
+        
+        // Also update the baseline primitive for CDS track
+        if (track.id === 'CDS' && track.primitives) {
+          track.primitives.forEach(primitive => {
+            if (primitive.id === 'cds-baseline') {
+              // Store the original opacity if not already stored
+              if (primitive._originalOpacity === undefined) {
+                primitive._originalOpacity = primitive.opacity !== undefined ? primitive.opacity : 1
+              }
+              
+              // Dim the baseline when any annotation is selected
+              if (selectedAnnotation.value) {
+                primitive.opacity = primitive._originalOpacity * 0.1
+              } else {
+                primitive.opacity = primitive._originalOpacity
+              }
+            }
+          })
+        }
+      })
+    }
+    
     // Clear the viewer and reset state
     const clearViewer = () => {
       selectedRegion.value = ''
+      selectedAnnotation.value = null
       allTrackData = {}
       availableTracks.value = []
       selectedTracks.value = []
@@ -603,25 +930,38 @@ export default {
       availableTracks,
       selectedTracks,
       dropdownOpen,
+      selectedElement,
+      currentRegionNumber,
       onRegionChange,
       updateViewer,
       toggleDropdown,
-      toggleSelectAll
+      toggleSelectAll,
+      clearSelectedElement
     }
   }
 }
 </script>
 
 <style scoped>
+.region-viewer-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  overflow-y: auto;
+}
 
 .current-record-info {
-  margin: 10px 0;
-  padding: 8px;
+  margin: 0 0 10px 0;
+  padding: 10px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
 }
 
 .record-details {
-  font-size: 14px;
+  font-size: 13px;
   color: #666;
+  margin-top: 4px;
 }
 
 .description {
@@ -629,35 +969,39 @@ export default {
 }
 
 .controls {
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+  background: white;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
 }
 
 .region-select {
-  margin: 20px 0px 0px 0px;
-  padding: 8px;
+  margin: 0;
+  padding: 6px 8px;
   border: 1px solid #ccc;
   border-radius: 4px;
-  font-size: 14px;
-  margin-right: 10px;
-  min-width: 250px;
+  font-size: 13px;
+  margin-right: 8px;
+  min-width: 200px;
 }
 
 .no-regions-message {
   display: inline-block;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background-color: #e8f4fd;
   border: 1px solid #bee5eb;
   border-radius: 4px;
   color: #0c5460;
-  font-size: 14px;
-  margin-right: 10px;
+  font-size: 13px;
+  margin-right: 8px;
   font-style: italic;
 }
 
 .feature-controls {
   display: inline-flex;
-  gap: 15px;
-  margin-left: 10px;
+  gap: 10px;
+  margin-left: 8px;
 }
 
 .multi-select-container {
@@ -674,7 +1018,7 @@ export default {
 
 .multi-select-dropdown {
   position: relative;
-  min-width: 250px;
+  min-width: 200px;
   border: 1px solid #ccc;
   border-radius: 4px;
   background: white;
@@ -686,11 +1030,11 @@ export default {
 }
 
 .selected-display {
-  padding: 8px 12px;
+  padding: 6px 10px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .dropdown-arrow {
@@ -759,10 +1103,12 @@ export default {
 
 .viewer-container {
   width: 100%;
-  min-height: 400px;
-  border: 1px solid #eee;
-  border-radius: 4px;
-  overflow-x: auto; /* Allow horizontal scrolling if needed */
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: white;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  flex-shrink: 0;
 }
 
 .loading {
@@ -775,9 +1121,17 @@ export default {
 .error {
   color: #d32f2f;
   background: #ffebee;
-  padding: 10px;
+  padding: 8px;
   border-radius: 4px;
-  margin: 10px 0;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.feature-details-container {
+  margin-top: 15px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 :global(.feature-resistance) {

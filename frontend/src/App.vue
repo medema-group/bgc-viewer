@@ -1,44 +1,59 @@
 <template>
-  <div class="container">
-    <header>
+  <div class="app-container">
+    <!-- Header spanning full width -->
+    <header class="app-header">
       <h1>BGC Viewer</h1>
+      <div class="version-info">
+        <span v-if="appVersion">{{ appName }} v{{ appVersion }}</span>
+        <span v-else>Loading version...</span>
+      </div>
     </header>
 
-    <main>
-      <!-- Index Selection Section - Only shown in local mode and when not creating an index -->
-      <IndexSelection 
-        v-if="!isPublicMode && !folderForIndexing"
-        @folder-selected="handleFolderSelected"
-        @folder-changed="handleFolderChanged"
-        @index-changed="handleIndexChanged"
-        @create-index-for-folder="handleCreateIndexForFolder"
-      />
+    <!-- Main content area with sidebar and viewer -->
+    <div class="main-content">
+      <!-- Left sidebar for controls (30%) -->
+      <aside class="sidebar" :style="{ width: sidebarWidth + 'px' }">
+        <!-- Index Selection Section - Only shown in local mode and when not creating an index -->
+        <IndexSelection 
+          v-if="!isPublicMode && !folderForIndexing"
+          @folder-selected="handleFolderSelected"
+          @folder-changed="handleFolderChanged"
+          @index-changed="handleIndexChanged"
+          @create-index-for-folder="handleCreateIndexForFolder"
+        />
 
-      <!-- Index Creation Section - Only shown in local mode when creating a new index -->
-      <IndexCreation
-        v-if="!isPublicMode && folderForIndexing"
-        :folder-path="folderForIndexing"
-        :index-path="indexPathForCreation"
-        :available-files="availableFiles"
-        :is-loading-files="isLoadingFiles"
-        :needs-preprocessing="needsPreprocessing"
-        @preprocessing-completed="handlePreprocessingCompleted"
-        @cancel="handleCancelIndexCreation"
-      />
+        <!-- Index Creation Section - Only shown in local mode when creating a new index -->
+        <IndexCreation
+          v-if="!isPublicMode && folderForIndexing"
+          :folder-path="folderForIndexing"
+          :index-path="indexPathForCreation"
+          :available-files="availableFiles"
+          :is-loading-files="isLoadingFiles"
+          :needs-preprocessing="needsPreprocessing"
+          @preprocessing-completed="handlePreprocessingCompleted"
+          @cancel="handleCancelIndexCreation"
+        />
 
-      <!-- Record List Selector Section - Hidden when creating an index -->
-      <RecordListSelector 
-        v-if="!folderForIndexing"
-        ref="recordListSelectorRef"
-        :data-root="selectedDataRoot"
-        :index-path="selectedIndexPath"
-        @record-selected="handleRecordSelected" 
-      />
+        <!-- Record List Selector Section - Hidden when creating an index -->
+        <RecordListSelector 
+          v-if="!folderForIndexing"
+          ref="recordListSelectorRef"
+          :data-root="selectedDataRoot"
+          :index-path="selectedIndexPath"
+          @record-selected="handleRecordSelected" 
+        />
+      </aside>
 
-      <!-- Region Viewer Section - Hidden when creating an index -->
-      <section v-if="!folderForIndexing" class="region-section">
-        <h2>Record visualization</h2>
+      <!-- Draggable divider -->
+      <div 
+        class="divider"
+        @mousedown="startDragging"
+      ></div>
+
+      <!-- Right main viewer area (70%) -->
+      <main class="viewer-area">
         <RegionViewerContainer 
+          v-if="!folderForIndexing"
           ref="regionViewerRef"
           :data-provider="dataProvider"
           :record-id="currentRecordId"
@@ -48,21 +63,16 @@
           @annotation-clicked="handleAnnotationClicked"
           @error="handleViewerError"
         />
-      </section>
-
-    </main>
-    
-    <footer class="app-footer">
-      <div class="version-info">
-        <span v-if="appVersion">{{ appName }} v{{ appVersion }}</span>
-        <span v-else>Loading version...</span>
-      </div>
-    </footer>
+        <div v-else class="placeholder">
+          <p>Select a record from the sidebar to view details</p>
+        </div>
+      </main>
+    </div>
   </div>
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import RegionViewerContainer from './components/RegionViewerContainer.vue'
 import IndexSelection from './components/IndexSelection.vue'
@@ -106,6 +116,12 @@ export default {
     const currentRecordData = ref(null)
     const initialRegionId = ref('')
     
+    // Draggable divider state
+    const sidebarWidth = ref(350) // Default width in pixels
+    const isDragging = ref(false)
+    const minSidebarWidth = 250
+    const maxSidebarWidth = 800
+    
     const handleFolderSelected = async (folderPath) => {
       // Update the selected data root
       selectedDataRoot.value = folderPath
@@ -142,10 +158,11 @@ export default {
       }
       
       // Set the record ID to trigger the container to load
-      currentRecordId.value = recordData.recordId
+      // Use entryId (which includes filename) for uniqueness, not recordId
+      currentRecordId.value = recordData.entryId
       initialRegionId.value = '' // Reset region selection for new record
       
-      console.log('Record selected:', recordData.recordId)
+      console.log('Record selected:', recordData.recordId, 'from', recordData.filename, '(entryId:', recordData.entryId, ')')
     }
     
     const handleRegionChanged = (regionId) => {
@@ -198,6 +215,33 @@ export default {
       needsPreprocessing.value = false
     }
     
+    // Draggable divider functions
+    const startDragging = (e) => {
+      isDragging.value = true
+      e.preventDefault()
+      document.addEventListener('mousemove', onDrag)
+      document.addEventListener('mouseup', stopDragging)
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    }
+    
+    const onDrag = (e) => {
+      if (!isDragging.value) return
+      
+      const newWidth = e.clientX
+      if (newWidth >= minSidebarWidth && newWidth <= maxSidebarWidth) {
+        sidebarWidth.value = newWidth
+      }
+    }
+    
+    const stopDragging = () => {
+      isDragging.value = false
+      document.removeEventListener('mousemove', onDrag)
+      document.removeEventListener('mouseup', stopDragging)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    
     const fetchVersion = async () => {
       try {
         const response = await axios.get('/api/version')
@@ -230,6 +274,12 @@ export default {
       dataProvider.value = new BGCViewerAPIProvider()
     })
     
+    // Cleanup on unmount
+    onUnmounted(() => {
+      document.removeEventListener('mousemove', onDrag)
+      document.removeEventListener('mouseup', stopDragging)
+    })
+    
     return {
       regionViewerRef,
       recordListSelectorRef,
@@ -247,6 +297,7 @@ export default {
       currentRecordId,
       currentRecordData,
       initialRegionId,
+      sidebarWidth,
       handleFolderSelected,
       handleFolderChanged,
       handleIndexChanged,
@@ -256,14 +307,15 @@ export default {
       handleViewerError,
       handleCreateIndexForFolder,
       handlePreprocessingCompleted,
-      handleCancelIndexCreation
+      handleCancelIndexCreation,
+      startDragging
     }
   }
 }
 </script>
 
 <style>
-/* Global font styling to match backend */
+/* Global font styling */
 * {
   margin: 0;
   padding: 0;
@@ -277,50 +329,128 @@ html,
   line-height: 1.6;
   color: #333;
   background-color: #f4f4f4;
+  height: 100%;
+  overflow: hidden;
 }
 
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
+/* App container - fills viewport */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
 }
 
-header {
-  text-align: center;
-  margin-bottom: 40px;
-  padding: 20px;
+/* Header spanning full width */
+.app-header {
   background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  border-bottom: 2px solid #e0e0e0;
+  padding: 12px 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  z-index: 10;
 }
 
-header h1 {
+.app-header h1 {
   color: #2c3e50;
-  margin-bottom: 10px;
+  margin: 0;
+  font-size: 24px;
 }
 
-.region-section {
-  background: white;
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  padding: 30px;
-  margin-bottom: 30px;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-.app-footer {
-  margin-top: 40px;
-  padding: 20px 0;
-  border-top: 1px solid #e0e0e0;
-  text-align: center;
-}
-
-.version-info {
+.app-header .version-info {
   color: #666;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 500;
 }
 
-.version-info span {
-  font-weight: 500;
+/* Main content area with sidebar and viewer */
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  background-color: #f4f4f4;
+}
+
+/* Left sidebar (30%) */
+.sidebar {
+  flex-shrink: 0;
+  background: white;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Draggable divider */
+.divider {
+  width: 4px;
+  background: #e0e0e0;
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background-color 0.2s;
+  position: relative;
+}
+
+.divider:hover {
+  background: #1976d2;
+}
+
+.divider:active {
+  background: #1565c0;
+}
+
+/* Right viewer area (70%) */
+.viewer-area {
+  flex: 1;
+  overflow-y: auto;
+  background: #f8f9fa;
+  padding: 15px;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #666;
+  font-style: italic;
+}
+
+/* Scrollbar styling for sidebar */
+.sidebar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Scrollbar styling for viewer area */
+.viewer-area::-webkit-scrollbar {
+  width: 10px;
+}
+
+.viewer-area::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.viewer-area::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 5px;
+}
+
+.viewer-area::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
 </style>

@@ -589,6 +589,205 @@ def get_version():
         "name": "BGC Viewer"
     })
 
+@app.route('/api/records/<record_id>/mibig-entries/<locus_tag>')
+def get_mibig_entries(record_id, locus_tag):
+    """API endpoint to get MiBIG entries for a specific locus_tag.
+    
+    Returns MiBIG database matches for the specified BGC/locus_tag.
+    Data structure: records[i].modules["antismash.modules.clusterblast"]["knowncluster"].mibig_entries[region][locus_tag]
+    
+    Query parameters:
+        region: Region number to query (default: "1")
+    """
+    # Get region parameter from query string (defaults to "1")
+    region = request.args.get('region', '1')
+    
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
+    
+    if not antismash_data:
+        return jsonify({"error": "No data loaded. Please load an entry first."}), 404
+    
+    # Find the specified record
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
+    if not record:
+        return jsonify({"error": "Record not found"}), 404
+    
+    # Navigate to MiBIG entries: modules -> antismash.modules.clusterblast -> knowncluster -> mibig_entries -> region -> locus_tag
+    modules = record.get("modules", {})
+    clusterblast = modules.get("antismash.modules.clusterblast", {})
+    knowncluster = clusterblast.get("knowncluster", {})
+    mibig_entries = knowncluster.get("mibig_entries", {})
+    
+    # Check if region key exists
+    if region not in mibig_entries:
+        return jsonify({
+            "record_id": record_id,
+            "locus_tag": locus_tag,
+            "region": region,
+            "count": 0,
+            "entries": []
+        })
+    
+    # Get entries for the specific locus_tag in this region
+    region_data = mibig_entries[region]
+    locus_entries = region_data.get(locus_tag, [])
+    
+    if not locus_entries:
+        return jsonify({
+            "record_id": record_id,
+            "locus_tag": locus_tag,
+            "region": region,
+            "count": 0,
+            "entries": []
+        })
+    
+    # Format the entries with proper field names
+    # Array format: [MIBiG Protein, Description, MIBiG Cluster, rank, MiBiG Product, % ID, BLAST Score, % Coverage, E-value]
+    formatted_entries = []
+    for entry in locus_entries:
+        if len(entry) >= 9:
+            formatted_entries.append({
+                "mibig_protein": entry[0],
+                "description": entry[1],
+                "mibig_cluster": entry[2],
+                "rank": entry[3],
+                "mibig_product": entry[4],
+                "percent_identity": entry[5],
+                "blast_score": entry[6],
+                "percent_coverage": entry[7],
+                "evalue": entry[8]
+            })
+    
+    return jsonify({
+        "record_id": record_id,
+        "locus_tag": locus_tag,
+        "region": region,
+        "count": len(formatted_entries),
+        "entries": formatted_entries
+    })
+
+@app.route('/api/records/<record_id>/tfbs-hits')
+def get_tfbs_hits(record_id):
+    """API endpoint to get TFBS finder binding sites for a specific record.
+    
+    Returns binding site predictions from the antismash.modules.tfbs_finder module.
+    Data structure: records[i].modules["antismash.modules.tfbs_finder"]["hits_by_region"][region]
+    
+    Query parameters:
+        region: Region number to query (default: "1")
+    """
+    # Get region parameter from query string (defaults to "1")
+    region = request.args.get('region', '1')
+    
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
+    
+    if not antismash_data:
+        return jsonify({"error": "No data loaded"}), 400
+    
+    # Find the specified record
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
+    if not record:
+        return jsonify({"error": f"Record '{record_id}' not found"}), 404
+    
+    # Navigate to TFBS hits: modules -> antismash.modules.tfbs_finder -> hits_by_region -> region
+    modules = record.get("modules", {})
+    tfbs_finder = modules.get("antismash.modules.tfbs_finder", {})
+    hits_by_region = tfbs_finder.get("hits_by_region", {})
+    
+    # Check if region key exists
+    if region not in hits_by_region:
+        return jsonify({
+            "record_id": record_id,
+            "region": region,
+            "count": 0,
+            "hits": []
+        })
+    
+    # Get binding sites for this region
+    binding_sites = hits_by_region[region]
+    
+    return jsonify({
+        "record_id": record_id,
+        "region": region,
+        "count": len(binding_sites),
+        "hits": binding_sites
+    })
+
+@app.route('/api/records/<record_id>/tta-codons')
+def get_tta_codons(record_id):
+    """API endpoint to get TTA codon positions for a specific record.
+    
+    Returns TTA codon positions from the antismash.modules.tta module.
+    Data structure: records[i].modules["antismash.modules.tta"]["TTA codons"]
+    
+    Note: TTA codons are not region-specific and apply to the entire record.
+    """
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
+    
+    if not antismash_data:
+        return jsonify({"error": "No data loaded"}), 400
+    
+    # Find the specified record
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
+    if not record:
+        return jsonify({"error": f"Record '{record_id}' not found"}), 404
+    
+    # Navigate to TTA codons: modules -> antismash.modules.tta -> TTA codons
+    modules = record.get("modules", {})
+    tta_module = modules.get("antismash.modules.tta", {})
+    tta_codons = tta_module.get("TTA codons", [])
+    
+    return jsonify({
+        "record_id": record_id,
+        "count": len(tta_codons),
+        "codons": tta_codons
+    })
+
+@app.route('/api/records/<record_id>/resistance')
+def get_resistance_features(record_id):
+    """API endpoint to get resistance features for a specific record.
+    
+    Returns resistance gene predictions from the antismash.detection.genefunctions module.
+    Data structure: records[i].modules["antismash.detection.genefunctions"]["tools"]["resist"]["best_hits"]
+    
+    Note: Resistance features are not region-specific and apply to the entire record.
+    They are keyed by locus_tag (corresponding to CDS features).
+    """
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
+    
+    if not antismash_data:
+        return jsonify({"error": "No data loaded"}), 400
+    
+    # Find the specified record
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
+    if not record:
+        return jsonify({"error": f"Record '{record_id}' not found"}), 404
+    
+    # Navigate to resistance features: modules -> antismash.detection.genefunctions -> tools -> resist -> best_hits
+    modules = record.get("modules", {})
+    genefunctions = modules.get("antismash.detection.genefunctions", {})
+    tools = genefunctions.get("tools", {})
+    resist = tools.get("resist", {})
+    best_hits = resist.get("best_hits", {})
+    
+    # Convert dict to list for easier frontend consumption
+    resistance_features = []
+    for locus_tag, hit_data in best_hits.items():
+        resistance_features.append({
+            "locus_tag": locus_tag,
+            **hit_data
+        })
+    
+    return jsonify({
+        "record_id": record_id,
+        "count": len(resistance_features),
+        "features": resistance_features
+    })
+
 # Database management endpoints - only available in local mode
 if not PUBLIC_MODE:
     @app.route('/api/select-database', methods=['POST'])

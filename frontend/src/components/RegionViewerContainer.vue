@@ -7,6 +7,10 @@
       :region-boundaries="regionBoundaries"
       :pfam-color-map="pfamColorMap"
       :selected-region-id="selectedRegionId"
+      :data-provider="dataProvider"
+      :tfbs-hits="tfbsHits"
+      :tta-codons="ttaCodons"
+      :resistance-features="resistanceFeatures"
       @region-changed="handleRegionChanged"
       @annotation-clicked="handleAnnotationClicked"
       @error="handleError"
@@ -57,6 +61,9 @@ export default {
     const features = ref([])
     const regionBoundaries = ref(null)
     const pfamColorMap = ref({})
+    const tfbsHits = ref([])
+    const ttaCodons = ref([])
+    const resistanceFeatures = ref([])
     const selectedRegionId = ref('')
     const loading = ref(false)
     const error = ref('')
@@ -67,6 +74,9 @@ export default {
       regions.value = []
       features.value = []
       regionBoundaries.value = null
+      tfbsHits.value = []
+      ttaCodons.value = []
+      resistanceFeatures.value = []
       selectedRegionId.value = ''
     }
 
@@ -77,6 +87,44 @@ export default {
         console.log('Loaded PFAM colors for', Object.keys(pfamColorMap.value).length, 'domains')
       } catch (err) {
         console.warn('Failed to load PFAM color mapping:', err.message)
+      }
+    }
+
+    const loadTFBSHits = async (recordId, regionId) => {
+      if (!provider.value) return
+      try {
+        // Extract region number from regionId (e.g., "region_1" -> "1")
+        const regionNumber = regionId.replace('region_', '')
+        const tfbsData = await provider.value.getTFBSHits(recordId, regionNumber)
+        tfbsHits.value = tfbsData.hits || []
+        console.log('Loaded', tfbsHits.value.length, 'TFBS binding sites for region', regionNumber)
+      } catch (err) {
+        console.warn('Failed to load TFBS hits:', err.message)
+        tfbsHits.value = [] // Clear on error
+      }
+    }
+
+    const loadTTACodons = async (recordId) => {
+      if (!provider.value) return
+      try {
+        const ttaData = await provider.value.getTTACodons(recordId)
+        ttaCodons.value = ttaData.codons || []
+        console.log('Loaded', ttaCodons.value.length, 'TTA codons for record', recordId)
+      } catch (err) {
+        console.warn('Failed to load TTA codons:', err.message)
+        ttaCodons.value = [] // Clear on error
+      }
+    }
+
+    const loadResistanceFeatures = async (recordId) => {
+      if (!provider.value) return
+      try {
+        const resistanceData = await provider.value.getResistanceFeatures(recordId)
+        resistanceFeatures.value = resistanceData.features || []
+        console.log('Loaded', resistanceFeatures.value.length, 'resistance features for record', recordId)
+      } catch (err) {
+        console.warn('Failed to load resistance features:', err.message)
+        resistanceFeatures.value = [] // Clear on error
       }
     }
 
@@ -110,6 +158,12 @@ export default {
         regions.value = regionsData.regions || []
         regionBoundaries.value = regionsData.boundaries || null
         
+        // Load TTA codons (not region-specific)
+        await loadTTACodons(recordInfo.value.recordId)
+        
+        // Load resistance features (not region-specific)
+        await loadResistanceFeatures(recordInfo.value.recordId)
+        
         // Load features based on whether there are regions
         if (regions.value && regions.value.length > 0) {
           // If there are regions, select the first one and load its features
@@ -134,6 +188,9 @@ export default {
         const featuresData = await provider.value.getRegionFeatures(recordId, regionId)
         features.value = featuresData.features || []
         regionBoundaries.value = featuresData.region_boundaries || null
+        
+        // Load TFBS hits for this region
+        await loadTFBSHits(recordId, regionId)
       } catch (err) {
         console.error('Error loading region features:', err)
         error.value = `Failed to load region features: ${err.message}`
@@ -146,6 +203,9 @@ export default {
         const featuresData = await provider.value.getRecordFeatures(recordId)
         features.value = featuresData.features || []
         regionBoundaries.value = null // No region boundaries when showing all features
+        
+        // Clear TFBS hits when showing all features (not region-specific)
+        tfbsHits.value = []
       } catch (err) {
         console.error('Error loading features:', err)
         error.value = `Failed to load features: ${err.message}`
@@ -158,10 +218,10 @@ export default {
       
       if (!regionId) {
         // Load all features
-        await loadAllFeatures(props.recordId)
+        await loadAllFeatures(recordInfo.value.recordId)
       } else {
         // Load region-specific features
-        await loadRegionFeatures(props.recordId, regionId)
+        await loadRegionFeatures(recordInfo.value.recordId, regionId)
       }
       
       emit('region-changed', regionId)
@@ -223,6 +283,9 @@ export default {
       features,
       regionBoundaries,
       pfamColorMap,
+      tfbsHits,
+      ttaCodons,
+      resistanceFeatures,
       selectedRegionId,
       loading,
       error,
@@ -237,5 +300,8 @@ export default {
 <style scoped>
 .region-viewer-container {
   width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 </style>

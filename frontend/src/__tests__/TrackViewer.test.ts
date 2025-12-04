@@ -9,6 +9,13 @@ describe('TrackViewer', () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
+    // Mock ResizeObserver for jsdom environment
+    global.ResizeObserver = vi.fn().mockImplementation(() => ({
+      observe: vi.fn(),
+      unobserve: vi.fn(),
+      disconnect: vi.fn(),
+    }));
+
     // Set up a minimal DOM structure for jsdom
     if (!document.body) {
       document.documentElement.appendChild(document.createElement('body'));

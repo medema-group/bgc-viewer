@@ -59,8 +59,8 @@
         <div class="records-list" :class="{ 'refreshing': loading, 'loading-state': loading }">
           <div
             v-for="record in entriesData"
-            :key="record.id"
-            :class="['record-item', { 'selected': selectedRecordId === record.id, 'loading': loadingRecordId === record.id }]"
+            :key="record.entry_id"
+            :class="['record-item', { 'selected': selectedEntryId === record.entry_id, 'loading': loadingRecordId === record.entry_id }]"
             @click="selectRecord(record)"
           >
             <div class="record-content">
@@ -88,7 +88,7 @@
                 </span>
               </div>
             </div>
-            <div v-if="loadingRecordId === record.id" class="spinner-container">
+            <div v-if="loadingRecordId === record.entry_id" class="spinner-container">
               <LoadingSpinner />
             </div>
           </div>
@@ -131,7 +131,7 @@ export default {
     const entriesData = ref([])
     const loading = ref(false)
     const error = ref('')
-    const selectedRecordId = ref('')
+    const selectedEntryId = ref('')
     const loadingRecordId = ref('')
     const hasDatabase = ref(false)
     
@@ -161,7 +161,12 @@ export default {
         
         const response = await axios.get('/api/database-entries', { params })
         
-        entriesData.value = response.data.entries
+        // Map backend response to use entry_id consistently
+        // Backend returns 'id' but we use 'entry_id' in frontend for clarity
+        entriesData.value = response.data.entries.map(entry => ({
+          ...entry,
+          entry_id: entry.id  // Map id to entry_id for consistency
+        }))
         total.value = response.data.total
         totalPages.value = response.data.total_pages
         currentPage.value = response.data.page
@@ -191,13 +196,16 @@ export default {
     }
     
     const selectRecord = async (record) => {
-      if (loadingRecordId.value || selectedRecordId.value === record.id) return
+      if (loadingRecordId.value) return
       
-      selectedRecordId.value = record.id
+      // Check if this is actually the same entry (using unique entry_id)
+      if (selectedEntryId.value === record.entry_id) return
+      
+      selectedEntryId.value = record.entry_id
       
       // Simply emit the selected record - let the parent handle loading
       emit('record-selected', {
-        entryId: record.id,
+        entryId: record.entry_id,
         recordId: record.record_id,
         filename: record.filename
       })
@@ -242,7 +250,7 @@ export default {
       total.value = 0
       totalPages.value = 0
       currentPage.value = 1
-      selectedRecordId.value = ''
+      selectedEntryId.value = ''
       loadingRecordId.value = ''
       searchQuery.value = ''
       hasDatabase.value = false
@@ -274,7 +282,7 @@ export default {
       entriesData,
       loading,
       error,
-      selectedRecordId,
+      selectedEntryId,
       loadingRecordId,
       hasDatabase,
       currentPage,
@@ -296,53 +304,62 @@ export default {
 
 <style scoped>
 .record-list-selector-section {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
-  background-color: #f9f9f9;
+  padding: 15px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .record-list-selector-section h2 {
-  margin: 0 0 16px 0;
+  margin: 0 0 12px 0;
   color: #333;
+  font-size: 16px;
 }
 
 .no-database-message {
   text-align: center;
-  padding: 40px 20px;
+  padding: 30px 15px;
   color: #666;
   font-style: italic;
   background: #f8f9fa;
   border-radius: 4px;
+  font-size: 13px;
 }
 
 .loading {
   text-align: center;
-  padding: 40px 20px;
+  padding: 30px 15px;
   color: #666;
   font-style: italic;
+  font-size: 13px;
 }
 
 .error {
   color: #d32f2f;
   background: #ffebee;
-  padding: 15px;
+  padding: 10px;
   border-radius: 4px;
-  margin: 15px 0;
+  margin: 10px 0;
+  font-size: 13px;
 }
 
 .entries-section {
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 1;
 }
 
 .controls-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
   flex-wrap: wrap;
-  gap: 15px;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .search-container {
@@ -350,14 +367,14 @@ export default {
   display: flex;
   align-items: center;
   flex: 1;
-  max-width: 300px;
+  max-width: 100%;
 }
 
 .search-input {
-  padding: 8px 30px 8px 12px;
+  padding: 6px 30px 6px 10px;
   border: 1px solid #ccc;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 13px;
   width: 100%;
 }
 
@@ -372,12 +389,12 @@ export default {
   right: 8px;
   background: none;
   border: none;
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
   color: #666;
   padding: 0;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -390,16 +407,17 @@ export default {
 .pagination-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .page-btn {
-  padding: 6px 12px;
+  padding: 5px 10px;
   border: 1px solid #ccc;
   background: white;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   transition: all 0.2s ease;
 }
 
@@ -414,31 +432,36 @@ export default {
 }
 
 .page-info {
-  font-size: 14px;
+  font-size: 13px;
   color: #666;
   white-space: nowrap;
 }
 
 .no-entries {
   text-align: center;
-  padding: 40px 20px;
+  padding: 30px 15px;
   color: #666;
   font-style: italic;
   background: #f8f9fa;
   border-radius: 4px;
+  font-size: 13px;
 }
 
 .records-container {
   position: relative;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .records-list {
   border: 1px solid #eee;
   border-radius: 4px;
   background: white;
-  max-height: 300px;
   overflow-y: auto;
   transition: opacity 0.2s ease, background-color 0.2s ease;
+  flex: 1;
 }
 
 .records-list.refreshing {
@@ -452,7 +475,7 @@ export default {
 .record-item {
   display: flex;
   align-items: flex-start;
-  padding: 10px 16px;
+  padding: 8px 12px;
   border-bottom: 1px solid #eee;
   cursor: pointer;
   transition: background-color 0.2s ease;
@@ -469,7 +492,7 @@ export default {
 
 .record-item.selected {
   background-color: #e3f2fd;
-  border-left: 4px solid #1976d2;
+  border-left: 3px solid #1976d2;
 }
 
 .record-item.loading {
@@ -481,7 +504,7 @@ export default {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   width: 100%;
 }
 
@@ -489,12 +512,12 @@ export default {
 .record-id-line {
   font-weight: 600;
   color: #333;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 /* Second Line: All other attributes */
 .record-details-line {
-  font-size: 13px;
+  font-size: 12px;
   color: #555;
   display: flex;
   align-items: center;
@@ -514,19 +537,31 @@ export default {
 
 .spinner-container {
   margin-left: auto;
-  padding-left: 10px;
+  padding-left: 8px;
   display: flex;
   align-items: center;
 }
 
+.no-records {
+  text-align: center;
+  padding: 30px 15px;
+  color: #666;
+  font-style: italic;
+  background: #f8f9fa;
+  border-radius: 4px;
+  font-size: 13px;
+}
 
+.no-records p {
+  margin: 0;
+}
 
 .pagination-info {
   text-align: center;
-  font-size: 14px;
+  font-size: 13px;
   color: #666;
-  margin-top: 15px;
-  padding-top: 15px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid #eee;
 }
 

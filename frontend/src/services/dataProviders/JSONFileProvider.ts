@@ -5,7 +5,12 @@ import {
   RegionsResponse, 
   FeaturesResponse, 
   PfamColorMap,
-  Feature 
+  Feature,
+  MiBIGEntriesResponse,
+  MiBIGEntry,
+  TFBSHitsResponse,
+  TTACodonsResponse,
+  ResistanceFeaturesResponse
 } from './types'
 
 export interface JSONFileProviderOptions {
@@ -210,6 +215,139 @@ export class JSONFileProvider extends DataProvider {
     return this.records.find((r, idx) => 
       (r.id || `record-${idx}`) === recordId
     )
+  }
+
+  /**
+   * Get MiBIG entries for a specific locus_tag
+   */
+  async getMiBIGEntries(recordId: string, locusTag: string, region: string = '1'): Promise<MiBIGEntriesResponse> {
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Navigate to MiBIG entries: modules -> antismash.modules.clusterblast -> knowncluster -> mibig_entries -> region -> locus_tag
+    const modules = record.modules || {}
+    const clusterblast = modules['antismash.modules.clusterblast'] || {}
+    const knowncluster = clusterblast.knowncluster || {}
+    const mibigEntries = knowncluster.mibig_entries || {}
+    
+    if (!mibigEntries[region]) {
+      throw new Error(`No MiBIG entries available for region ${region}`)
+    }
+    
+    const locusEntries = mibigEntries[region][locusTag] || []
+    
+    if (locusEntries.length === 0) {
+      throw new Error(`No MiBIG entries found for locus_tag '${locusTag}' in region ${region}`)
+    }
+    
+    // Format the entries
+    const formattedEntries: MiBIGEntry[] = locusEntries.map((entry: any[]) => ({
+      mibig_protein: entry[0],
+      description: entry[1],
+      mibig_cluster: entry[2],
+      rank: entry[3],
+      mibig_product: entry[4],
+      percent_identity: entry[5],
+      blast_score: entry[6],
+      percent_coverage: entry[7],
+      evalue: entry[8]
+    }))
+    
+    return {
+      record_id: recordId,
+      locus_tag: locusTag,
+      region: region,
+      count: formattedEntries.length,
+      entries: formattedEntries
+    }
+  }
+
+  /**
+   * Get TFBS finder binding site hits for a specific region
+   */
+  async getTFBSHits(recordId: string, region: string = '1'): Promise<TFBSHitsResponse> {
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Navigate to TFBS hits: modules -> antismash.modules.tfbs_finder -> hits_by_region -> region
+    const modules = record.modules || {}
+    const tfbsFinder = modules['antismash.modules.tfbs_finder'] || {}
+    const hitsByRegion = tfbsFinder.hits_by_region || {}
+    
+    if (!hitsByRegion[region]) {
+      return {
+        record_id: recordId,
+        region: region,
+        count: 0,
+        hits: []
+      }
+    }
+    
+    const bindingSites = hitsByRegion[region] || []
+    
+    return {
+      record_id: recordId,
+      region: region,
+      count: bindingSites.length,
+      hits: bindingSites
+    }
+  }
+
+  /**
+   * Get TTA codon positions for a record
+   */
+  async getTTACodons(recordId: string): Promise<TTACodonsResponse> {
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Navigate to TTA codons: modules -> antismash.modules.tta -> TTA codons
+    const modules = record.modules || {}
+    const ttaModule = modules['antismash.modules.tta'] || {}
+    const ttaCodons = ttaModule['TTA codons'] || []
+    
+    return {
+      record_id: recordId,
+      count: ttaCodons.length,
+      codons: ttaCodons
+    }
+  }
+
+  /**
+   * Get resistance features for a record
+   */
+  async getResistanceFeatures(recordId: string): Promise<ResistanceFeaturesResponse> {
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Navigate to resistance features: modules -> antismash.detection.genefunctions -> tools -> resist -> best_hits
+    const modules = record.modules || {}
+    const genefunctions = modules['antismash.detection.genefunctions'] || {}
+    const tools = genefunctions.tools || {}
+    const resist = tools.resist || {}
+    const bestHits = resist.best_hits || {}
+    
+    // Convert dict to list for easier frontend consumption
+    const resistanceFeatures = []
+    for (const [locusTag, hitData] of Object.entries(bestHits)) {
+      resistanceFeatures.push({
+        locus_tag: locusTag,
+        ...(hitData as any)
+      })
+    }
+    
+    return {
+      record_id: recordId,
+      count: resistanceFeatures.length,
+      features: resistanceFeatures
+    }
   }
 
   /**

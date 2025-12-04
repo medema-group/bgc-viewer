@@ -4,7 +4,11 @@ import {
   RecordInfo, 
   RegionsResponse, 
   FeaturesResponse, 
-  PfamColorMap 
+  PfamColorMap,
+  MiBIGEntriesResponse,
+  TFBSHitsResponse,
+  TTACodonsResponse,
+  ResistanceFeaturesResponse
 } from './types'
 
 export interface BGCViewerAPIProviderOptions {
@@ -109,5 +113,47 @@ export class BGCViewerAPIProvider extends DataProvider {
     }
     
     return colorMap
+  }
+
+  /**
+   * Get MiBIG entries for a specific locus_tag
+   */
+  async getMiBIGEntries(recordId: string, locusTag: string, region: string = '1'): Promise<MiBIGEntriesResponse> {
+    const response = await this.axiosInstance.get<MiBIGEntriesResponse>(
+      `/api/records/${recordId}/mibig-entries/${locusTag}`,
+      { params: { region } }
+    )
+    return response.data
+  }
+
+  /**
+   * Get TFBS finder binding site hits for a specific region
+   */
+  async getTFBSHits(recordId: string, region: string = '1'): Promise<TFBSHitsResponse> {
+    const response = await this.axiosInstance.get<TFBSHitsResponse>(
+      `/api/records/${recordId}/tfbs-hits`,
+      { params: { region } }
+    )
+    return response.data
+  }
+
+  /**
+   * Get TTA codon positions for a record
+   */
+  async getTTACodons(recordId: string): Promise<TTACodonsResponse> {
+    const response = await this.axiosInstance.get<TTACodonsResponse>(
+      `/api/records/${recordId}/tta-codons`
+    )
+    return response.data
+  }
+
+  /**
+   * Get resistance features for a record
+   */
+  async getResistanceFeatures(recordId: string): Promise<ResistanceFeaturesResponse> {
+    const response = await this.axiosInstance.get<ResistanceFeaturesResponse>(
+      `/api/records/${recordId}/resistance`
+    )
+    return response.data
   }
 }

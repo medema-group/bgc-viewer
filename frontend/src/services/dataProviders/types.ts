@@ -25,11 +25,80 @@ export interface Feature {
   type: string
   location: string
   qualifiers?: Record<string, any>
+  [key: string]: any
 }
 
 export interface RegionBoundaries {
   start: number
   end: number
+}
+
+export interface MiBIGEntry {
+  mibig_protein: string
+  description: string
+  mibig_cluster: string
+  rank: number
+  mibig_product: string
+  percent_identity: number
+  blast_score: number
+  percent_coverage: number
+  evalue: number
+}
+
+export interface MiBIGEntriesResponse {
+  record_id: string
+  locus_tag: string
+  count: number
+  entries: MiBIGEntry[]
+}
+
+export interface TFBSHit {
+  name: string
+  start: number
+  species: string
+  link: string
+  description: string
+  consensus: string
+  confidence: string
+  strand: number
+  score: number
+  max_score: number
+}
+
+export interface TFBSHitsResponse {
+  record_id: string
+  region: string
+  count: number
+  hits: TFBSHit[]
+}
+
+export interface TTACodon {
+  start: number
+  strand: number
+}
+
+export interface TTACodonsResponse {
+  record_id: string
+  count: number
+  codons: TTACodon[]
+}
+
+export interface ResistanceFeature {
+  locus_tag: string
+  query_id: string
+  reference_id: string
+  subfunctions: string[]
+  description: string
+  bitscore: number
+  evalue: number
+  query_start: number
+  query_end: number
+}
+
+export interface ResistanceFeaturesResponse {
+  record_id: string
+  count: number
+  features: ResistanceFeature[]
 }
 
 export interface FeaturesResponse {
@@ -80,4 +149,24 @@ export abstract class DataProvider {
    * Get PFAM domain color mapping
    */
   abstract getPfamColorMap(): Promise<PfamColorMap>
+
+  /**
+   * Get MiBIG entries for a specific locus tag
+   */
+  getMiBIGEntries(recordId: string, locusTag: string, region?: string): Promise<MiBIGEntriesResponse>
+
+  /**
+   * Get TFBS finder binding site hits for a specific region
+   */
+  getTFBSHits(recordId: string, region?: string): Promise<TFBSHitsResponse>
+
+  /**
+   * Get TTA codon positions for a record (not region-specific)
+   */
+  getTTACodons(recordId: string): Promise<TTACodonsResponse>
+
+  /**
+   * Get resistance features for a record (not region-specific)
+   */
+  getResistanceFeatures(recordId: string): Promise<ResistanceFeaturesResponse>
 }

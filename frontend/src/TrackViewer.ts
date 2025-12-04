@@ -1,4 +1,8 @@
 import * as d3 from 'd3';
+import type { Selection, EnterElement } from 'd3-selection';
+import type { ScaleLinear } from 'd3-scale';
+import type { ZoomBehavior, ZoomTransform, D3ZoomEvent } from 'd3-zoom';
+import { initTrackViewerContextMenu } from './TrackViewerContextMenu';
 
 export type TrackData = {
   id: string;
@@ -27,6 +31,7 @@ export type AnnotationData = {
   opacity?: number;
   corner_radius?: number;
   tooltip?: string; // Optional custom tooltip content
+  data?: any; // Optional reference to original data object
 }
 
 export type DrawingPrimitiveType = 'horizontal-line' | 'background';
@@ -63,29 +68,37 @@ export interface TrackViewerConfig {
   trackHeight?: number;
   domain?: [number, number];
   zoomExtent?: [number, number];
+  showTrackLabels?: boolean;
   onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
   onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
+  onBackgroundClick?: () => void;
 }
 
 
 export class TrackViewer {
   private config: Required<TrackViewerConfig>;
-  private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
-  private chart!: d3.Selection<SVGGElement, unknown, null, undefined>;
-  private clippedChart!: d3.Selection<SVGGElement, unknown, null, undefined>;
-  private xAxisGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
-  private tooltip!: d3.Selection<HTMLDivElement, unknown, null, undefined>;
-  private x!: d3.ScaleLinear<number, number>;
-  private currentTransform: d3.ZoomTransform;
-  private zoom!: d3.ZoomBehavior<any, unknown>;
+  private svg!: Selection<SVGSVGElement, unknown, null, undefined>;
+  private chart!: Selection<SVGGElement, unknown, null, undefined>;
+  private clippedChart!: Selection<SVGGElement, unknown, null, undefined>;
+  private xAxisGroup!: Selection<SVGGElement, unknown, null, undefined>;
+  private tooltip!: Selection<HTMLDivElement, unknown, null, undefined>;
+  private x!: ScaleLinear<number, number>;
+  private currentTransform: ZoomTransform;
+  private zoom!: ZoomBehavior<SVGSVGElement, unknown>;
   private data: TrackViewerData = { tracks: [], annotations: [], primitives: [] };
-  private trackGroups!: d3.Selection<SVGGElement, TrackData, SVGGElement, unknown>;
+  private trackGroups!: Selection<SVGGElement, TrackData, SVGGElement, unknown>;
   private clipId!: string;
   private originalLeftMargin: number; // Store original left margin
   private isResponsiveWidth: boolean; // Track if width should be responsive
   private containerElement!: HTMLElement; // Store reference to container
   private resizeHandler?: () => void; // Store resize handler for cleanup
+  private resizeObserver?: ResizeObserver; // Store ResizeObserver for cleanup
   private static readonly LABEL_PADDING = 24; // Padding for labels that extend above tracks
+  private contextMenuController?: any;
+  private showTrackLabels: boolean;
+  private showAllAnnotationLabels: boolean = false;
+  private labelGroups!: Selection<SVGGElement, TrackData, SVGGElement, unknown>;
+  private isDragging: boolean = false;
 
   constructor(config: TrackViewerConfig) {
     // Check if width was explicitly provided
@@ -106,21 +119,35 @@ export class TrackViewer {
       ? this.calculateResponsiveWidth()
       : (config.width || 800);
 
+    // Determine default left margin based on showTrackLabels setting
+    const defaultLeftMargin = (config.showTrackLabels !== false) ? 60 : 10;
+    const margin = config.margin || { top: 20, right: 10, bottom: 20, left: defaultLeftMargin };
+
     // Set default configuration
     this.config = {
       container: config.container,
       width: calculatedWidth,
       height: config.height || 300,
-      margin: config.margin || { top: 20, right: 10, bottom: 20, left: 60 },
+      margin: margin,
       trackHeight: config.trackHeight || 30,
       domain: config.domain || [0, 100],
       zoomExtent: config.zoomExtent || [0.5, 20],
+      showTrackLabels: config.showTrackLabels !== undefined ? config.showTrackLabels : true,
       onAnnotationClick: config.onAnnotationClick || (() => {}),
-      onAnnotationHover: config.onAnnotationHover || (() => {})
+      onAnnotationHover: config.onAnnotationHover || (() => {}),
+      onBackgroundClick: config.onBackgroundClick || (() => {})
     };
 
     // Store the original left margin as minimum
     this.originalLeftMargin = this.config.margin.left;
+
+    // Initialize showTrackLabels from config
+    this.showTrackLabels = this.config.showTrackLabels;
+
+    // If track labels are hidden from the start, use minimal margin
+    if (!this.showTrackLabels) {
+      this.config.margin.left = this.originalLeftMargin;
+    }
 
     this.currentTransform = d3.zoomIdentity;
     this.initialize();
@@ -140,15 +167,18 @@ export class TrackViewer {
   private setupAutoResize(): void {
     let resizeTimeout: NodeJS.Timeout;
     
-    this.resizeHandler = () => {
+    // Use ResizeObserver to watch for container size changes
+    // This handles both window resizes AND container resizes (e.g., from draggable dividers)
+    this.resizeObserver = new ResizeObserver((entries) => {
       // Throttle resize events to avoid excessive recalculation
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         this.resize();
       }, 100);
-    };
+    });
     
-    window.addEventListener('resize', this.resizeHandler);
+    // Observe the container element
+    this.resizeObserver.observe(this.containerElement);
   }
 
   private initialize(): void {
@@ -216,19 +246,45 @@ export class TrackViewer {
 
     // Initialize zoom behavior
     this.initializeZoom();
-  }
 
+    // Create context menu UI (delegated to separate module)
+    this.createContextMenu();
+  }
   private initializeZoom(): void {
     const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
     const chartHeight = this.config.height - this.config.margin.top - this.config.margin.bottom;
 
-    this.zoom = d3.zoom<any, unknown>()
+    this.zoom = (d3.zoom() as ZoomBehavior<SVGSVGElement, unknown>)
       .scaleExtent(this.config.zoomExtent)
       .translateExtent([[0, 0], [chartWidth, chartHeight]])
       .extent([[0, 0], [chartWidth, chartHeight]])
-      .on('zoom', (event) => {
+      .filter((event: any) => {
+        // Track when dragging starts (mousedown without wheel)
+        if (event.type === 'mousedown' && event.button === 0) {
+          this.isDragging = true;
+        }
+        // Reset dragging flag on mouseup
+        if (event.type === 'mouseup') {
+          this.isDragging = false;
+        }
+        // Allow default zoom behavior
+        return !event.ctrlKey && !event.button;
+      })
+      .on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
         this.currentTransform = event.transform;
         this.drawTracks();
+      })
+      .on('start', (event: any) => {
+        // Only change cursor to grabbing if it's a drag (not a wheel zoom)
+        if (event.sourceEvent && event.sourceEvent.type === 'mousedown') {
+          this.clippedChart.select('.chart-background').style('cursor', 'grabbing');
+          this.svg.style('cursor', 'grabbing');
+        }
+      })
+      .on('end', () => {
+        this.isDragging = false;
+        this.clippedChart.select('.chart-background').style('cursor', 'grab');
+        this.svg.style('cursor', '');
       });
 
     // Apply zoom behavior to the main SVG instead of an overlay
@@ -245,13 +301,280 @@ export class TrackViewer {
       .style('fill', 'transparent')
       .style('pointer-events', 'all')
       .style('cursor', 'grab')
-      .on('mousedown', function() {
-        d3.select(this).style('cursor', 'grabbing');
-      })
-      .on('mouseup', function() {
-        d3.select(this).style('cursor', 'grab');
+      .on('click', () => {
+        this.config.onBackgroundClick();
       });
   }
+  
+  private createContextMenu(): void {
+    this.contextMenuController = initTrackViewerContextMenu({
+      containerElement: this.containerElement,
+      onSaveSVG: () => this.saveAsSVG(),
+      onSavePNG: () => this.saveAsPNG(),
+      getShowTrackLabels: () => this.showTrackLabels,
+      getShowAllAnnotationLabels: () => this.showAllAnnotationLabels,
+      onToggleTrackLabels: () => this.toggleTrackLabels(),
+      onToggleAllAnnotationLabels: () => this.toggleAllAnnotationLabels()
+    });
+  }
+
+  private saveAsSVG(): void {
+    // Clone the SVG node
+    const svgNode = this.svg.node();
+    if (!svgNode) return;
+
+    const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
+    
+    // Apply inline styles from CSS before cloning
+    const styleText = this.getInlineStyles();
+    
+    // Clean up temporary data-styled attributes from the original
+    this.svg.selectAll('[data-styled]').attr('data-styled', null);
+    
+    // Add styles inline for standalone SVG
+    const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    styleElement.textContent = styleText;
+    svgClone.insertBefore(styleElement, svgClone.firstChild);
+
+    // Clean up data-styled attributes from clone
+    d3.select(svgClone).selectAll('[data-styled]').attr('data-styled', null);
+
+    // Serialize to string
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(svgClone);
+    
+    // Create blob and download
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'track-viewer.svg';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  private saveAsPNG(): void {
+    const svgNode = this.svg.node();
+    if (!svgNode) return;
+
+    const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
+    
+    // Apply inline styles from CSS
+    const styleText = this.getInlineStyles();
+    
+    // Clean up temporary data-styled attributes from the original
+    this.svg.selectAll('[data-styled]').attr('data-styled', null);
+    
+    // Add styles inline
+    const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    styleElement.textContent = styleText;
+    svgClone.insertBefore(styleElement, svgClone.firstChild);
+
+    // Clean up data-styled attributes from clone
+    d3.select(svgClone).selectAll('[data-styled]').attr('data-styled', null);
+
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(svgClone);
+    
+    // Create canvas with margin
+    const margin = 20; // 20px margin on all sides
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size with higher resolution for better quality + margin
+    const scale = 2;
+    canvas.width = (this.config.width + margin * 2) * scale;
+    canvas.height = (this.config.height + margin * 2) * scale;
+    ctx.scale(scale, scale);
+
+    // Create image from SVG
+    const img = new Image();
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    
+    img.onload = () => {
+      // Fill white background
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, this.config.width + margin * 2, this.config.height + margin * 2);
+      
+      // Draw image with margin offset
+      ctx.drawImage(img, margin, margin);
+      URL.revokeObjectURL(url);
+      
+      // Convert to PNG and download
+      canvas.toBlob((pngBlob) => {
+        if (pngBlob) {
+          const pngUrl = URL.createObjectURL(pngBlob);
+          const link = document.createElement('a');
+          link.href = pngUrl;
+          link.download = 'track-viewer.png';
+          link.click();
+          URL.revokeObjectURL(pngUrl);
+        }
+      });
+    };
+    
+    img.src = url;
+  }
+
+  private getInlineStyles(): string {
+    // Get all stylesheets
+    const sheets = Array.from(document.styleSheets);
+    const cssRules: string[] = [];
+
+    // Extract CSS rules that might apply to SVG content
+    sheets.forEach(sheet => {
+      try {
+        // Check if we can access the stylesheet (same-origin policy)
+        const rules = sheet.cssRules || sheet.rules;
+        if (rules) {
+          Array.from(rules).forEach((rule: any) => {
+            if (rule.selectorText) {
+              // Include rules that target SVG-related classes or elements
+              const selector = rule.selectorText;
+              if (
+                selector.includes('.track') ||
+                selector.includes('.annotation') ||
+                selector.includes('.axis') ||
+                selector.includes('.primitive') ||
+                selector.includes('svg') ||
+                selector.includes('text') ||
+                selector.includes('rect') ||
+                selector.includes('path') ||
+                selector.includes('circle') ||
+                selector.includes('line') ||
+                selector.includes('polygon')
+              ) {
+                cssRules.push(rule.cssText);
+              }
+            }
+          });
+        }
+      } catch (e) {
+        // Skip stylesheets we can't access (e.g., cross-origin)
+      }
+    });
+
+    // Get styles from track labels
+    this.svg.selectAll<SVGTextElement, unknown>('.track-label').each(function() {
+      const element = this as SVGTextElement;
+      const computed = window.getComputedStyle(element);
+      if (!element.hasAttribute('data-styled')) {
+        element.setAttribute('data-styled', 'true');
+        element.setAttribute('style', 
+          `font-family: ${computed.fontFamily}; ` +
+          `font-size: ${computed.fontSize}; ` +
+          `fill: ${computed.fill || 'currentColor'};`
+        );
+      }
+    });
+
+    // Get styles from annotations and primitives - apply to actual shape elements, not container groups
+    this.svg.selectAll<SVGElement, unknown>('.annotation, .primitive').each(function() {
+      const container = this as SVGElement;
+      const containerComputed = window.getComputedStyle(container);
+      
+      // Find the actual shape element(s) inside the container (path, rect, circle, line, polygon, etc.)
+      const shapeElements = container.querySelectorAll('path, rect, circle, line, polygon, ellipse');
+      
+      shapeElements.forEach((shapeElement: Element) => {
+        const shape = shapeElement as SVGElement;
+        const computed = window.getComputedStyle(shape);
+        
+        if (!shape.hasAttribute('data-styled')) {
+          shape.setAttribute('data-styled', 'true');
+          const styleProps: string[] = [];
+          
+          // For fill: use the shape's computed fill, or fall back to container's fill if shape has none/default
+          const shapeFill = computed.fill;
+          const containerFill = containerComputed.fill;
+          if (shapeFill && shapeFill !== 'none' && shapeFill !== 'rgb(0, 0, 0)') {
+            // Shape has explicit fill
+            styleProps.push(`fill: ${shapeFill}`);
+          } else if (containerFill && containerFill !== 'none' && containerFill !== 'rgb(0, 0, 0)') {
+            // Use container's fill (inherited)
+            styleProps.push(`fill: ${containerFill}`);
+          }
+          
+          if (computed.stroke && computed.stroke !== 'none') styleProps.push(`stroke: ${computed.stroke}`);
+          if (computed.strokeWidth) styleProps.push(`stroke-width: ${computed.strokeWidth}`);
+          if (computed.opacity && computed.opacity !== '1') styleProps.push(`opacity: ${computed.opacity}`);
+          
+          if (styleProps.length > 0) {
+            const existingStyle = shape.getAttribute('style') || '';
+            shape.setAttribute('style', existingStyle + ' ' + styleProps.join('; ') + ';');
+          }
+        }
+      });
+    });
+
+    // Return combined CSS
+    return cssRules.join('\n');
+  }
+
+  private toggleTrackLabels(): void {
+    this.showTrackLabels = !this.showTrackLabels;
+    
+    // Toggle visibility of the entire labels container
+    const labelsContainer = this.chart.select('.track-labels-container');
+    labelsContainer.style('display', this.showTrackLabels ? '' : 'none');
+    
+    // Adjust left margin based on label visibility
+    if (this.showTrackLabels) {
+      // Restore the calculated margin for labels
+      this.updateMarginAndLayout();
+    } else {
+      // Use minimal margin when labels are hidden
+      this.config.margin.left = this.originalLeftMargin;
+      
+      // Update chart transform
+      this.chart.attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
+      
+      // Update x scale range
+      this.x.range([0, this.config.width - this.config.margin.left - this.config.margin.right]);
+      
+      // Update clipping path width
+      const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
+      this.svg.select('clipPath rect').attr('width', chartWidth);
+      
+      // Update chart background width
+      this.clippedChart.select('.chart-background').attr('width', chartWidth);
+      
+      // Redraw to apply new scale
+      this.drawTracks();
+    }
+    
+    // Update checkbox in context menu UI
+    this.contextMenuController?.updateCheckbox('Show track labels', this.showTrackLabels);
+  }
+
+  private toggleAllAnnotationLabels(): void {
+    this.showAllAnnotationLabels = !this.showAllAnnotationLabels;
+    
+    // Update all annotation labels in the labels layer
+    const showAll = this.showAllAnnotationLabels;
+    this.clippedChart.selectAll<SVGGElement, unknown>('.annotation-labels-layer .annotation-label-group').each(function() {
+      const labelGroup = d3.select(this);
+      const label = labelGroup.select('.annotation-label');
+      const showLabel = label.attr('data-show-label');
+      
+      if (showLabel === 'never') {
+        // Never show these labels
+        labelGroup.style('display', 'none');
+      } else if (showLabel === 'always') {
+        // Always show these labels
+        labelGroup.style('display', '');
+      } else {
+        // 'hover' - controlled by toggle
+        labelGroup.style('display', showAll ? '' : 'none');
+      }
+    });
+    
+    // Update checkbox in context menu UI
+    this.contextMenuController?.updateCheckbox('Show all annotation labels', this.showAllAnnotationLabels);
+  }
+ 
 
   // Helper methods for track heights
   private getTrackHeight(track: TrackData): number {
@@ -291,31 +614,40 @@ export class TrackViewer {
   private createTrackGroups(): void {
     this.trackGroups = this.clippedChart
       .selectAll<SVGGElement, TrackData>('.track')
-      .data(this.data.tracks, d => d.id)
+      .data(this.data.tracks, (d: TrackData) => d.id)
       .join('g')
-      .attr('id', d => d.id)
+      .attr('id', (d: TrackData) => d.id)
       .attr('class', 'track')
-      .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
+      .attr('transform', (_: TrackData, i: number) => `translate(0, ${this.getTrackYPosition(i)})`);
+
+    // Create or select a single container group for all track labels
+    let labelsContainer = this.chart.select<SVGGElement>('.track-labels-container');
+    if (labelsContainer.empty()) {
+      labelsContainer = this.chart
+        .append('g')
+        .attr('class', 'track-labels-container');
+    }
+    labelsContainer.style('display', this.showTrackLabels ? '' : 'none');
 
     // Add track labels (these should be outside the clipped area)
-    const labelGroups = this.chart
+    this.labelGroups = labelsContainer
       .selectAll<SVGGElement, TrackData>('.track-label-group')
-      .data(this.data.tracks, d => d.id)
+      .data(this.data.tracks, (d: TrackData) => d.id)
       .join('g')
-      .attr('id', d => `${d.id}-label`)
+      .attr('id', (d: TrackData) => `${d.id}-label`)
       .attr('class', 'track-label-group')
-      .attr('transform', (_, i) => `translate(0, ${this.getTrackYPosition(i)})`);
+      .attr('transform', (_: TrackData, i: number) => `translate(0, ${this.getTrackYPosition(i)})`);
 
-    labelGroups
+    this.labelGroups
       .selectAll('.track-label')
-      .data(d => [d])
+      .data((d: TrackData) => [d])
       .join('text')
       .attr('class', 'track-label')
       .attr('x', -10)
-      .attr('y', (d) => this.getTrackHeight(d) / 2)
+      .attr('y', (d: TrackData) => this.getTrackHeight(d) / 2)
       .attr('dy', '0.35em')
       .attr('text-anchor', 'end')
-      .text(d => d.label);
+      .text((d: TrackData) => d.label);
   }
 
   private drawTracks(): void {
@@ -333,9 +665,13 @@ export class TrackViewer {
       return;
     }
 
+    // Collect all labels data to render them in a separate layer on top
+    const allLabelsData: Array<{ annotation: AnnotationData; trackData: TrackData; x: number; y: number; width: number; height: number; trackY: number }> = [];
+
     // Update annotations and primitives for each track
-    this.trackGroups.each((trackData, trackIndex, trackNodes) => {
+    this.trackGroups.each((trackData: TrackData, trackIndex: number, trackNodes: SVGGElement[] | ArrayLike<SVGGElement>) => {
       const trackGroup = d3.select(trackNodes[trackIndex]);
+      const trackY = this.getTrackYPosition(trackIndex);
 
       // Get annotations and primitives for this track
       const trackAnnotations = this.data.annotations.filter(ann => ann.trackId === trackData.id);
@@ -349,30 +685,31 @@ export class TrackViewer {
       ];
 
       // Use proper D3 data binding to manage element lifecycle
-      const elementGroups = trackGroup
-        .selectAll<SVGGElement, any>('g')
-        .data(allElements, d => d.data.id)
+      type ElementType = { type: 'primitive'; data: DrawingPrimitive } | { type: 'annotation'; data: AnnotationData };
+      const elementGroups = (trackGroup
+        .selectAll('g.element') as Selection<SVGGElement, ElementType, SVGGElement, unknown>)
+        .data(allElements, (d: ElementType) => d.data.id)
         .join(
           // Enter: create new groups
-          enter => enter.append('g'),
+          (enter: Selection<EnterElement, ElementType, SVGGElement, unknown>) => enter.append('g'),
           // Update: existing groups (no action needed)
-          update => update,
+          (update: Selection<SVGGElement, ElementType, SVGGElement, unknown>) => update,
           // Exit: remove groups that are no longer in data
-          exit => exit.remove()
+          (exit: Selection<SVGGElement, ElementType, SVGGElement, unknown>) => exit.remove()
         )
-        .attr('id', d => d.data.id)
-        .attr('class', d => {
+        .attr('id', (d: ElementType) => d.data.id)
+        .attr('class', (d: ElementType) => {
           if (d.type === 'primitive') {
-            return `${d.type} ${d.data.type} ${d.data.class}`;
+            return `element ${d.type} ${d.data.type} ${d.data.class}`;
           } else {
-            return `${d.type} ${d.data.type} ${d.data.classes.join(' ')}`;
+            return `element ${d.type} ${d.data.type} ${d.data.classes.join(' ')}`;
           }
         });
 
       // Clear existing content in each group and render
       const self = this;
-      elementGroups.each(function(d) {
-        const group = d3.select(this) as d3.Selection<SVGGElement, unknown, null, undefined>;
+      elementGroups.each(function(this: SVGGElement, d: ElementType) {
+        const group = d3.select(this) as Selection<SVGGElement, unknown, null, undefined>;
         
         // Clear the group content
         group.selectAll('*').remove();
@@ -381,17 +718,22 @@ export class TrackViewer {
         if (d.type === 'primitive') {
           self.renderPrimitive(group, d.data, xz, trackData);
         } else {
-          self.renderAnnotation(group, d.data, xz, trackData);
+          self.renderAnnotation(group, d.data, xz, trackData, allLabelsData, trackY);
         }
       });
     });
+
+    // Render all labels in a separate layer on top
+    this.renderAllLabels(allLabelsData, xz);
   }
 
   private renderAnnotation(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    container: Selection<SVGGElement, unknown, null, undefined>,
     annotation: AnnotationData,
-    xScale: d3.ScaleLinear<number, number>,
-    trackData: TrackData
+    xScale: ScaleLinear<number, number>,
+    trackData: TrackData,
+    labelsData?: Array<{ annotation: AnnotationData; trackData: TrackData; x: number; y: number; width: number; height: number; trackY: number }>,
+    trackY: number = 0
   ): void {
     const x = xScale(annotation.start);
     const width = Math.max(1, xScale(annotation.end) - xScale(annotation.start));
@@ -408,7 +750,7 @@ export class TrackViewer {
     const y = trackHeight - (annotation.fy !== undefined ? annotation.fy * trackHeight : trackHeight / 2); // Use custom fy or center of track
 
 
-    let element: d3.Selection<any, unknown, null, undefined>;
+    let element: Selection<any, unknown, null, undefined>;
 
     switch (annotation.type) {
       case 'arrow':
@@ -448,10 +790,15 @@ export class TrackViewer {
 
     element
       .on('mouseover', (event: any) => {
+        // Don't change appearance if we're currently dragging
+        if (this.isDragging) return;
+        
         element.classed('hovered', true);
-        // Show hover labels if needed
-        container.selectAll(`.annotation-label[data-annotation-id="${annotation.id}"]`)
-          .style('display', 'block');
+        // Show hover labels if needed - find label in the labels layer
+        this.clippedChart.selectAll(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
+          .style('display', 'block')
+          .select('.annotation-label-background')
+          .style('display', ''); // Show background on hover
         // Only show tooltip if tooltip content is provided
         if (annotation.tooltip !== undefined) {
           this.showTooltip(event, annotation, trackData);
@@ -460,12 +807,23 @@ export class TrackViewer {
       })
       .on('mouseout', () => {
         element.classed('hovered', false);
-        // Hide hover labels if needed
-        container.selectAll(`.annotation-label[data-annotation-id="${annotation.id}"]`)
-          .style('display', function() {
-            const labelElement = d3.select(this);
+        // Hide hover labels if needed, but respect the showAllAnnotationLabels toggle
+        const showAll = this.showAllAnnotationLabels;
+        this.clippedChart.selectAll<SVGGElement, unknown>(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
+          .each(function() {
+            const labelGroup = d3.select(this);
+            const labelElement = labelGroup.select('.annotation-label');
             const showLabel = labelElement.attr('data-show-label');
-            return showLabel === 'hover' ? 'none' : null;
+            // If showAllAnnotationLabels is on, keep hover labels visible
+            if (showLabel === 'hover' && showAll) {
+              labelGroup.style('display', ''); // Keep visible
+            } else if (showLabel === 'hover') {
+              labelGroup.style('display', 'none');
+            } else {
+              labelGroup.style('display', '');
+            }
+            // Always hide background on mouseout
+            labelGroup.select('.annotation-label-background').style('display', 'none');
           });
         // Always try to hide tooltip on mouseout
         this.hideTooltip();
@@ -474,19 +832,21 @@ export class TrackViewer {
         this.config.onAnnotationClick(annotation, trackData);
       });
 
-    // Add label if specified
-    this.renderAnnotationLabel(container, annotation, x, y, width, height);
+    // Collect label data for rendering in a separate layer
+    if (labelsData && annotation.label && annotation.showLabel !== 'never') {
+      labelsData.push({ annotation, trackData, x, y, width, height, trackY });
+    }
   }
 
   private renderPrimitive(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    container: Selection<SVGGElement, unknown, null, undefined>,
     primitive: DrawingPrimitive,
-    xScale: d3.ScaleLinear<number, number>,
+    xScale: ScaleLinear<number, number>,
     trackData: TrackData
   ): void {
     const trackHeight = this.getTrackHeight(trackData);
     
-    let element: d3.Selection<any, unknown, null, undefined>;
+    let element: Selection<any, unknown, null, undefined>;
 
     switch (primitive.type) {
       case 'horizontal-line':
@@ -522,11 +882,11 @@ export class TrackViewer {
   }
 
   private renderHorizontalLine(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    container: Selection<SVGGElement, unknown, null, undefined>,
     primitive: DrawingPrimitive,
-    xScale: d3.ScaleLinear<number, number>,
+    xScale: ScaleLinear<number, number>,
     trackHeight: number
-  ): d3.Selection<SVGLineElement, unknown, null, undefined> {
+  ): Selection<SVGLineElement, unknown, null, undefined> {
     // If start is undefined, use the left edge of the chart
     // If end is undefined, use the right edge of the chart
     const range = xScale.range();
@@ -567,11 +927,11 @@ export class TrackViewer {
   }
 
   private renderBackground(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    container: Selection<SVGGElement, unknown, null, undefined>,
     primitive: DrawingPrimitive,
-    xScale: d3.ScaleLinear<number, number>,
+    xScale: ScaleLinear<number, number>,
     trackHeight: number
-  ): d3.Selection<SVGRectElement, unknown, null, undefined> {
+  ): Selection<SVGRectElement, unknown, null, undefined> {
     // If start is undefined, use the left edge of the chart
     // If end is undefined, use the right edge of the chart
     const range = xScale.range();
@@ -605,13 +965,13 @@ export class TrackViewer {
   }
 
   private renderBox(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    container: Selection<SVGGElement, unknown, null, undefined>,
     x: number,
     y: number,
     width: number,
     height: number,
     corner_radius: number = 0
-  ): d3.Selection<SVGRectElement, unknown, null, undefined> {
+  ): Selection<SVGRectElement, unknown, null, undefined> {
     return container
       .append('rect')
       .attr('x', x)
@@ -623,13 +983,13 @@ export class TrackViewer {
   }
 
   private renderArrow(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    container: Selection<SVGGElement, unknown, null, undefined>,
     x: number,
     y: number,
     width: number,
     height: number,
     direction: 'left' | 'right' | undefined
-  ): d3.Selection<SVGPathElement, unknown, null, undefined> {
+  ): Selection<SVGPathElement, unknown, null, undefined> {
     const arrowHeadWidth = Math.min(width * 0.2, height * 0.5, 8); // Limit arrow head size
     const bodyWidth = width - arrowHeadWidth;
 
@@ -677,11 +1037,11 @@ export class TrackViewer {
   }
 
   private renderCircle(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    container: Selection<SVGGElement, unknown, null, undefined>,
     x: number,
     y: number,
     height: number
-  ): d3.Selection<SVGCircleElement, unknown, null, undefined> {
+  ): Selection<SVGCircleElement, unknown, null, undefined> {
 
     return container
       .append('circle')
@@ -692,11 +1052,11 @@ export class TrackViewer {
   }
 
   private renderTriangle(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    container: Selection<SVGGElement, unknown, null, undefined>,
     x: number,
     y: number,
     height: number = 0.5
-  ): d3.Selection<SVGPolygonElement, unknown, null, undefined> {
+  ): Selection<SVGPolygonElement, unknown, null, undefined> {
     const baseWidth = height * 0.8;
     const points = [
       [x - baseWidth / 2, y + height],
@@ -711,11 +1071,11 @@ export class TrackViewer {
   }
 
   private renderPin(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    container: Selection<SVGGElement, unknown, null, undefined>,
     x: number,
     y: number,
     height: number
-  ): d3.Selection<SVGGElement, unknown, null, undefined> {
+  ): Selection<SVGGElement, unknown, null, undefined> {
     // Render a pin as a group containing a line and a circle
     const group = container
       .append('g')
@@ -739,7 +1099,7 @@ export class TrackViewer {
   }
 
   private renderAnnotationLabel(
-    container: d3.Selection<SVGGElement, unknown, null, undefined>,
+    container: Selection<SVGGElement, unknown, null, undefined>,
     annotation: AnnotationData,
     x: number,
     y: number,
@@ -748,7 +1108,7 @@ export class TrackViewer {
   ): void {
     // Check if label should be shown (default to 'hover')
     const showLabel = annotation.showLabel || 'hover';
-    if (showLabel === 'never' || !annotation.label) {
+    if (!annotation.label) {
       return;
     }
 
@@ -762,7 +1122,12 @@ export class TrackViewer {
       // For point annotations, position relative to the point
       labelX = x;
       if (labelPosition === 'above') {
-        labelY = y - height / 2 - 2; // Above the shape
+        if (annotation.type === 'pin') {
+          // Pins extend upward, so label should be above the pin head
+          labelY = y - height - 8; // Above the pin head
+        } else {
+          labelY = y - height / 2 - 2; // Above the shape
+        }
       } else {
         labelY = y; // Center of the shape
       }
@@ -776,7 +1141,7 @@ export class TrackViewer {
       }
     }
 
-    // Create label element
+    // Create the text element first to measure its dimensions
     const labelElement = container
       .append('text')
       .attr('x', labelX)
@@ -787,16 +1152,82 @@ export class TrackViewer {
       .attr('data-annotation-id', annotation.id)
       .attr('data-show-label', showLabel)
       .style('fill', 'currentColor') // Use currentColor to inherit from CSS color property
-      .style('stroke', 'white') // White outline for better readability
-      .style('stroke-width', '0.5px')
-      .style('paint-order', 'stroke fill') // Ensure stroke renders behind fill
-      .style('pointer-events', 'none') // Labels shouldn't interfere with mouse events
       .text(annotation.label);
 
-    // Handle show/hide behavior
+    // Only add background for hover labels - it will be shown/hidden based on hover state
     if (showLabel === 'hover') {
-      labelElement.style('display', 'none');
+      // Get text dimensions to create background
+      const textNode = labelElement.node() as SVGTextElement;
+      if (textNode && typeof textNode.getBBox === 'function') {
+        try {
+          const bbox = textNode.getBBox();
+          const padding = 0;
+          
+          // Insert background rectangle before the text
+          const background = container
+            .insert('rect', 'text')
+            .attr('x', bbox.x - padding)
+            .attr('y', bbox.y - padding)
+            .attr('width', bbox.width + padding * 2)
+            .attr('height', bbox.height + padding * 2)
+            .attr('rx', 2)
+            .attr('ry', 2)
+            .attr('class', 'annotation-label-background')
+            .style('fill', 'white')
+            .style('opacity', '0.8');
+          
+          // Initially hide the background - it will only show on actual hover
+          background.style('display', 'none');
+        } catch (error) {
+          // If getBBox fails, continue without background
+        }
+      }
     }
+
+    // Handle show/hide behavior based on showLabel attribute and current toggle state
+    if (showLabel === 'always') {
+      container.style('display', '');
+    } else if (showLabel === 'never') {
+      container.style('display', 'none');
+    } else {
+      // For hover labels, respect the showAllAnnotationLabels toggle
+      container.style('display', this.showAllAnnotationLabels ? '' : 'none');
+    }
+  }
+
+  private renderAllLabels(
+    labelsData: Array<{ annotation: AnnotationData; trackData: TrackData; x: number; y: number; width: number; height: number; trackY: number }>,
+    xScale: ScaleLinear<number, number>
+  ): void {
+    // Create or select a labels layer that renders on top of everything
+    let labelsLayer = this.clippedChart.select<SVGGElement>('.annotation-labels-layer');
+    if (labelsLayer.empty()) {
+      labelsLayer = this.clippedChart
+        .append('g')
+        .attr('class', 'annotation-labels-layer');
+    }
+
+    // Bind label data
+    const labelGroups = labelsLayer
+      .selectAll<SVGGElement, typeof labelsData[0]>('.annotation-label-group')
+      .data(labelsData, (d) => d.annotation.id)
+      .join(
+        (enter) => enter.append('g'),
+        (update) => update,
+        (exit) => exit.remove()
+      )
+      .attr('class', (d) => `annotation-label-group ${d.annotation.classes.join(' ')}`)
+      .attr('data-annotation-id', (d) => d.annotation.id)
+      .attr('transform', (d) => `translate(0, ${d.trackY})`)
+      .style('pointer-events', 'none');
+
+    // Clear and re-render each label group
+    const self = this;
+    labelGroups.each(function(d) {
+      const group = d3.select(this);
+      group.selectAll('*').remove();
+      self.renderAnnotationLabel(group, d.annotation, d.x, d.y, d.width, d.height);
+    });
   }
 
   private showTooltip(event: MouseEvent, annotation: AnnotationData, trackData: TrackData): void {
@@ -818,6 +1249,11 @@ export class TrackViewer {
 
   // Calculate required left margin based on track label lengths
   private calculateRequiredLeftMargin(): number {
+    // If track labels are hidden, use the original minimal margin
+    if (!this.showTrackLabels) {
+      return this.originalLeftMargin;
+    }
+
     if (this.data.tracks.length === 0) {
       return this.originalLeftMargin;
     }
@@ -973,11 +1409,15 @@ export class TrackViewer {
   }
 
   public destroy(): void {
-    // Remove resize listener if it was set up
-    if (this.resizeHandler) {
-      window.removeEventListener('resize', this.resizeHandler);
+    // Disconnect ResizeObserver if it was set up
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
     }
     
+    // Destroy context menu UI
+    this.contextMenuController?.destroy();
+
+    // Remove UI elements
     this.tooltip.remove();
     this.svg.remove();
   }
