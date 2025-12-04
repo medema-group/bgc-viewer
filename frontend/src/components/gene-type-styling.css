@@ -1,16 +1,16 @@
 /* Gene type styling classes for the RegionViewer */
-.gene-type-biosynthetic {
+.gene-type-biosynthetic path {
   fill: #810e15;
 }
-.gene-type-biosynthetic-additional {
+.gene-type-biosynthetic-additional path {
   fill: #f16d75;
 }
-.gene-type-regulatory {
+.gene-type-regulatory path {
   fill: seagreen;
 }
-.gene-type-transport {
+.gene-type-transport path {
   fill: cornflowerblue;
 }
-.gene-type-other {
+.gene-type-other path {
   fill: gray;
 }
