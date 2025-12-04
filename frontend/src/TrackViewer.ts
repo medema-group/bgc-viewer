@@ -325,11 +325,8 @@ export class TrackViewer {
 
     const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
     
-    // Apply inline styles from CSS before cloning
-    const styleText = this.getInlineStyles();
-    
-    // Clean up temporary data-styled attributes from the original
-    this.svg.selectAll('[data-styled]').attr('data-styled', null);
+    // Apply inline styles from CSS to the clone
+    const styleText = this.getInlineStyles(svgClone);
     
     // Add styles inline for standalone SVG
     const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
@@ -359,11 +356,8 @@ export class TrackViewer {
 
     const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
     
-    // Apply inline styles from CSS
-    const styleText = this.getInlineStyles();
-    
-    // Clean up temporary data-styled attributes from the original
-    this.svg.selectAll('[data-styled]').attr('data-styled', null);
+    // Apply inline styles from CSS to the clone
+    const styleText = this.getInlineStyles(svgClone);
     
     // Add styles inline
     const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
@@ -504,6 +498,15 @@ export class TrackViewer {
           if (styleProps.length > 0) {
             const existingStyle = shape.getAttribute('style') || '';
             shape.setAttribute('style', existingStyle + ' ' + styleProps.join('; ') + ';');
+          }
+
+          // Convert data-label to title element for exported SVG tooltips
+          const label = shape.getAttribute('data-label');
+          if (label) {
+            const titleElement = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+            titleElement.textContent = label;
+            shape.insertBefore(titleElement, shape.firstChild);
+            shape.removeAttribute('data-label'); // Clean up
           }
         }
       });
@@ -774,6 +777,7 @@ export class TrackViewer {
     // Apply common styling and event handlers
     element
       .attr('data-annotation-id', annotation.id) // Add data attribute for label handling
+      .attr('data-label', annotation.label) // Store label for export tooltips
       .style('cursor', 'pointer')
       .style('pointer-events', 'all'); // Ensure annotations can receive mouse events
 
