@@ -644,7 +644,7 @@ export default {
 
 .info-row {
   display: flex;
-  /* padding: 3px 0; */
+  padding: 1px 0;
   gap: 8px;
 }
 

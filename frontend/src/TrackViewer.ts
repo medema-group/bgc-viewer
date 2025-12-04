@@ -456,9 +456,6 @@ export class TrackViewer {
       }
     });
 
-    // Also capture computed styles from actual elements
-    const computedStyles: string[] = [];
-    
     // Get styles from track labels
     this.svg.selectAll<SVGTextElement, unknown>('.track-label').each(function() {
       const element = this as SVGTextElement;
