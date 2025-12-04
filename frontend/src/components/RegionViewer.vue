@@ -85,13 +85,22 @@
     
     <!-- Feature Details Panel -->
     <div v-if="recordInfo" class="feature-details-container">
+      <!-- Show FeatureDetails for actual record features -->
       <FeatureDetails 
-        :feature="selectedFeature"
+        v-if="selectedElement && selectedElement.type && selectedElement.qualifiers"
+        :feature="selectedElement"
         :all-features="features"
         :data-provider="dataProvider"
         :record-info="recordInfo"
         :region-number="currentRegionNumber"
-        @close="clearSelectedFeature"
+        @close="clearSelectedElement"
+      />
+      
+      <!-- Show SimpleDetails for non-feature elements (TTA codons, resistance, TFBS) -->
+      <SimpleDetails 
+        v-else-if="selectedElement"
+        :data="selectedElement"
+        :element-type="selectedElement._elementType"
       />
     </div>
   </div>
@@ -101,6 +110,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { TrackViewer } from '../TrackViewer'
 import FeatureDetails from './FeatureDetails.vue'
+import SimpleDetails from './SimpleDetails.vue'
 import './cand-cluster-styling.css'
 import './cluster-styling.css'
 import './gene-type-styling.css'
@@ -108,7 +118,8 @@ import './gene-type-styling.css'
 export default {
   name: 'RegionViewerComponent',
   components: {
-    FeatureDetails
+    FeatureDetails,
+    SimpleDetails
   },
   props: {
     // Current record information
@@ -187,9 +198,6 @@ export default {
     const selectedTracks = ref([])
     const dropdownOpen = ref(false)
     
-    // Feature details
-    const selectedFeature = ref(null)
-    
     // Compute current region number from selected region
     const currentRegionNumber = computed(() => {
       if (!selectedRegion.value || !props.regions.length) {
@@ -201,7 +209,12 @@ export default {
     
     let regionViewer = null
     let allTrackData = {} // Store all generated tracks
-    let selectedAnnotation = null // Track the selected annotation for highlighting
+    const selectedAnnotation = ref(null) // Track the selected annotation for highlighting
+    
+    // Derive selected element from selected annotation
+    const selectedElement = computed(() => {
+      return selectedAnnotation.value?.data || null
+    })
 
     // Watch for prop changes and rebuild the viewer
     watch(() => props.features, () => {
@@ -267,8 +280,7 @@ export default {
         console.log('Building viewer with', props.features.length, 'features')
         
         // Clear selection when rebuilding
-        selectedAnnotation = null
-        selectedFeature.value = null
+        selectedAnnotation.value = null
         
         // Build all tracks from features
         buildAllTracks()
@@ -381,8 +393,7 @@ export default {
         },
         onBackgroundClick: () => {
           // Clear selection when clicking background
-          selectedAnnotation = null
-          selectedFeature.value = null
+          selectedAnnotation.value = null
           updateAnnotationHighlighting()
           updateViewer()
         }
@@ -630,7 +641,7 @@ export default {
             fy: 0.5, // Middle of the track
             heightFraction: 0.5,
             opacity: 0.8,
-            data: hit
+            data: { ...hit, _elementType: 'Binding Site' }
           })
         })
       }
@@ -652,7 +663,7 @@ export default {
             fy: 0.2, // Middle of the track
             heightFraction: 0.4,
             opacity: 0.9,
-            data: codon
+            data: { ...codon, _elementType: 'TTA Codon' }
           })
         })
       }
@@ -685,15 +696,13 @@ export default {
               trackId: cdsTrackId,
               type: 'box',
               classes: ['resistance'],
-              label: resistFeature.reference_id,
-              labelPosition: 'inside',
-              showLabel: 'hover',
+              showLabel: 'never',
               start: location.start,
               end: location.end,
               fy: 0.1,
               heightFraction: 0.2,
               fill: '#BBB',
-              data: resistFeature
+              data: { ...resistFeature, _elementType: 'Resistance' }
             })
           }
         })
@@ -790,14 +799,8 @@ export default {
     
     // Handle annotation click for highlighting
     const handleAnnotationClick = (annotation, track) => {
-      // Use the feature reference stored in annotation.data
-      const feature = annotation.data
-      if (feature) {
-        selectedFeature.value = feature
-      }
-      
       // Set selected annotation (don't toggle)
-      selectedAnnotation = annotation
+      selectedAnnotation.value = annotation
       if (annotation.id.endsWith('-core')) {
         // If core annotation clicked, find parent protocluster annotation
         const parentTrack = allTrackData[annotation.trackId]
@@ -807,7 +810,7 @@ export default {
             ann.id === parentAnnotationId
           )
           if (parentAnnotation) {
-            selectedAnnotation = parentAnnotation
+            selectedAnnotation.value = parentAnnotation
           }
         }
       }
@@ -819,15 +822,15 @@ export default {
       updateViewer()
     }
     
-    // Clear selected feature
-    const clearSelectedFeature = () => {
-      selectedFeature.value = null
+    // Clear selected element
+    const clearSelectedElement = () => {
+      selectedAnnotation.value = null
     }
     
     // Determine if an annotation should be highlighted
     const shouldHighlightAnnotation = (annotation) => {
       // If no annotation is selected, highlight all
-      if (!selectedAnnotation) {
+      if (!selectedAnnotation.value) {
         return true
       }
 
@@ -840,16 +843,16 @@ export default {
             ann.id === parentAnnotationId
           )
           if (parentAnnotation) {
-            return parentAnnotation.start >= selectedAnnotation.start && 
-                   parentAnnotation.end <= selectedAnnotation.end
+            return parentAnnotation.start >= selectedAnnotation.value.start && 
+                   parentAnnotation.end <= selectedAnnotation.value.end
           }
         }
         return false
       }
       
       // Highlight annotations that fall completely within the selected annotation's range
-      return annotation.start >= selectedAnnotation.start && 
-             annotation.end <= selectedAnnotation.end
+      return annotation.start >= selectedAnnotation.value.start && 
+             annotation.end <= selectedAnnotation.value.end
     }
     
     // Update opacity on all annotations in allTrackData
@@ -885,7 +888,7 @@ export default {
               }
               
               // Dim the baseline when any annotation is selected
-              if (selectedAnnotation) {
+              if (selectedAnnotation.value) {
                 primitive.opacity = primitive._originalOpacity * 0.1
               } else {
                 primitive.opacity = primitive._originalOpacity
@@ -899,8 +902,7 @@ export default {
     // Clear the viewer and reset state
     const clearViewer = () => {
       selectedRegion.value = ''
-      selectedAnnotation = null
-      selectedFeature.value = null
+      selectedAnnotation.value = null
       allTrackData = {}
       availableTracks.value = []
       selectedTracks.value = []
@@ -928,13 +930,13 @@ export default {
       availableTracks,
       selectedTracks,
       dropdownOpen,
-      selectedFeature,
+      selectedElement,
       currentRegionNumber,
       onRegionChange,
       updateViewer,
       toggleDropdown,
       toggleSelectAll,
-      clearSelectedFeature
+      clearSelectedElement
     }
   }
 }
