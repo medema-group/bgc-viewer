@@ -9,7 +9,8 @@ import {
   MiBIGEntriesResponse,
   MiBIGEntry,
   TFBSHitsResponse,
-  TTACodonsResponse
+  TTACodonsResponse,
+  ResistanceFeaturesResponse
 } from './types'
 
 export interface JSONFileProviderOptions {
@@ -314,6 +315,38 @@ export class JSONFileProvider extends DataProvider {
       record_id: recordId,
       count: ttaCodons.length,
       codons: ttaCodons
+    }
+  }
+
+  /**
+   * Get resistance features for a record
+   */
+  async getResistanceFeatures(recordId: string): Promise<ResistanceFeaturesResponse> {
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Navigate to resistance features: modules -> antismash.detection.genefunctions -> tools -> resist -> best_hits
+    const modules = record.modules || {}
+    const genefunctions = modules['antismash.detection.genefunctions'] || {}
+    const tools = genefunctions.tools || {}
+    const resist = tools.resist || {}
+    const bestHits = resist.best_hits || {}
+    
+    // Convert dict to list for easier frontend consumption
+    const resistanceFeatures = []
+    for (const [locusTag, hitData] of Object.entries(bestHits)) {
+      resistanceFeatures.push({
+        locus_tag: locusTag,
+        ...(hitData as any)
+      })
+    }
+    
+    return {
+      record_id: recordId,
+      count: resistanceFeatures.length,
+      features: resistanceFeatures
     }
   }
 

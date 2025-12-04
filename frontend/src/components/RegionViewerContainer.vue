@@ -10,6 +10,7 @@
       :data-provider="dataProvider"
       :tfbs-hits="tfbsHits"
       :tta-codons="ttaCodons"
+      :resistance-features="resistanceFeatures"
       @region-changed="handleRegionChanged"
       @annotation-clicked="handleAnnotationClicked"
       @error="handleError"
@@ -62,6 +63,7 @@ export default {
     const pfamColorMap = ref({})
     const tfbsHits = ref([])
     const ttaCodons = ref([])
+    const resistanceFeatures = ref([])
     const selectedRegionId = ref('')
     const loading = ref(false)
     const error = ref('')
@@ -74,6 +76,7 @@ export default {
       regionBoundaries.value = null
       tfbsHits.value = []
       ttaCodons.value = []
+      resistanceFeatures.value = []
       selectedRegionId.value = ''
     }
 
@@ -113,6 +116,18 @@ export default {
       }
     }
 
+    const loadResistanceFeatures = async (recordId) => {
+      if (!provider.value) return
+      try {
+        const resistanceData = await provider.value.getResistanceFeatures(recordId)
+        resistanceFeatures.value = resistanceData.features || []
+        console.log('Loaded', resistanceFeatures.value.length, 'resistance features for record', recordId)
+      } catch (err) {
+        console.warn('Failed to load resistance features:', err.message)
+        resistanceFeatures.value = [] // Clear on error
+      }
+    }
+
     const loadRecord = async (recordId) => {
       loading.value = true
       error.value = ''
@@ -145,6 +160,9 @@ export default {
         
         // Load TTA codons (not region-specific)
         await loadTTACodons(recordInfo.value.recordId)
+        
+        // Load resistance features (not region-specific)
+        await loadResistanceFeatures(recordInfo.value.recordId)
         
         // Load features based on whether there are regions
         if (regions.value && regions.value.length > 0) {
@@ -267,6 +285,7 @@ export default {
       pfamColorMap,
       tfbsHits,
       ttaCodons,
+      resistanceFeatures,
       selectedRegionId,
       loading,
       error,

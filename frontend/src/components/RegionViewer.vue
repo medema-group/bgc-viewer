@@ -162,6 +162,12 @@ export default {
       type: Array,
       default: () => []
       // Expected shape: [{ start, strand }]
+    },
+    // Resistance features
+    resistanceFeatures: {
+      type: Array,
+      default: () => []
+      // Expected shape: [{ locus_tag, query_id, reference_id, subfunctions, description, bitscore, evalue, query_start, query_end }]
     }
   },
   emits: [
@@ -213,6 +219,13 @@ export default {
 
     watch(() => props.ttaCodons, () => {
       // Rebuild viewer when TTA codons change
+      if (props.features && props.features.length > 0) {
+        rebuildViewer()
+      }
+    })
+
+    watch(() => props.resistanceFeatures, () => {
+      // Rebuild viewer when resistance features change
       if (props.features && props.features.length > 0) {
         rebuildViewer()
       }
@@ -643,7 +656,50 @@ export default {
           })
         })
       }
+      
+      // Add resistance features as boxes on the CDS track
+      if (props.resistanceFeatures && props.resistanceFeatures.length > 0) {
+        const cdsTrackId = 'CDS'
+        makeSureTrackExists(cdsTrackId, cdsTrackId)
+        
+        // Build a lookup map of locus_tag to CDS feature location
+        const locusTagMap = {}
+        props.features.forEach(feature => {
+          if (feature.type === 'CDS' && feature.qualifiers?.locus_tag?.[0]) {
+            const locusTag = feature.qualifiers.locus_tag[0]
+            const location = parseGeneLocation(feature.location)
+            if (location) {
+              locusTagMap[locusTag] = location
+            }
+          }
+        })
+        
+        props.resistanceFeatures.forEach((resistFeature, idx) => {
+          const locusTag = resistFeature.locus_tag
+          const location = locusTagMap[locusTag]
+          console.log('Mapping resistance feature', resistFeature.reference_id, 'to locus tag', locusTag, 'with location', location)
+          
+          if (location) {
+            allTrackData[cdsTrackId].annotations.push({
+              id: `resistance-${idx}-${locusTag}`,
+              trackId: cdsTrackId,
+              type: 'box',
+              classes: ['resistance'],
+              label: resistFeature.reference_id,
+              labelPosition: 'inside',
+              showLabel: 'hover',
+              start: location.start,
+              end: location.end,
+              fy: 0.1,
+              heightFraction: 0.2,
+              fill: '#BBB',
+              data: resistFeature
+            })
+          }
+        })
+      }
     }
+
 
     const updateViewer = () => {
       if (!regionViewer || !Object.keys(allTrackData).length) return

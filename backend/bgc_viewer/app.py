@@ -746,6 +746,48 @@ def get_tta_codons(record_id):
         "codons": tta_codons
     })
 
+@app.route('/api/records/<record_id>/resistance')
+def get_resistance_features(record_id):
+    """API endpoint to get resistance features for a specific record.
+    
+    Returns resistance gene predictions from the antismash.detection.genefunctions module.
+    Data structure: records[i].modules["antismash.detection.genefunctions"]["tools"]["resist"]["best_hits"]
+    
+    Note: Resistance features are not region-specific and apply to the entire record.
+    They are keyed by locus_tag (corresponding to CDS features).
+    """
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
+    
+    if not antismash_data:
+        return jsonify({"error": "No data loaded"}), 400
+    
+    # Find the specified record
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
+    if not record:
+        return jsonify({"error": f"Record '{record_id}' not found"}), 404
+    
+    # Navigate to resistance features: modules -> antismash.detection.genefunctions -> tools -> resist -> best_hits
+    modules = record.get("modules", {})
+    genefunctions = modules.get("antismash.detection.genefunctions", {})
+    tools = genefunctions.get("tools", {})
+    resist = tools.get("resist", {})
+    best_hits = resist.get("best_hits", {})
+    
+    # Convert dict to list for easier frontend consumption
+    resistance_features = []
+    for locus_tag, hit_data in best_hits.items():
+        resistance_features.append({
+            "locus_tag": locus_tag,
+            **hit_data
+        })
+    
+    return jsonify({
+        "record_id": record_id,
+        "count": len(resistance_features),
+        "features": resistance_features
+    })
+
 # Database management endpoints - only available in local mode
 if not PUBLIC_MODE:
     @app.route('/api/select-database', methods=['POST'])

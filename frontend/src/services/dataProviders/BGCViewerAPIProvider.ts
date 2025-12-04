@@ -7,7 +7,8 @@ import {
   PfamColorMap,
   MiBIGEntriesResponse,
   TFBSHitsResponse,
-  TTACodonsResponse
+  TTACodonsResponse,
+  ResistanceFeaturesResponse
 } from './types'
 
 export interface BGCViewerAPIProviderOptions {
@@ -142,6 +143,16 @@ export class BGCViewerAPIProvider extends DataProvider {
   async getTTACodons(recordId: string): Promise<TTACodonsResponse> {
     const response = await this.axiosInstance.get<TTACodonsResponse>(
       `/api/records/${recordId}/tta-codons`
+    )
+    return response.data
+  }
+
+  /**
+   * Get resistance features for a record
+   */
+  async getResistanceFeatures(recordId: string): Promise<ResistanceFeaturesResponse> {
+    const response = await this.axiosInstance.get<ResistanceFeaturesResponse>(
+      `/api/records/${recordId}/resistance`
     )
     return response.data
   }

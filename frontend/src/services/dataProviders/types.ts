@@ -83,6 +83,24 @@ export interface TTACodonsResponse {
   codons: TTACodon[]
 }
 
+export interface ResistanceFeature {
+  locus_tag: string
+  query_id: string
+  reference_id: string
+  subfunctions: string[]
+  description: string
+  bitscore: number
+  evalue: number
+  query_start: number
+  query_end: number
+}
+
+export interface ResistanceFeaturesResponse {
+  record_id: string
+  count: number
+  features: ResistanceFeature[]
+}
+
 export interface FeaturesResponse {
   features: Feature[]
   region_boundaries?: RegionBoundaries
@@ -146,4 +164,9 @@ export abstract class DataProvider {
    * Get TTA codon positions for a record (not region-specific)
    */
   getTTACodons(recordId: string): Promise<TTACodonsResponse>
+
+  /**
+   * Get resistance features for a record (not region-specific)
+   */
+  getResistanceFeatures(recordId: string): Promise<ResistanceFeaturesResponse>
 }
