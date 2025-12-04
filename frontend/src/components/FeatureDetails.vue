@@ -1,6 +1,11 @@
 <template>
   <div v-if="feature" class="feature-details">
     <div class="feature-content">
+      <!-- Header -->
+      <div class="feature-header">
+        <h3>{{ feature.type }}</h3>
+      </div>
+      
       <!-- Primary Information -->
       <div class="info-section">
         <div class="info-row" v-if="feature.qualifiers?.locus_tag?.[0]">
@@ -605,6 +610,19 @@ export default {
 
 .feature-content {
   padding: 12px;
+}
+
+.feature-header {
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.feature-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #212529;
 }
 
 .info-section {
