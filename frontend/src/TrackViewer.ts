@@ -412,7 +412,7 @@ export class TrackViewer {
     img.src = url;
   }
 
-  private getInlineStyles(): string {
+  private getInlineStyles(svgElement: SVGSVGElement = this.svg.node()!): string {
     // Get all stylesheets
     const sheets = Array.from(document.styleSheets);
     const cssRules: string[] = [];
@@ -450,8 +450,11 @@ export class TrackViewer {
       }
     });
 
+    // Work with the provided SVG element (could be clone or original)
+    const svg = d3.select(svgElement);
+
     // Get styles from track labels
-    this.svg.selectAll<SVGTextElement, unknown>('.track-label').each(function() {
+    svg.selectAll<SVGTextElement, unknown>('.track-label').each(function() {
       const element = this as SVGTextElement;
       const computed = window.getComputedStyle(element);
       if (!element.hasAttribute('data-styled')) {
@@ -465,9 +468,18 @@ export class TrackViewer {
     });
 
     // Get styles from annotations and primitives - apply to actual shape elements, not container groups
-    this.svg.selectAll<SVGElement, unknown>('.annotation, .primitive').each(function() {
+    svg.selectAll<SVGElement, unknown>('.annotation, .primitive').each(function() {
       const container = this as SVGElement;
       const containerComputed = window.getComputedStyle(container);
+      
+      // Convert data-label to title element for exported SVG tooltips
+      const containerLabel = container.getAttribute('data-label');
+      if (containerLabel && !container.querySelector('title')) {
+        const titleElement = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        titleElement.textContent = containerLabel;
+        container.insertBefore(titleElement, container.firstChild);
+        container.removeAttribute('data-label');
+      }
       
       // Find the actual shape element(s) inside the container (path, rect, circle, line, polygon, etc.)
       const shapeElements = container.querySelectorAll('path, rect, circle, line, polygon, ellipse');
@@ -498,15 +510,6 @@ export class TrackViewer {
           if (styleProps.length > 0) {
             const existingStyle = shape.getAttribute('style') || '';
             shape.setAttribute('style', existingStyle + ' ' + styleProps.join('; ') + ';');
-          }
-
-          // Convert data-label to title element for exported SVG tooltips
-          const label = shape.getAttribute('data-label');
-          if (label) {
-            const titleElement = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-            titleElement.textContent = label;
-            shape.insertBefore(titleElement, shape.firstChild);
-            shape.removeAttribute('data-label'); // Clean up
           }
         }
       });
@@ -775,9 +778,11 @@ export class TrackViewer {
     }
 
     // Apply common styling and event handlers
+    // Set data-label on the container (the group with .annotation class) for export
+    container.attr('data-label', annotation.label);
+    
     element
       .attr('data-annotation-id', annotation.id) // Add data attribute for label handling
-      .attr('data-label', annotation.label) // Store label for export tooltips
       .style('cursor', 'pointer')
       .style('pointer-events', 'all'); // Ensure annotations can receive mouse events
 
