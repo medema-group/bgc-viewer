@@ -325,11 +325,8 @@ export class TrackViewer {
 
     const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
     
-    // Apply inline styles from CSS before cloning
-    const styleText = this.getInlineStyles();
-    
-    // Clean up temporary data-styled attributes from the original
-    this.svg.selectAll('[data-styled]').attr('data-styled', null);
+    // Apply inline styles from CSS to the clone
+    const styleText = this.getInlineStyles(svgClone);
     
     // Add styles inline for standalone SVG
     const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
@@ -359,11 +356,8 @@ export class TrackViewer {
 
     const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
     
-    // Apply inline styles from CSS
-    const styleText = this.getInlineStyles();
-    
-    // Clean up temporary data-styled attributes from the original
-    this.svg.selectAll('[data-styled]').attr('data-styled', null);
+    // Apply inline styles from CSS to the clone
+    const styleText = this.getInlineStyles(svgClone);
     
     // Add styles inline
     const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
@@ -418,7 +412,7 @@ export class TrackViewer {
     img.src = url;
   }
 
-  private getInlineStyles(): string {
+  private getInlineStyles(svgElement: SVGSVGElement = this.svg.node()!): string {
     // Get all stylesheets
     const sheets = Array.from(document.styleSheets);
     const cssRules: string[] = [];
@@ -456,8 +450,11 @@ export class TrackViewer {
       }
     });
 
+    // Work with the provided SVG element (could be clone or original)
+    const svg = d3.select(svgElement);
+
     // Get styles from track labels
-    this.svg.selectAll<SVGTextElement, unknown>('.track-label').each(function() {
+    svg.selectAll<SVGTextElement, unknown>('.track-label').each(function() {
       const element = this as SVGTextElement;
       const computed = window.getComputedStyle(element);
       if (!element.hasAttribute('data-styled')) {
@@ -471,9 +468,18 @@ export class TrackViewer {
     });
 
     // Get styles from annotations and primitives - apply to actual shape elements, not container groups
-    this.svg.selectAll<SVGElement, unknown>('.annotation, .primitive').each(function() {
+    svg.selectAll<SVGElement, unknown>('.annotation, .primitive').each(function() {
       const container = this as SVGElement;
       const containerComputed = window.getComputedStyle(container);
+      
+      // Convert data-label to title element for exported SVG tooltips
+      const containerLabel = container.getAttribute('data-label');
+      if (containerLabel && !container.querySelector('title')) {
+        const titleElement = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        titleElement.textContent = containerLabel;
+        container.insertBefore(titleElement, container.firstChild);
+        container.removeAttribute('data-label');
+      }
       
       // Find the actual shape element(s) inside the container (path, rect, circle, line, polygon, etc.)
       const shapeElements = container.querySelectorAll('path, rect, circle, line, polygon, ellipse');
@@ -772,6 +778,9 @@ export class TrackViewer {
     }
 
     // Apply common styling and event handlers
+    // Set data-label on the container (the group with .annotation class) for export
+    container.attr('data-label', annotation.label);
+    
     element
       .attr('data-annotation-id', annotation.id) // Add data attribute for label handling
       .style('cursor', 'pointer')
