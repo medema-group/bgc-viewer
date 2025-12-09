@@ -24,10 +24,22 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
         )
     """)
     
+    # Create the files table to store file-level metadata (key-value pairs per file)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT,
+            UNIQUE(filename, key)
+        )
+    """)
+    
     # Create the records table to store record metadata
     conn.execute("""
         CREATE TABLE IF NOT EXISTS records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_ref INTEGER NOT NULL,
             filename TEXT NOT NULL,
             record_id TEXT NOT NULL,
             byte_start INTEGER NOT NULL,
@@ -41,7 +53,8 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
             pfam_domain_count INTEGER DEFAULT 0,
             cds_count INTEGER DEFAULT 0,
             cand_cluster_count INTEGER DEFAULT 0,
-            UNIQUE(filename, record_id)
+            UNIQUE(filename, record_id),
+            FOREIGN KEY (file_ref) REFERENCES files (id) ON DELETE CASCADE
         )
     """)
     
@@ -58,6 +71,11 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     """)
     
     # Create indexes for efficient querying
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_filename ON files (filename)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_key ON files (key)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_filename_key ON files (filename, key)")
+    
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_file_ref ON records (file_ref)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_records_filename ON records (filename)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_records_record_id ON records (record_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_records_filename_record_id ON records (filename, record_id)")
@@ -137,7 +155,7 @@ def flatten_complex_value(value: Any, prefix: str = "") -> List[tuple]:
     return results
 
 
-def extract_record_metadata(record: Dict[str, Any], filename: str, record_id: str, byte_start: int, byte_end: int) -> Dict[str, Any]:
+def extract_record_metadata(record: Dict[str, Any], record_id: str, byte_start: int, byte_end: int) -> Dict[str, Any]:
     """
     Extract metadata from a record for the records table.
     
@@ -145,7 +163,6 @@ def extract_record_metadata(record: Dict[str, Any], filename: str, record_id: st
         Dictionary with record metadata
     """
     metadata: Dict[str, Any] = {
-        'filename': filename,
         'record_id': record_id,
         'byte_start': byte_start,
         'byte_end': byte_end,
@@ -374,9 +391,8 @@ def preprocess_antismash_files(
                                             record_id = record.get('id', f'record_{total_records}')
                                             
                                             # Extract record metadata - use relative path to avoid filename collisions
-                                            relative_path = json_file.relative_to(input_path)
                                             metadata = extract_record_metadata(
-                                                record, str(relative_path), record_id, record_start, record_end
+                                                record, record_id, record_start, record_end
                                             )
                                             file_record_data.append(metadata)
                                             
@@ -396,14 +412,62 @@ def preprocess_antismash_files(
                 
                 # Insert records and then attributes
                 if file_record_data:
-                    # Insert records first
+                    # First, extract and insert file-level metadata
+                    import json
+                    
+                    # Parse the top level of the JSON to get version and input_file
+                    try:
+                        file_data = json.loads(content.decode('utf-8'))
+                        version = file_data.get('version')
+                        input_file = file_data.get('input_file')
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        version = None
+                        input_file = None
+                    
+                    # Use relative path to avoid filename collisions
+                    relative_path = json_file.relative_to(input_path)
+                    
+                    # Insert file-level metadata as key-value pairs
+                    file_metadata = []
+                    if version is not None:
+                        file_metadata.append((str(relative_path), 'version', version))
+                    if input_file is not None:
+                        file_metadata.append((str(relative_path), 'input_file', input_file))
+                    
+                    if file_metadata:
+                        conn.executemany(
+                            """INSERT OR REPLACE INTO files (filename, key, value)
+                               VALUES (?, ?, ?)""",
+                            file_metadata
+                        )
+                    
+                    # Get or create a file_ref for the records table
+                    # We'll use the minimum id for this filename as the file_ref
+                    cursor = conn.execute(
+                        "SELECT MIN(id) FROM files WHERE filename = ?",
+                        (str(relative_path),)
+                    )
+                    result = cursor.fetchone()
+                    file_ref = result[0] if result and result[0] is not None else None
+                    
+                    # If no file metadata was inserted (both version and input_file are None),
+                    # insert a placeholder entry so we have a file_ref
+                    if file_ref is None:
+                        cursor = conn.execute(
+                            """INSERT INTO files (filename, key, value)
+                               VALUES (?, ?, ?)""",
+                            (str(relative_path), '_placeholder', '')
+                        )
+                        file_ref = cursor.lastrowid
+                    
+                    # Insert records with file_ref
                     for record_metadata in file_record_data:
                         cursor = conn.execute(
                             """INSERT INTO records 
-                               (filename, record_id, byte_start, byte_end, feature_count, product, organism, description,
+                               (file_ref, filename, record_id, byte_start, byte_end, feature_count, product, organism, description,
                                 protocluster_count, proto_core_count, pfam_domain_count, cds_count, cand_cluster_count)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (record_metadata['filename'], record_metadata['record_id'], 
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (file_ref, str(relative_path), record_metadata['record_id'], 
                              record_metadata['byte_start'], record_metadata['byte_end'],
                              record_metadata['feature_count'], record_metadata['product'],
                              record_metadata['organism'], record_metadata['description'],

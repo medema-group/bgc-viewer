@@ -71,6 +71,43 @@ def get_database_info(db_file_path):
         return {"error": f"Failed to read database: {str(e)}"}
 
 
+def get_file_metadata(db_path, filename):
+    """Get all metadata key-value pairs for a specific file.
+    
+    Args:
+        db_path: Path to the database file
+        filename: Name of the file to get metadata for
+        
+    Returns:
+        Dictionary with file metadata key-value pairs
+    """
+    if not db_path or not Path(db_path).exists():
+        return {}
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        
+        # Get all key-value pairs for this file
+        cursor = conn.execute(
+            """SELECT key, value FROM files WHERE filename = ?""",
+            (filename,)
+        )
+        
+        metadata = {}
+        for row in cursor.fetchall():
+            key, value = row
+            # Skip placeholder entries
+            if key != '_placeholder':
+                metadata[key] = value
+        
+        conn.close()
+        return metadata
+        
+    except Exception as e:
+        print(f"Failed to get file metadata: {str(e)}")
+        return {}
+
+
 def get_database_entries(db_path, page=1, per_page=50, search=""):
     """Get paginated list of all file+record entries from the database."""
     per_page = min(per_page, 100)  # Max 100 per page

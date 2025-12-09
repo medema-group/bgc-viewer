@@ -35,6 +35,7 @@ export class BGCViewerAPIProvider extends DataProvider {
     const response = await this.axiosInstance.post<{
       filename: string
       record_id: string
+      file_metadata?: Record<string, string>
       record_info: {
         id: string
         description: string
@@ -47,6 +48,7 @@ export class BGCViewerAPIProvider extends DataProvider {
     return {
       recordId: response.data.record_id,
       filename: response.data.filename,
+      fileMetadata: response.data.file_metadata,
       recordInfo: {
         description: response.data.record_info.description
       }
