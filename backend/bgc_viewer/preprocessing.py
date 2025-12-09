@@ -4,6 +4,8 @@ Extracts attributes into SQLite database.
 """
 
 import sqlite3
+import ijson
+import io
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable
 
@@ -346,166 +348,171 @@ def preprocess_antismash_files(
                     relative_path = json_file.relative_to(input_path)
                     progress_callback(str(relative_path), files_processed, len(files_to_process))
                 
-                file_attributes: List[tuple] = []
                 file_records = 0
+                relative_path = json_file.relative_to(input_path)
                 
-                # Parse file to extract both attributes and byte positions
+                # First pass: Use ijson to extract file-level metadata
+                version = None
+                input_file = None
+                
                 with open(json_file, 'rb') as f:
-                    # Read entire file content to track byte positions
-                    content = f.read()
-                    
-                    # Find the records array boundaries
-                    records_start_pattern = b'"records"'
-                    records_pos = content.find(records_start_pattern)
-                    
-                    if records_pos != -1:
-                        # Find the opening bracket of records array
-                        bracket_pos = content.find(b'[', records_pos)
-                        
-                        if bracket_pos != -1:
-                            # Parse individual records and track their byte positions
-                            pos = bracket_pos + 1  # Start after opening bracket
-                            brace_count = 0
-                            record_start = None
-                            
-                            file_record_data = []
-                            
-                            while pos < len(content):
-                                char = content[pos:pos+1]
-                                
-                                if char == b'{':
-                                    if brace_count == 0:
-                                        record_start = pos
-                                    brace_count += 1
-                                elif char == b'}':
-                                    brace_count -= 1
-                                    if brace_count == 0 and record_start is not None:
-                                        # Found complete record
-                                        record_end = pos + 1
-                                        
-                                        # Parse the record JSON
-                                        record_json = content[record_start:record_end]
-                                        try:
-                                            import json
-                                            record = json.loads(record_json.decode('utf-8'))
-                                            record_id = record.get('id', f'record_{total_records}')
-                                            
-                                            # Extract record metadata - use relative path to avoid filename collisions
-                                            metadata = extract_record_metadata(
-                                                record, record_id, record_start, record_end
-                                            )
-                                            file_record_data.append(metadata)
-                                            
-                                            file_records += 1
-                                            total_records += 1
-                                            
-                                        except (json.JSONDecodeError, UnicodeDecodeError):
-                                            # Skip malformed records
-                                            pass
-                                        
-                                        record_start = None
-                                elif char == b']' and brace_count == 0:
-                                    # End of records array
-                                    break
-                                
-                                pos += 1
-                
-                # Insert records and then attributes
-                if file_record_data:
-                    # First, extract and insert file-level metadata
-                    import json
-                    
-                    # Parse the top level of the JSON to get version and input_file
                     try:
-                        file_data = json.loads(content.decode('utf-8'))
-                        version = file_data.get('version')
-                        input_file = file_data.get('input_file')
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        version = None
-                        input_file = None
-                    
-                    # Use relative path to avoid filename collisions
-                    relative_path = json_file.relative_to(input_path)
-                    
-                    # Insert file-level metadata as key-value pairs
-                    file_metadata = []
-                    if version is not None:
-                        file_metadata.append((str(relative_path), 'version', version))
-                    if input_file is not None:
-                        file_metadata.append((str(relative_path), 'input_file', input_file))
-                    
-                    if file_metadata:
-                        conn.executemany(
-                            """INSERT OR REPLACE INTO files (filename, key, value)
-                               VALUES (?, ?, ?)""",
-                            file_metadata
-                        )
-                    
-                    # Get or create a file_ref for the records table
-                    # We'll use the minimum id for this filename as the file_ref
-                    cursor = conn.execute(
-                        "SELECT MIN(id) FROM files WHERE filename = ?",
-                        (str(relative_path),)
+                        parser = ijson.parse(f)
+                        for prefix, event, value in parser:
+                            if prefix == 'version' and event == 'string':
+                                version = value
+                            elif prefix == 'input_file' and event == 'string':
+                                input_file = value
+                            elif prefix == 'records' and event == 'start_array':
+                                # Found records array, stop parsing metadata
+                                break
+                    except ijson.JSONError:
+                        pass
+                
+                # Insert file-level metadata
+                file_metadata = []
+                if version is not None:
+                    file_metadata.append((str(relative_path), 'version', version))
+                if input_file is not None:
+                    file_metadata.append((str(relative_path), 'input_file', input_file))
+                
+                if file_metadata:
+                    conn.executemany(
+                        """INSERT OR REPLACE INTO files (filename, key, value)
+                           VALUES (?, ?, ?)""",
+                        file_metadata
                     )
-                    result = cursor.fetchone()
-                    file_ref = result[0] if result and result[0] is not None else None
+                
+                # Get or create a file_ref for the records table
+                cursor = conn.execute(
+                    "SELECT MIN(id) FROM files WHERE filename = ?",
+                    (str(relative_path),)
+                )
+                result = cursor.fetchone()
+                file_ref = result[0] if result and result[0] is not None else None
+                
+                # If no file metadata was inserted, create a placeholder
+                if file_ref is None:
+                    cursor = conn.execute(
+                        """INSERT INTO files (filename, key, value)
+                           VALUES (?, ?, ?)""",
+                        (str(relative_path), '_placeholder', '')
+                    )
+                    file_ref = cursor.lastrowid
+                
+                # Second pass: Stream records and track byte positions
+                # Read the entire file to find exact byte positions
+                with open(json_file, 'rb') as f:
+                    file_content = f.read()
+                
+                # Find where "records" array starts in the file
+                records_key_pos = file_content.find(b'"records"')
+                if records_key_pos == -1:
+                    files_processed += 1
+                    continue
+                
+                # Find the opening bracket of the records array
+                records_array_start = file_content.find(b'[', records_key_pos)
+                if records_array_start == -1:
+                    files_processed += 1
+                    continue
+                
+                # Now use ijson to parse records while tracking positions
+                with open(json_file, 'rb') as f:
+                    # Create a wrapper that tracks byte position
+                    records_iter = ijson.items(f, 'records.item')
                     
-                    # If no file metadata was inserted (both version and input_file are None),
-                    # insert a placeholder entry so we have a file_ref
-                    if file_ref is None:
-                        cursor = conn.execute(
-                            """INSERT INTO files (filename, key, value)
-                               VALUES (?, ?, ?)""",
-                            (str(relative_path), '_placeholder', '')
+                    # Manually track byte positions by scanning the file content
+                    pos = records_array_start + 1  # Start after '['
+                    brace_depth = 0
+                    record_start = None
+                    in_string = False
+                    escape_next = False
+                    
+                    record_positions = []
+                    
+                    for i in range(pos, len(file_content)):
+                        byte = file_content[i:i+1]
+                        
+                        # Handle string boundaries (to avoid counting braces inside strings)
+                        if escape_next:
+                            escape_next = False
+                            continue
+                        
+                        if byte == b'\\':
+                            escape_next = True
+                            continue
+                        
+                        if byte == b'"':
+                            in_string = not in_string
+                            continue
+                        
+                        if in_string:
+                            continue
+                        
+                        # Track brace depth
+                        if byte == b'{':
+                            if brace_depth == 0:
+                                record_start = i
+                            brace_depth += 1
+                        elif byte == b'}':
+                            brace_depth -= 1
+                            if brace_depth == 0 and record_start is not None:
+                                record_end = i + 1
+                                record_positions.append((record_start, record_end))
+                                record_start = None
+                        elif byte == b']' and brace_depth == 0:
+                            break
+                    
+                    # Now parse records with ijson and use the tracked positions
+                    f.seek(0)
+                    records_iter = ijson.items(f, 'records.item')
+                    
+                    for idx, record in enumerate(records_iter):
+                        if idx >= len(record_positions):
+                            break
+                        
+                        record_start, record_end = record_positions[idx]
+                        record_id = record.get('id', f'record_{total_records}')
+                        
+                        # Extract record metadata
+                        metadata = extract_record_metadata(
+                            record, record_id, record_start, record_end
                         )
-                        file_ref = cursor.lastrowid
-                    
-                    # Insert records with file_ref
-                    for record_metadata in file_record_data:
+                        
+                        # Insert record
                         cursor = conn.execute(
                             """INSERT INTO records 
                                (file_ref, filename, record_id, byte_start, byte_end, feature_count, product, organism, description,
                                 protocluster_count, proto_core_count, pfam_domain_count, cds_count, cand_cluster_count)
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (file_ref, str(relative_path), record_metadata['record_id'], 
-                             record_metadata['byte_start'], record_metadata['byte_end'],
-                             record_metadata['feature_count'], record_metadata['product'],
-                             record_metadata['organism'], record_metadata['description'],
-                             record_metadata['protocluster_count'], record_metadata['proto_core_count'],
-                             record_metadata['pfam_domain_count'], record_metadata['cds_count'],
-                             record_metadata['cand_cluster_count'])
+                            (file_ref, str(relative_path), metadata['record_id'], 
+                             metadata['byte_start'], metadata['byte_end'],
+                             metadata['feature_count'], metadata['product'],
+                             metadata['organism'], metadata['description'],
+                             metadata['protocluster_count'], metadata['proto_core_count'],
+                             metadata['pfam_domain_count'], metadata['cds_count'],
+                             metadata['cand_cluster_count'])
                         )
                         record_internal_id = cursor.lastrowid
                         
-                        # Skip if we couldn't get the record ID
                         if record_internal_id is None:
                             continue
                         
-                        # Now parse the record again to extract attributes
-                        record_start = record_metadata['byte_start']
-                        record_end = record_metadata['byte_end']
-                        record_json = content[record_start:record_end]
+                        # Extract and insert attributes
+                        attributes = extract_attributes_from_record(record, record_internal_id)
                         
-                        try:
-                            import json
-                            record = json.loads(record_json.decode('utf-8'))
-                            
-                            # Extract attributes using the internal record ID
-                            attributes = extract_attributes_from_record(record, record_internal_id)
-                            
-                            # Insert attributes for this record
-                            if attributes:
-                                conn.executemany(
-                                    """INSERT INTO attributes 
-                                       (record_ref, origin, attribute_name, attribute_value)
-                                       VALUES (?, ?, ?, ?)""",
-                                    attributes
-                                )
-                                total_attributes += len(attributes)
+                        if attributes:
+                            conn.executemany(
+                                """INSERT INTO attributes 
+                                   (record_ref, origin, attribute_name, attribute_value)
+                                   VALUES (?, ?, ?, ?)""",
+                                attributes
+                            )
+                            total_attributes += len(attributes)
                         
-                        except (json.JSONDecodeError, UnicodeDecodeError):
-                            # Skip malformed records
-                            pass
+                        file_records += 1
+                        total_records += 1
                     
                     conn.commit()
                 
