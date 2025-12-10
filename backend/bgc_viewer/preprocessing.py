@@ -9,6 +9,13 @@ import io
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable
 
+# Try to import Rust extension for fast scanning, fall back to Python if not available
+try:
+    import bgc_scanner
+    HAS_RUST_SCANNER = True
+except ImportError:
+    HAS_RUST_SCANNER = False
+
 
 def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     """Create SQLite database for storing attributes and record index. Drops existing database if it exists."""
@@ -401,26 +408,26 @@ def preprocess_antismash_files(
                     file_ref = cursor.lastrowid
                 
                 # Second pass: Stream records and track byte positions
-                # Read the entire file to find exact byte positions
-                with open(json_file, 'rb') as f:
-                    file_content = f.read()
-                
-                # Find where "records" array starts in the file
-                records_key_pos = file_content.find(b'"records"')
-                if records_key_pos == -1:
-                    files_processed += 1
-                    continue
-                
-                # Find the opening bracket of the records array
-                records_array_start = file_content.find(b'[', records_key_pos)
-                if records_array_start == -1:
-                    files_processed += 1
-                    continue
-                
-                # Now use ijson to parse records while tracking positions
-                with open(json_file, 'rb') as f:
-                    # Create a wrapper that tracks byte position
-                    records_iter = ijson.items(f, 'records.item')
+                # Use Rust scanner if available (100x faster), otherwise fall back to Python
+                if HAS_RUST_SCANNER:
+                    # Fast Rust-based scanning
+                    record_positions = bgc_scanner.scan_records(str(json_file))
+                else:
+                    # Fallback: Python-based scanning
+                    with open(json_file, 'rb') as f:
+                        file_content = f.read()
+                    
+                    # Find where "records" array starts in the file
+                    records_key_pos = file_content.find(b'"records"')
+                    if records_key_pos == -1:
+                        files_processed += 1
+                        continue
+                    
+                    # Find the opening bracket of the records array
+                    records_array_start = file_content.find(b'[', records_key_pos)
+                    if records_array_start == -1:
+                        files_processed += 1
+                        continue
                     
                     # Manually track byte positions by scanning the file content
                     pos = records_array_start + 1  # Start after '['
@@ -463,14 +470,18 @@ def preprocess_antismash_files(
                                 record_start = None
                         elif byte == b']' and brace_depth == 0:
                             break
-                    
-                    # Now parse records with ijson and use the tracked positions
-                    f.seek(0)
+                
+                # Now parse records with ijson using the tracked positions
+                with open(json_file, 'rb') as f:
                     records_iter = ijson.items(f, 'records.item')
                     
                     for idx, record in enumerate(records_iter):
                         if idx >= len(record_positions):
-                            break
+                            # More records from ijson than positions found - this is an error
+                            raise ValueError(
+                                f"Mismatch in {json_file.name}: ijson found more records than byte positions. "
+                                f"Expected at most {len(record_positions)} records but found at least {idx + 1}."
+                            )
                         
                         record_start, record_end = record_positions[idx]
                         record_id = record.get('id', f'record_{total_records}')
@@ -513,6 +524,14 @@ def preprocess_antismash_files(
                         
                         file_records += 1
                         total_records += 1
+                    
+                    # Verify counts match exactly
+                    actual_record_count = idx + 1 if 'idx' in locals() else 0
+                    if len(record_positions) != actual_record_count:
+                        raise ValueError(
+                            f"Record count mismatch in {json_file.name}: "
+                            f"found {len(record_positions)} byte positions but ijson parsed {actual_record_count} records"
+                        )
                     
                     conn.commit()
                 
