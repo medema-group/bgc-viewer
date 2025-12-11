@@ -5,9 +5,10 @@ Extracts attributes into SQLite database.
 
 import sqlite3
 import ijson
-import io
+import gzip
+import bz2
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Union, Callable
+from typing import Dict, List, Any, Optional, Callable
 
 # Try to import Rust extension for fast scanning, fall back to Python if not available
 try:
@@ -15,6 +16,26 @@ try:
     HAS_RUST_SCANNER = True
 except ImportError:
     HAS_RUST_SCANNER = False
+
+
+def open_file(file_path: Path, mode: str = 'rb'):
+    """
+    Open a file with automatic decompression support.
+    Supports .gz (gzip) and .bz2 (bzip2) compressed files.
+    
+    Args:
+        file_path: Path to the file
+        mode: File open mode (default 'rb')
+        
+    Returns:
+        File handle with appropriate decompression
+    """
+    if file_path.suffix == '.gz':
+        return gzip.open(file_path, mode)
+    elif file_path.suffix == '.bz2':
+        return bz2.open(file_path, mode)
+    else:
+        return open(file_path, mode)
 
 
 def create_attributes_database(db_path: Path) -> sqlite3.Connection:
@@ -341,7 +362,10 @@ def preprocess_antismash_files(
         # Use the provided list of files
         files_to_process = json_files
     else:
-        files_to_process = list(input_path.rglob("*.json"))
+        # Find all JSON files (uncompressed and compressed)
+        files_to_process = []
+        for pattern in ["*.json", "*.json.gz", "*.json.bz2"]:
+            files_to_process.extend(input_path.rglob(pattern))
     
     total_records = 0
     total_attributes = 0
@@ -361,7 +385,7 @@ def preprocess_antismash_files(
                 version = None
                 input_file = None
                 
-                with open(json_file, 'rb') as f:
+                with open_file(json_file, 'rb') as f:
                     try:
                         parser = ijson.parse(f)
                         for prefix, event, value in parser:
@@ -408,12 +432,12 @@ def preprocess_antismash_files(
                 
                 # Second pass: Stream records and track byte positions
                 # Use Rust scanner if available (100x faster), otherwise fall back to Python
-                if HAS_RUST_SCANNER:
-                    # Fast Rust-based scanning
+                if HAS_RUST_SCANNER and json_file.suffix not in ['.gz', '.bz2']:
+                    # Fast Rust-based scanning (only for uncompressed files)
                     record_positions = bgc_scanner.scan_records(str(json_file))
                 else:
-                    # Fallback: Python-based scanning
-                    with open(json_file, 'rb') as f:
+                    # Fallback: Python-based scanning (required for compressed files)
+                    with open_file(json_file, 'rb') as f:
                         file_content = f.read()
                     
                     # Find where "records" array starts in the file
@@ -471,7 +495,7 @@ def preprocess_antismash_files(
                             break
                 
                 # Now parse records with ijson using the tracked positions
-                with open(json_file, 'rb') as f:
+                with open_file(json_file, 'rb') as f:
                     records_iter = ijson.items(f, 'records.item')
                     
                     for idx, record in enumerate(records_iter):
