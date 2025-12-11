@@ -341,8 +341,7 @@ def preprocess_antismash_files(
         # Use the provided list of files
         files_to_process = json_files
     else:
-        # Process first 5000 JSON files only - scan recursively in subdirectories
-        files_to_process = list(input_path.rglob("*.json"))[:5000]
+        files_to_process = list(input_path.rglob("*.json"))
     
     total_records = 0
     total_attributes = 0
