@@ -131,13 +131,13 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
                 f.seek(byte_start)
                 record_bytes = f.read(byte_end - byte_start)
                 
-                try:
-                    record_data = json.loads(record_bytes.decode('utf-8'))
-                    conn.close()
-                    
-                    return {
-                        "records": [record_data]
-                    }
+            try:
+                record_data = json.loads(record_bytes.decode('utf-8'))
+                conn.close()
+                
+                return {
+                    "records": [record_data]
+                }
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 conn.close()
                 return load_specific_record_fallback(file_path, target_record_id)
