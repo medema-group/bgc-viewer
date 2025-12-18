@@ -46,20 +46,27 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     
     conn = sqlite3.connect(db_path)
     
+    # Enable performance optimizations
+    conn.execute("PRAGMA journal_mode=WAL")  # Write-Ahead Logging for better concurrency
+    conn.execute("PRAGMA synchronous=NORMAL")  # Faster writes, still safe
+    conn.execute("PRAGMA temp_store=MEMORY")  # Use memory for temp storage
+    conn.execute("PRAGMA mmap_size=268435456")  # 256MB memory-mapped I/O
+    conn.execute("PRAGMA page_size=4096")  # Optimal page size for modern systems
+    
     # Create the metadata table for storing preprocessing metadata
     conn.execute("""
         CREATE TABLE IF NOT EXISTS metadata (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
-        )
+        ) WITHOUT ROWID
     """)
     
     # Create the files table to store file-level metadata (key-value pairs per file)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL,
-            key TEXT NOT NULL,
+            filename TEXT NOT NULL COLLATE NOCASE,
+            key TEXT NOT NULL COLLATE NOCASE,
             value TEXT,
             UNIQUE(filename, key)
         )
@@ -70,13 +77,13 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             file_ref INTEGER NOT NULL,
-            filename TEXT NOT NULL,
-            record_id TEXT NOT NULL,
+            filename TEXT NOT NULL COLLATE NOCASE,
+            record_id TEXT NOT NULL COLLATE NOCASE,
             byte_start INTEGER NOT NULL,
             byte_end INTEGER NOT NULL,
             feature_count INTEGER DEFAULT 0,
-            product TEXT,
-            organism TEXT,
+            product TEXT COLLATE NOCASE,
+            organism TEXT COLLATE NOCASE,
             description TEXT,
             protocluster_count INTEGER DEFAULT 0,
             proto_core_count INTEGER DEFAULT 0,
@@ -94,10 +101,43 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             record_ref INTEGER NOT NULL,  -- Foreign key to records.id
             origin TEXT NOT NULL,         -- 'annotations' or 'source'
-            attribute_name TEXT NOT NULL,
+            attribute_name TEXT NOT NULL COLLATE NOCASE,
             attribute_value TEXT NOT NULL,
             FOREIGN KEY (record_ref) REFERENCES records (id) ON DELETE CASCADE
         )
+    """)
+    
+    # Create FTS5 virtual table for full-text search on attributes
+    # This dramatically speeds up text searches and reduces index size
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS attributes_fts USING fts5(
+            attribute_value,
+            record_ref UNINDEXED,
+            content=attributes,
+            content_rowid=id
+        )
+    """)
+    
+    # Create triggers to keep FTS table in sync with attributes table
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS attributes_fts_insert AFTER INSERT ON attributes BEGIN
+            INSERT INTO attributes_fts(rowid, attribute_value, record_ref)
+            VALUES (new.id, new.attribute_value, new.record_ref);
+        END
+    """)
+    
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS attributes_fts_delete AFTER DELETE ON attributes BEGIN
+            DELETE FROM attributes_fts WHERE rowid = old.id;
+        END
+    """)
+    
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS attributes_fts_update AFTER UPDATE ON attributes BEGIN
+            DELETE FROM attributes_fts WHERE rowid = old.id;
+            INSERT INTO attributes_fts(rowid, attribute_value, record_ref)
+            VALUES (new.id, new.attribute_value, new.record_ref);
+        END
     """)
     
     # Create indexes for efficient querying
@@ -112,11 +152,10 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_records_product ON records (product)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_records_organism ON records (organism)")
     
+    # Simplified attribute indexes - FTS handles text search, we only need these for joins
     conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_record_ref ON attributes (record_ref)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_origin ON attributes (origin)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_name ON attributes (attribute_name)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_value ON attributes (attribute_value)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_name_value ON attributes (attribute_name, attribute_value)")
+    # Remove redundant indexes on attribute_name and attribute_value - FTS handles this
     
     conn.commit()
     return conn
@@ -568,7 +607,22 @@ def preprocess_antismash_files(
         # Final progress callback
         if progress_callback:
             progress_callback("", files_processed, len(files_to_process))
-        conn.close()
+        
+        # Optimize database for read performance
+        if conn:
+            try:
+                # Rebuild FTS index and update statistics
+                conn.execute("INSERT INTO attributes_fts(attributes_fts) VALUES('optimize')")
+                conn.execute("ANALYZE")
+                conn.commit()
+                
+                # VACUUM must be done outside a transaction
+                conn.isolation_level = None  # Autocommit mode
+                conn.execute("VACUUM")
+            except Exception as e:
+                print(f"Warning: Database optimization failed: {e}")
+            finally:
+                conn.close()
     
     return {
         'files_processed': files_processed,
