@@ -20,16 +20,17 @@ def test_byte_positions_accuracy(test_database):
     
     # Get all records with their byte positions
     cursor = conn.execute("""
-        SELECT filename, record_id, byte_start, byte_end 
-        FROM records
+        SELECT f.path, r.record_id, r.byte_start, r.byte_end 
+        FROM records r
+        JOIN files f ON r.file_id = f.id
     """)
     
     records = cursor.fetchall()
     assert len(records) > 0, "No records found in database"
     
     # Test each record
-    for filename, record_id, byte_start, byte_end in records:
-        file_path = data_root / filename
+    for filepath, record_id, byte_start, byte_end in records:
+        file_path = data_root / filepath
         
         assert file_path.exists(), f"File not found: {file_path}"
         assert byte_start >= 0, f"Invalid byte_start: {byte_start}"
@@ -46,7 +47,7 @@ def test_byte_positions_accuracy(test_database):
         
         # Verify the extracted record ID matches
         assert extracted_id == record_id, \
-            f"Record ID mismatch in {filename}: expected '{record_id}', got '{extracted_id}'"
+            f"Record ID mismatch in {filepath}: expected '{record_id}', got '{extracted_id}'"
         
         # Verify it's a valid record structure
         assert 'features' in record_data, f"Record missing 'features' field: {record_id}"

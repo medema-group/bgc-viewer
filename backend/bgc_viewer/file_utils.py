@@ -7,9 +7,10 @@ import re
 
 def match_location(location):
     """Match location string to extract start and end coordinates."""
-    location_match = re.match(r"\[<?(\d+):>?(\d+)\]", location)
+    location_match = re.match(r"\[<?(\d+):>?(\d+)\](?:\(([+-])\))?", location)
     if location_match:
         start = int(location_match.group(1))
         end = int(location_match.group(2))
-        return start, end
+        direction = { None: None, '+': 1, '-': -1 }.get(location_match.group(3))
+        return start, end, direction
     return None
