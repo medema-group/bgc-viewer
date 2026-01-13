@@ -1,28 +1,10 @@
 """
 Database operations for BGC Viewer.
 Handles SQLite queries for the attributes database.
-The database uses SQLite FTS5 (Full-Text Search) for optimized text search performance.
 """
 
 import sqlite3
 from pathlib import Path
-
-
-def sanitize_fts_query(query: str) -> str:
-    """
-    Sanitize user input for FTS5 MATCH queries.
-    Escapes special FTS5 characters and wraps in quotes for phrase search.
-    
-    Args:
-        query: Raw search query from user
-        
-    Returns:
-        Sanitized query safe for FTS5 MATCH
-    """
-    # Escape quotes by doubling them for FTS5
-    query = query.replace('"', '""')
-    # Wrap in quotes for phrase search (handles special chars safely)
-    return f'"{query}"'
 
 
 def get_database_info(db_file_path):
@@ -169,17 +151,12 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
             search_terms = search.strip().split()
             
             for term in search_terms:
-                # Use FTS5 for attribute search (much faster) and LIKE for metadata fields
-                # FTS5 uses MATCH for efficient full-text search
+                # Each term must match at least one field
                 search_condition = """(r.filename LIKE ? OR r.record_id LIKE ? OR r.organism LIKE ? OR r.product LIKE ? 
-                                   OR EXISTS (SELECT 1 FROM attributes_fts 
-                                              WHERE attributes_fts MATCH ? 
-                                              AND attributes_fts.record_ref = r.id))"""
+                                   OR EXISTS (SELECT 1 FROM attributes a2 WHERE a2.record_ref = r.id AND a2.attribute_value LIKE ?))"""
                 where_conditions.append(search_condition)
                 term_param = f"%{term}%"
-                # Sanitize term for FTS5 (escapes special characters)
-                fts_term = sanitize_fts_query(term)
-                params.extend([term_param, term_param, term_param, term_param, fts_term])
+                params.extend([term_param, term_param, term_param, term_param, term_param])
         
         # Build WHERE clause
         if where_conditions:
