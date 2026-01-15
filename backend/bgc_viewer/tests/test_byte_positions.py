@@ -20,8 +20,9 @@ def test_byte_positions_accuracy(test_database):
     
     # Get all records with their byte positions
     cursor = conn.execute("""
-        SELECT filename, record_id, byte_start, byte_end 
-        FROM records
+        SELECT f.path, r.record_id, r.byte_start, r.byte_end 
+        FROM records r
+        JOIN files f ON r.file_id = f.id
     """)
     
     records = cursor.fetchall()

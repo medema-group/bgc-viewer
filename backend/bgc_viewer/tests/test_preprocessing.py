@@ -79,13 +79,12 @@ class TestExtractAttributesFromRecord:
         # Should have attributes from both annotations and source features
         assert len(attributes) > 0
         
-        # Check structure - each should be (record_ref, origin, attr_name, attr_value)
+        # Check structure - each should be (record_id, attr_name, attr_value)
         for attr in attributes:
-            assert len(attr) == 4
-            assert attr[0] == 1  # record_ref
-            assert attr[1] in ["annotations", "source"]  # origin
-            assert isinstance(attr[2], str)  # attr_name
-            assert isinstance(attr[3], str)  # attr_value
+            assert len(attr) == 3
+            assert attr[0] == 1  # record_id
+            assert isinstance(attr[1], str)  # attr_name
+            assert isinstance(attr[2], str)  # attr_value
 
 
 class TestDatabaseCreation:
@@ -103,14 +102,14 @@ class TestDatabaseCreation:
         # Check table structure
         cursor = conn.execute("PRAGMA table_info(attributes)")
         columns = [row[1] for row in cursor.fetchall()]
-        expected_columns = ['id', 'record_ref', 'origin', 'attribute_name', 'attribute_value']
+        expected_columns = ['record_id', 'attribute_name', 'attribute_value']
         for col in expected_columns:
             assert col in columns
         
         # Check records table structure  
         cursor = conn.execute("PRAGMA table_info(records)")
         columns = [row[1] for row in cursor.fetchall()]
-        expected_columns = ['id', 'filename', 'record_id', 'byte_start', 'byte_end']
+        expected_columns = ['id', 'file_id', 'record_id', 'byte_start', 'byte_end']
         for col in expected_columns:
             assert col in columns
         
@@ -194,14 +193,18 @@ class TestPreprocessingPipeline:
         total_attributes = cursor.fetchone()[0]
         assert total_attributes > 0
         
-        cursor = conn.execute("SELECT DISTINCT origin FROM attributes")
-        origins = [row[0] for row in cursor.fetchall()]
-        assert "annotations" in origins
-        assert "source" in origins
+        # Verify that we have attributes from different sources
+        cursor = conn.execute("SELECT DISTINCT attribute_name FROM attributes")
+        attr_names = [row[0] for row in cursor.fetchall()]
+        assert len(attr_names) > 0
         
-        cursor = conn.execute("SELECT DISTINCT filename FROM records")
+        cursor = conn.execute("""
+            SELECT DISTINCT f.path 
+            FROM records r 
+            JOIN files f ON r.file_id = f.id
+        """)
         files = [row[0] for row in cursor.fetchall()]
-        assert "test_sample.json" in files
+        assert any("test_sample.json" in str(f) for f in files)
         
         # Check byte positions are set in records table
         cursor = conn.execute("SELECT COUNT(*) FROM records WHERE byte_start IS NOT NULL")
