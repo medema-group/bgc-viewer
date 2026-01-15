@@ -53,7 +53,7 @@
       <!-- Right main viewer area (70%) -->
       <main class="viewer-area">
         <RegionViewerContainer 
-          v-if="!folderForIndexing"
+          v-if="!folderForIndexing && dataProvider"
           ref="regionViewerRef"
           :data-provider="dataProvider"
           :record-id="currentRecordId"
