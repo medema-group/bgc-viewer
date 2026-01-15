@@ -9,6 +9,7 @@ import gzip
 import bz2
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Callable
+from datetime import datetime
 
 # Try to import Rust extension for fast scanning, fall back to Python if not available
 try:
@@ -122,6 +123,11 @@ def populate_metadata_table(conn: sqlite3.Connection, data_root: str) -> None:
     # Store the absolute path of the data root directory
     metadata_entries.append(('data_root', data_root))
     
+    # Store creation and modification timestamps
+    current_timestamp = datetime.now().isoformat()
+    metadata_entries.append(('creation_date', current_timestamp))
+    metadata_entries.append(('modified_date', current_timestamp))
+    
     # Insert metadata entries
     conn.executemany(
         "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
@@ -197,28 +203,27 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
         for region_id, annotation_data in record['annotations'].items():
             flattened = flatten_complex_value(annotation_data)
             for attr_name, attr_value in flattened:
-                # Prepend region_id to attribute name
-                full_attr_name = f"{region_id}_{attr_name}" if attr_name else region_id
-                attributes.append((
-                    record_ref_id,
-                    full_attr_name,
-                    attr_value
-                ))
+                # Skip values over 100 characters
+                if len(attr_value) <= 100:
+                    attributes.append((
+                        record_ref_id,
+                        attr_name,
+                        attr_value
+                    ))
     
     # Extract from all feature qualifiers (not just source)
     if 'features' in record and isinstance(record['features'], list):
         for feature in record['features']:
             if 'qualifiers' in feature:
-                feature_type = feature.get('type', 'unknown')
                 flattened = flatten_complex_value(feature['qualifiers'])
                 for attr_name, attr_value in flattened:
-                    # Include feature type in attribute name for context
-                    full_attr_name = f"{feature_type}_{attr_name}"
-                    attributes.append((
-                        record_ref_id,
-                        full_attr_name,
-                        attr_value
-                    ))
+                    # Skip translation and values over 100 characters
+                    if attr_name != 'translation' and len(attr_value) <= 100:
+                        attributes.append((
+                            record_ref_id,
+                            attr_name,
+                            attr_value
+                        ))
     
     return attributes
 
