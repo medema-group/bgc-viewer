@@ -15,7 +15,7 @@ hero:
       link: /components/track-viewer
     - theme: alt
       text: GitHub
-      link: https://github.com/yourusername/bgc-viewer
+      link: https://github.com/medema-group/bgc-viewer
 
 features:
   - title: Interactive Visualization

@@ -88,7 +88,7 @@ Automatic deployment to GitHub Pages on push to `main` branch.
 2. Set Source to "GitHub Actions"
 3. Push to main
 
-Site will be at: `https://yourusername.github.io/bgc-viewer/`
+Site will be at: `https://medema-group.github.io/bgc-viewer/`
 
 ## Customization
 

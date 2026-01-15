@@ -62,7 +62,7 @@ export default defineConfig({
     ],
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/yourusername/bgc-viewer' }
+      { icon: 'github', link: 'https://github.com/medema-group/bgc-viewer' }
     ],
 
     footer: {
