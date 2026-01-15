@@ -111,8 +111,7 @@ export default {
     const needsPreprocessing = ref(false)
     
     // Region viewer state - much simpler now!
-    // Initialize data provider immediately to avoid race conditions
-    const dataProvider = ref(new BGCViewerAPIProvider())
+    const dataProvider = ref(null)
     const currentRecordId = ref('')
     const currentRecordData = ref(null)
     const initialRegionId = ref('')
@@ -270,6 +269,9 @@ export default {
     onMounted(async () => {
       fetchVersion()
       fetchStatus()
+      
+      // Initialize data provider - this will be shared with the container
+      dataProvider.value = new BGCViewerAPIProvider()
     })
     
     // Cleanup on unmount

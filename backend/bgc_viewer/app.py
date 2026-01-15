@@ -471,7 +471,7 @@ def get_record_regions(record_id):
     for feature in record.get("features", []):
         if feature.get("type") == "region":
             # Parse location to get start/end coordinates
-            start, end, _ = match_location(feature.get("location", "")) or (0, 0)
+            start, end = match_location(feature.get("location", "")) or (0, 0)
             
             region_info = {
                 "id": f"region_{feature.get('qualifiers', {}).get('region_number', ['unknown'])[0]}",

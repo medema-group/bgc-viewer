@@ -9,8 +9,7 @@ from pathlib import Path
 from bgc_viewer.preprocessing import (
     preprocess_antismash_files,
     flatten_complex_value,
-    extract_features_and_attributes,
-    extract_feature_attributes,
+    extract_attributes_from_record,
     create_attributes_database
 )
 
@@ -50,8 +49,8 @@ class TestFlattenComplexValue:
         assert sorted(result) == sorted(expected)
 
 
-class TestExtractFeaturesAndAttributes:
-    """Tests for the extract_features_and_attributes function."""
+class TestExtractAttributesFromRecord:
+    """Tests for the extract_attributes_from_record function."""
     
     def test_basic_extraction(self):
         """Test basic attribute extraction from a record."""
@@ -75,16 +74,16 @@ class TestExtractFeaturesAndAttributes:
             ]
         }
         
-        features, attributes = extract_features_and_attributes(sample_record, 1)  # record_db_id = 1
+        attributes = extract_attributes_from_record(sample_record, 1)  # record_ref_id = 1
         
-        # Should have attributes from annotations
+        # Should have attributes from both annotations and source features
         assert len(attributes) > 0
         
-        # Check structure - each should be (type, ref_id, attr_name, attr_value)
+        # Check structure - each should be (record_ref, origin, attr_name, attr_value)
         for attr in attributes:
             assert len(attr) == 4
-            assert attr[0] == 'record'  # type
-            assert attr[1] == 1  # ref_id
+            assert attr[0] == 1  # record_ref
+            assert attr[1] in ["annotations", "source"]  # origin
             assert isinstance(attr[2], str)  # attr_name
             assert isinstance(attr[3], str)  # attr_value
 
@@ -104,14 +103,14 @@ class TestDatabaseCreation:
         # Check table structure
         cursor = conn.execute("PRAGMA table_info(attributes)")
         columns = [row[1] for row in cursor.fetchall()]
-        expected_columns = ['id', 'type', 'ref_id', 'attribute_name', 'attribute_value']
+        expected_columns = ['id', 'record_ref', 'origin', 'attribute_name', 'attribute_value']
         for col in expected_columns:
             assert col in columns
         
         # Check records table structure  
         cursor = conn.execute("PRAGMA table_info(records)")
         columns = [row[1] for row in cursor.fetchall()]
-        expected_columns = ['id', 'file_id', 'record_id', 'byte_start', 'byte_end']
+        expected_columns = ['id', 'filename', 'record_id', 'byte_start', 'byte_end']
         for col in expected_columns:
             assert col in columns
         
@@ -195,14 +194,12 @@ class TestPreprocessingPipeline:
         total_attributes = cursor.fetchone()[0]
         assert total_attributes > 0
         
-        cursor = conn.execute("SELECT DISTINCT type FROM attributes")
-        types = [row[0] for row in cursor.fetchall()]
-        assert "record" in types
+        cursor = conn.execute("SELECT DISTINCT origin FROM attributes")
+        origins = [row[0] for row in cursor.fetchall()]
+        assert "annotations" in origins
+        assert "source" in origins
         
-        cursor = conn.execute("""
-            SELECT f.path FROM files f
-            JOIN records r ON r.file_id = f.id
-        """)
+        cursor = conn.execute("SELECT DISTINCT filename FROM records")
         files = [row[0] for row in cursor.fetchall()]
         assert "test_sample.json" in files
         

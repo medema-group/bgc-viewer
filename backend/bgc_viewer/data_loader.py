@@ -91,10 +91,8 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
         
         # Query the records table for byte positions
         cursor = conn.execute(
-            """SELECT r.byte_start, r.byte_end 
-               FROM records r
-               JOIN files f ON r.file_id = f.id
-               WHERE f.path = ? AND r.record_id = ?""",
+            """SELECT byte_start, byte_end FROM records 
+               WHERE filename = ? AND record_id = ?""",
             (relative_path, target_record_id)
         )
         
@@ -227,20 +225,15 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
         if filename:
             # Get records for specific file
             cursor = conn.execute(
-                """SELECT r.record_id 
-                   FROM records r
-                   JOIN files f ON r.file_id = f.id
-                   WHERE f.path = ? 
-                   ORDER BY r.record_id""",
+                """SELECT record_id FROM records 
+                   WHERE filename = ? ORDER BY record_id""",
                 (filename,)
             )
         else:
             # Get all records grouped by file
             cursor = conn.execute(
-                """SELECT f.path, r.record_id 
-                   FROM records r
-                   JOIN files f ON r.file_id = f.id
-                   ORDER BY f.path, r.record_id"""
+                """SELECT filename, record_id FROM records 
+                   ORDER BY filename, record_id"""
             )
         
         results = cursor.fetchall()
@@ -256,11 +249,11 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
             # Group by filename
             files: Dict[str, list] = {}
             for row in results:
-                file_path = row[0]  # path
+                file_name = row[0]  # filename
                 record_id = row[1]  # record_id
-                if file_path not in files:
-                    files[file_path] = []
-                files[file_path].append({"id": record_id})
+                if file_name not in files:
+                    files[file_name] = []
+                files[file_name].append({"id": record_id})
             return {"files": files}
     
     except Exception as e:
@@ -269,12 +262,12 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
         return {"error": f"Failed to query index: {e}"}
 
 
-def get_record_metadata_from_index(filepath: str, record_id: str, data_dir: str = "data") -> Optional[Dict[str, Any]]:
+def get_record_metadata_from_index(filename: str, record_id: str, data_dir: str = "data") -> Optional[Dict[str, Any]]:
     """
     Get record metadata from index without loading the full record.
     
     Args:
-        filepath: Path of the file containing the record
+        filename: Name of the file containing the record
         record_id: ID of the record
         data_dir: Directory containing the index database
         
@@ -287,12 +280,9 @@ def get_record_metadata_from_index(filepath: str, record_id: str, data_dir: str 
     
     try:
         cursor = conn.execute(
-            """SELECT f.path, r.record_id, r.byte_start, r.byte_end 
-               FROM records r
-               JOIN files f ON r.file_id = f.id
-               WHERE f.path = ? AND r.record_id = ? 
-               LIMIT 1""",
-            (filepath, record_id)
+            """SELECT filename, record_id, byte_start, byte_end FROM records 
+               WHERE filename = ? AND record_id = ? LIMIT 1""",
+            (filename, record_id)
         )
         
         result = cursor.fetchone()
