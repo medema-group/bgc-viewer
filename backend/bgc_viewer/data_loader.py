@@ -89,10 +89,12 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
             # If file is not within data_dir, just use the filename
             relative_path = Path(file_path).name
         
-        # Query the records table for byte positions
+        # Query the records table for byte positions (join with files table)
         cursor = conn.execute(
-            """SELECT byte_start, byte_end FROM records 
-               WHERE filename = ? AND record_id = ?""",
+            """SELECT r.byte_start, r.byte_end 
+               FROM records r
+               JOIN files f ON r.file_id = f.id
+               WHERE f.path = ? AND r.record_id = ?""",
             (relative_path, target_record_id)
         )
         
@@ -225,15 +227,20 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
         if filename:
             # Get records for specific file
             cursor = conn.execute(
-                """SELECT record_id FROM records 
-                   WHERE filename = ? ORDER BY record_id""",
+                """SELECT r.record_id 
+                   FROM records r
+                   JOIN files f ON r.file_id = f.id
+                   WHERE f.path = ? 
+                   ORDER BY r.record_id""",
                 (filename,)
             )
         else:
             # Get all records grouped by file
             cursor = conn.execute(
-                """SELECT filename, record_id FROM records 
-                   ORDER BY filename, record_id"""
+                """SELECT f.path, r.record_id 
+                   FROM records r
+                   JOIN files f ON r.file_id = f.id
+                   ORDER BY f.path, r.record_id"""
             )
         
         results = cursor.fetchall()
@@ -280,8 +287,11 @@ def get_record_metadata_from_index(filename: str, record_id: str, data_dir: str 
     
     try:
         cursor = conn.execute(
-            """SELECT filename, record_id, byte_start, byte_end FROM records 
-               WHERE filename = ? AND record_id = ? LIMIT 1""",
+            """SELECT f.path, r.record_id, r.byte_start, r.byte_end 
+               FROM records r
+               JOIN files f ON r.file_id = f.id
+               WHERE f.path = ? AND r.record_id = ? 
+               LIMIT 1""",
             (filename, record_id)
         )
         

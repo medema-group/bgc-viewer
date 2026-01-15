@@ -15,7 +15,7 @@ from . import __version__
 from .preprocessing import preprocess_antismash_files
 from .data_loader import load_specific_record
 from .file_utils import match_location
-from .database import get_database_entries, get_database_info, get_file_metadata
+from .database import get_database_entries, get_database_info
 
 # Load environment variables from .env file
 load_dotenv()
@@ -433,14 +433,10 @@ def load_database_entry():
         # Get the loaded record info
         loaded_record = modified_data["records"][0] if modified_data["records"] else {}
         
-        # Get file metadata from database (version, input_file, etc.)
-        file_metadata = get_file_metadata(db_path, filename)
-        
         return jsonify({
             "message": f"Successfully loaded {filename}:{record_id}",
             "filename": filename,
             "record_id": record_id,
-            "file_metadata": file_metadata,
             "record_info": {
                 "id": loaded_record.get("id"),
                 "description": loaded_record.get("description"),

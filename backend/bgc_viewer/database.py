@@ -46,7 +46,7 @@ def get_database_info(db_file_path):
             db_version = version_row[0] if version_row else None
             
             # Get index stats
-            cursor = conn.execute("SELECT COUNT(DISTINCT filename) FROM records")
+            cursor = conn.execute("SELECT COUNT(*) FROM files")
             indexed_files = cursor.fetchone()[0]
             
             cursor = conn.execute("SELECT COUNT(*) FROM records")
@@ -71,43 +71,6 @@ def get_database_info(db_file_path):
         return {"error": f"Failed to read database: {str(e)}"}
 
 
-def get_file_metadata(db_path, filename):
-    """Get all metadata key-value pairs for a specific file.
-    
-    Args:
-        db_path: Path to the database file
-        filename: Name of the file to get metadata for
-        
-    Returns:
-        Dictionary with file metadata key-value pairs
-    """
-    if not db_path or not Path(db_path).exists():
-        return {}
-    
-    try:
-        conn = sqlite3.connect(db_path)
-        
-        # Get all key-value pairs for this file
-        cursor = conn.execute(
-            """SELECT key, value FROM files WHERE filename = ?""",
-            (filename,)
-        )
-        
-        metadata = {}
-        for row in cursor.fetchall():
-            key, value = row
-            # Skip placeholder entries
-            if key != '_placeholder':
-                metadata[key] = value
-        
-        conn.close()
-        return metadata
-        
-    except Exception as e:
-        print(f"Failed to get file metadata: {str(e)}")
-        return {}
-
-
 def get_database_entries(db_path, page=1, per_page=50, search=""):
     """Get paginated list of all file+record entries from the database."""
     per_page = min(per_page, 100)  # Max 100 per page
@@ -125,21 +88,18 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
     try:
         conn = sqlite3.connect(db_path)
         
-        # Build query to get records with additional stats from attributes
+        # Build query to get records with file paths
         base_query = """
             SELECT 
-                r.filename, 
+                f.path as filename, 
                 r.record_id,
-                r.feature_count,
-                COALESCE(r.organism, 'Unknown') as organism,
-                COALESCE(r.product, '') as product,
-                GROUP_CONCAT(DISTINCT CASE WHEN a.attribute_name LIKE '%type' OR a.attribute_name LIKE '%category' THEN a.attribute_value END) as cluster_types,
-                r.id
+                r.id as internal_id
             FROM records r
-            LEFT JOIN attributes a ON r.id = a.record_ref
+            JOIN files f ON r.file_id = f.id
         """
         count_query = """
             SELECT COUNT(*) FROM records r
+            JOIN files f ON r.file_id = f.id
         """
         
         params = []
@@ -152,11 +112,11 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
             
             for term in search_terms:
                 # Each term must match at least one field
-                search_condition = """(r.filename LIKE ? OR r.record_id LIKE ? OR r.organism LIKE ? OR r.product LIKE ? 
-                                   OR EXISTS (SELECT 1 FROM attributes a2 WHERE a2.record_ref = r.id AND a2.attribute_value LIKE ?))"""
+                search_condition = """(f.path LIKE ? OR r.record_id LIKE ? 
+                                   OR EXISTS (SELECT 1 FROM attributes a WHERE a.record_id = r.id AND a.attribute_value LIKE ?))"""
                 where_conditions.append(search_condition)
                 term_param = f"%{term}%"
-                params.extend([term_param, term_param, term_param, term_param, term_param])
+                params.extend([term_param, term_param, term_param])
         
         # Build WHERE clause
         if where_conditions:
@@ -174,8 +134,7 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         
         # Get paginated results
         query = base_query + """
-            GROUP BY r.id, r.filename, r.record_id, r.feature_count, r.organism, r.product
-            ORDER BY r.filename, r.record_id
+            ORDER BY f.path, r.record_id
             LIMIT ? OFFSET ?
         """
         
@@ -183,18 +142,11 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         entries = []
         
         for row in cursor.fetchall():
-            filename, record_id, feature_count, organism, product, cluster_types, internal_id = row
-            
-            # Handle product - convert single product to list format for compatibility
-            products = [product] if product and product.strip() else []
+            filename, record_id, internal_id = row
             
             entries.append({
                 "filename": filename,
                 "record_id": record_id,
-                "feature_count": feature_count or 0,
-                "organism": organism or "Unknown",
-                "products": products,
-                "cluster_types": cluster_types.split(',') if cluster_types else [],
                 "id": f"{filename}:{record_id}",  # Unique identifier for frontend
                 "internal_id": internal_id  # Internal database ID
             })

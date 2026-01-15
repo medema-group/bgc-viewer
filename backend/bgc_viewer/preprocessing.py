@@ -54,14 +54,11 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
         )
     """)
     
-    # Create the files table to store file-level metadata (key-value pairs per file)
+    # Create the files table to store file paths
     conn.execute("""
         CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL,
-            key TEXT NOT NULL,
-            value TEXT,
-            UNIQUE(filename, key)
+            path TEXT NOT NULL UNIQUE
         )
     """)
     
@@ -69,51 +66,32 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            file_ref INTEGER NOT NULL,
-            filename TEXT NOT NULL,
+            file_id INTEGER NOT NULL,
             record_id TEXT NOT NULL,
             byte_start INTEGER NOT NULL,
             byte_end INTEGER NOT NULL,
-            feature_count INTEGER DEFAULT 0,
-            product TEXT,
-            organism TEXT,
-            description TEXT,
-            protocluster_count INTEGER DEFAULT 0,
-            proto_core_count INTEGER DEFAULT 0,
-            pfam_domain_count INTEGER DEFAULT 0,
-            cds_count INTEGER DEFAULT 0,
-            cand_cluster_count INTEGER DEFAULT 0,
-            UNIQUE(filename, record_id),
-            FOREIGN KEY (file_ref) REFERENCES files (id) ON DELETE CASCADE
+            FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
         )
     """)
     
     # Create the attributes table with reference to records
     conn.execute("""
         CREATE TABLE IF NOT EXISTS attributes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            record_ref INTEGER NOT NULL,  -- Foreign key to records.id
-            origin TEXT NOT NULL,         -- 'annotations' or 'source'
+            record_id INTEGER NOT NULL,
             attribute_name TEXT NOT NULL,
             attribute_value TEXT NOT NULL,
-            FOREIGN KEY (record_ref) REFERENCES records (id) ON DELETE CASCADE
+            UNIQUE(record_id, attribute_name, attribute_value),
+            FOREIGN KEY (record_id) REFERENCES records (id) ON DELETE CASCADE
         )
     """)
     
     # Create indexes for efficient querying
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_filename ON files (filename)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_key ON files (key)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_filename_key ON files (filename, key)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_path ON files (path)")
     
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_file_ref ON records (file_ref)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_filename ON records (filename)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_file_id ON records (file_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_records_record_id ON records (record_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_filename_record_id ON records (filename, record_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_product ON records (product)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_organism ON records (organism)")
     
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_record_ref ON attributes (record_ref)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_origin ON attributes (origin)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_record_id ON attributes (record_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_name ON attributes (attribute_name)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_value ON attributes (attribute_value)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_attributes_name_value ON attributes (attribute_name, attribute_value)")
@@ -195,51 +173,8 @@ def extract_record_metadata(record: Dict[str, Any], record_id: str, byte_start: 
     metadata: Dict[str, Any] = {
         'record_id': record_id,
         'byte_start': byte_start,
-        'byte_end': byte_end,
-        'feature_count': 0,
-        'product': None,
-        'organism': None,
-        'description': record.get('description', None),
-        'protocluster_count': 0,
-        'proto_core_count': 0,
-        'pfam_domain_count': 0,
-        'cds_count': 0,
-        'cand_cluster_count': 0
+        'byte_end': byte_end
     }
-    
-    # Count features by type
-    if 'features' in record and isinstance(record['features'], list):
-        metadata['feature_count'] = len(record['features'])
-        
-        # Count specific feature types
-        for feature in record['features']:
-            feature_type = feature.get('type', '').lower()
-            if feature_type == 'protocluster':
-                metadata['protocluster_count'] += 1
-            elif feature_type == 'proto_core':
-                metadata['proto_core_count'] += 1
-            elif feature_type == 'pfam_domain':
-                metadata['pfam_domain_count'] += 1
-            elif feature_type == 'cds':
-                metadata['cds_count'] += 1
-            elif feature_type == 'cand_cluster':
-                metadata['cand_cluster_count'] += 1
-    
-    # Extract organism from source features
-    if 'features' in record and isinstance(record['features'], list):
-        for feature in record['features']:
-            if feature.get('type') == 'source' and 'qualifiers' in feature:
-                qualifiers = feature['qualifiers']
-                if 'organism' in qualifiers:
-                    metadata['organism'] = qualifiers['organism'][0] if isinstance(qualifiers['organism'], list) else qualifiers['organism']
-                    break
-    
-    # Extract product from annotations (look for biosynthetic products)
-    if 'annotations' in record and isinstance(record['annotations'], dict):
-        for region_id, annotation_data in record['annotations'].items():
-            if isinstance(annotation_data, dict) and 'product' in annotation_data:
-                metadata['product'] = annotation_data['product']
-                break
     
     return metadata
 
@@ -253,7 +188,7 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
         record_ref_id: The internal ID from the records table
     
     Returns:
-        List of tuples: (record_ref, origin, attribute_name, attribute_value)
+        List of tuples: (record_id, attribute_name, attribute_value)
     """
     attributes = []
     
@@ -266,58 +201,24 @@ def extract_attributes_from_record(record: Dict[str, Any], record_ref_id: int) -
                 full_attr_name = f"{region_id}_{attr_name}" if attr_name else region_id
                 attributes.append((
                     record_ref_id,
-                    'annotations',
                     full_attr_name,
                     attr_value
                 ))
     
-    # Extract from source features
+    # Extract from all feature qualifiers (not just source)
     if 'features' in record and isinstance(record['features'], list):
         for feature in record['features']:
-            if feature.get('type') == 'source' and 'qualifiers' in feature:
+            if 'qualifiers' in feature:
+                feature_type = feature.get('type', 'unknown')
                 flattened = flatten_complex_value(feature['qualifiers'])
                 for attr_name, attr_value in flattened:
+                    # Include feature type in attribute name for context
+                    full_attr_name = f"{feature_type}_{attr_name}"
                     attributes.append((
                         record_ref_id,
-                        'source',
-                        attr_name,
+                        full_attr_name,
                         attr_value
                     ))
-    
-    # Extract PFAM domains (avoid duplicates)
-    if 'features' in record and isinstance(record['features'], list):
-        pfam_domains = set()  # Use set to avoid duplicates
-        
-        for feature in record['features']:
-            if feature.get('type') == 'PFAM_domain' and 'qualifiers' in feature:
-                qualifiers = feature['qualifiers']
-                if 'db_xref' in qualifiers:
-                    db_xrefs = qualifiers['db_xref']
-                    # Handle both list and single value
-                    if not isinstance(db_xrefs, list):
-                        db_xrefs = [db_xrefs]
-                    
-                    for db_xref in db_xrefs:
-                        # Only process if it looks like a PFAM identifier (starts with 'PF')
-                        db_xref_str = str(db_xref)
-                        if db_xref_str.startswith('PF'):
-                            # Extract part before the period (e.g., "PF00457.13" -> "PF00457")
-                            pfam_id = db_xref_str.split('.')[0]
-                            pfam_domains.add(pfam_id)
-                if 'description' in qualifiers:
-                    description = qualifiers['description']
-                    if isinstance(description, list):
-                        description = description[0]
-                    pfam_domains.add(description)
-
-        # Add unique PFAM domains as attributes
-        for pfam_id in pfam_domains:
-            attributes.append((
-                record_ref_id,
-                'pfam',
-                'pfam',
-                pfam_id
-            ))
     
     return attributes
 
@@ -381,54 +282,18 @@ def preprocess_antismash_files(
                 file_records = 0
                 relative_path = json_file.relative_to(input_path)
                 
-                # First pass: Use ijson to extract file-level metadata
-                version = None
-                input_file = None
-                
-                with open_file(json_file, 'rb') as f:
-                    try:
-                        parser = ijson.parse(f)
-                        for prefix, event, value in parser:
-                            if prefix == 'version' and event == 'string':
-                                version = value
-                            elif prefix == 'input_file' and event == 'string':
-                                input_file = value
-                            elif prefix == 'records' and event == 'start_array':
-                                # Found records array, stop parsing metadata
-                                break
-                    except ijson.JSONError:
-                        pass
-                
-                # Insert file-level metadata
-                file_metadata = []
-                if version is not None:
-                    file_metadata.append((str(relative_path), 'version', version))
-                if input_file is not None:
-                    file_metadata.append((str(relative_path), 'input_file', input_file))
-                
-                if file_metadata:
-                    conn.executemany(
-                        """INSERT OR REPLACE INTO files (filename, key, value)
-                           VALUES (?, ?, ?)""",
-                        file_metadata
-                    )
-                
-                # Get or create a file_ref for the records table
+                # Insert or get file_id from files table
                 cursor = conn.execute(
-                    "SELECT MIN(id) FROM files WHERE filename = ?",
+                    """INSERT OR IGNORE INTO files (path) VALUES (?)""",
+                    (str(relative_path),)
+                )
+                
+                cursor = conn.execute(
+                    """SELECT id FROM files WHERE path = ?""",
                     (str(relative_path),)
                 )
                 result = cursor.fetchone()
-                file_ref = result[0] if result and result[0] is not None else None
-                
-                # If no file metadata was inserted, create a placeholder
-                if file_ref is None:
-                    cursor = conn.execute(
-                        """INSERT INTO files (filename, key, value)
-                           VALUES (?, ?, ?)""",
-                        (str(relative_path), '_placeholder', '')
-                    )
-                    file_ref = cursor.lastrowid
+                file_id = result[0]
                 
                 # Second pass: Stream records and track byte positions
                 # Use Rust scanner if available (100x faster), otherwise fall back to Python
@@ -517,16 +382,10 @@ def preprocess_antismash_files(
                         # Insert record
                         cursor = conn.execute(
                             """INSERT INTO records 
-                               (file_ref, filename, record_id, byte_start, byte_end, feature_count, product, organism, description,
-                                protocluster_count, proto_core_count, pfam_domain_count, cds_count, cand_cluster_count)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (file_ref, str(relative_path), metadata['record_id'], 
-                             metadata['byte_start'], metadata['byte_end'],
-                             metadata['feature_count'], metadata['product'],
-                             metadata['organism'], metadata['description'],
-                             metadata['protocluster_count'], metadata['proto_core_count'],
-                             metadata['pfam_domain_count'], metadata['cds_count'],
-                             metadata['cand_cluster_count'])
+                               (file_id, record_id, byte_start, byte_end)
+                               VALUES (?, ?, ?, ?)""",
+                            (file_id, metadata['record_id'], 
+                             metadata['byte_start'], metadata['byte_end'])
                         )
                         record_internal_id = cursor.lastrowid
                         
@@ -538,9 +397,9 @@ def preprocess_antismash_files(
                         
                         if attributes:
                             conn.executemany(
-                                """INSERT INTO attributes 
-                                   (record_ref, origin, attribute_name, attribute_value)
-                                   VALUES (?, ?, ?, ?)""",
+                                """INSERT OR IGNORE INTO attributes 
+                                   (record_id, attribute_name, attribute_value)
+                                   VALUES (?, ?, ?)""",
                                 attributes
                             )
                             total_attributes += len(attributes)
