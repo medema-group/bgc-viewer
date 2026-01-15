@@ -2,10 +2,9 @@
 
 The BGC Viewer backend provides a RESTful API for accessing the biosynthetic gene cluster data.
 
-::: information Backend is optional
+::: info Backend is optional
 The backend is not required to use the BGC Viewer components in a web application. Other data sources are still available without it. Alternatively, a custom API could be provided that is tailored to your needs.
 :::
-
 
 ## Base URL
 
