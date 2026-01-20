@@ -20,11 +20,11 @@ services:
     image: bgc-viewer:latest
     container_name: bgc-viewer
     ports:
-      - "5050:5000"  # localhost:5050 -> container:5000
-    volumes:
-      # Mount directories containing the database and data files
-      - ${BGCV_INDEX_DIR}:/index:ro
-      - ${BGCV_DATA_ROOT}:/data_root:ro
+      - "5001:5000"  # localhost:5001 -> container:5000
+    # Uncomment to override demo data with your own:
+    # volumes:
+    #   - ${BGCV_INDEX_DIR}:/index:ro
+    #   - ${BGCV_DATA_ROOT}:/data_root:ro
     environment:
       # Generate a secret key with: python -c "import os; print(os.urandom(24).hex())"
       BGCV_SECRET_KEY: ${BGCV_SECRET_KEY:-change-this-secret-key-in-production}
