@@ -7,22 +7,46 @@ Supports fast random access using byte position indexing.
 import json
 import ijson
 import sqlite3
+import gzip
+import bz2
 from pathlib import Path
 from typing import Optional, Dict, Any
+
+
+def open_file(file_path, mode='rb'):
+    """
+    Open a file with automatic decompression support.
+    Supports .gz (gzip) and .bz2 (bzip2) compressed files.
+    
+    Args:
+        file_path: Path to the file (string or Path object)
+        mode: File open mode (default 'rb')
+        
+    Returns:
+        File handle with appropriate decompression
+    """
+    file_path = Path(file_path) if not isinstance(file_path, Path) else file_path
+    
+    if file_path.suffix == '.gz':
+        return gzip.open(file_path, mode)
+    elif file_path.suffix == '.bz2':
+        return bz2.open(file_path, mode)
+    else:
+        return open(file_path, mode)
 
 
 def load_json_file(file_path):
     """Load a JSON file using ijson with fallback to standard json."""
     try:
         # Use ijson for efficient parsing
-        with open(file_path, 'rb') as f:
+        with open_file(file_path, 'rb') as f:
             parser = ijson.parse(f)
             data = _build_data_structure(parser)
             return data
     except Exception as e:
         # Fallback to regular json if ijson fails
         print(f"ijson parsing failed for {file_path}, falling back to json: {e}")
-        with open(file_path, 'r') as f:
+        with open_file(file_path, 'rt') as f:
             return json.load(f)
 
 
@@ -65,10 +89,12 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
             # If file is not within data_dir, just use the filename
             relative_path = Path(file_path).name
         
-        # Query the records table for byte positions
+        # Query the records table for byte positions (join with files table)
         cursor = conn.execute(
-            """SELECT byte_start, byte_end FROM records 
-               WHERE filename = ? AND record_id = ?""",
+            """SELECT r.byte_start, r.byte_end 
+               FROM records r
+               JOIN files f ON r.file_id = f.id
+               WHERE f.path = ? AND r.record_id = ?""",
             (relative_path, target_record_id)
         )
         
@@ -80,10 +106,33 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
         byte_start, byte_end = result['byte_start'], result['byte_end']
         
         # Load the specific record using byte positions (skip metadata for performance)
-        with open(file_path, 'rb') as f:
-            f.seek(byte_start)
-            record_bytes = f.read(byte_end - byte_start)
+        # Note: Byte positions are relative to uncompressed content
+        file_path_obj = Path(file_path)
+        
+        # For compressed files, we need to decompress first, then use byte positions
+        if file_path_obj.suffix in ['.gz', '.bz2']:
+            with open_file(file_path, 'rb') as f:
+                file_content = f.read()
             
+            # Now use byte positions on the uncompressed content
+            record_bytes = file_content[byte_start:byte_end]
+            
+            try:
+                record_data = json.loads(record_bytes.decode('utf-8'))
+                conn.close()
+                
+                return {
+                    "records": [record_data]
+                }
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                conn.close()
+                return load_specific_record_fallback(file_path, target_record_id)
+        else:
+            # For uncompressed files, we can seek directly
+            with open(file_path, 'rb') as f:
+                f.seek(byte_start)
+                record_bytes = f.read(byte_end - byte_start)
+                
             try:
                 record_data = json.loads(record_bytes.decode('utf-8'))
                 conn.close()
@@ -113,16 +162,16 @@ def load_specific_record(file_path, target_record_id, data_dir="data"):
 def load_specific_record_fallback(file_path, target_record_id):
     """Fallback method for loading specific record without index."""
     try:
-        with open(file_path, 'rb') as f:
+        with open_file(file_path, 'rb') as f:
             # Use ijson to parse and extract only the needed record
             # First pass: get metadata
             metadata = {}
             for key, value in ijson.kvitems(f, ''):
                 if key != 'records':
                     metadata[key] = value
-            
-            # Second pass: find the target record
-            f.seek(0)
+        
+        # Second pass: find the target record (need to reopen for compressed files)
+        with open_file(file_path, 'rb') as f:
             records = ijson.items(f, 'records.item')
             target_record = None
             
@@ -143,7 +192,7 @@ def load_specific_record_fallback(file_path, target_record_id):
         print(f"Optimized record loading failed: {e}, falling back to full file load")
         # Fallback to loading the full file
         try:
-            with open(file_path, 'r') as f:
+            with open_file(file_path, 'rt') as f:
                 full_data = json.load(f)
             
             # Find the specific record
@@ -178,15 +227,20 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
         if filename:
             # Get records for specific file
             cursor = conn.execute(
-                """SELECT record_id FROM records 
-                   WHERE filename = ? ORDER BY record_id""",
+                """SELECT r.record_id 
+                   FROM records r
+                   JOIN files f ON r.file_id = f.id
+                   WHERE f.path = ? 
+                   ORDER BY r.record_id""",
                 (filename,)
             )
         else:
             # Get all records grouped by file
             cursor = conn.execute(
-                """SELECT filename, record_id FROM records 
-                   ORDER BY filename, record_id"""
+                """SELECT f.path, r.record_id 
+                   FROM records r
+                   JOIN files f ON r.file_id = f.id
+                   ORDER BY f.path, r.record_id"""
             )
         
         results = cursor.fetchall()
@@ -233,8 +287,11 @@ def get_record_metadata_from_index(filename: str, record_id: str, data_dir: str 
     
     try:
         cursor = conn.execute(
-            """SELECT filename, record_id, byte_start, byte_end FROM records 
-               WHERE filename = ? AND record_id = ? LIMIT 1""",
+            """SELECT f.path, r.record_id, r.byte_start, r.byte_end 
+               FROM records r
+               JOIN files f ON r.file_id = f.id
+               WHERE f.path = ? AND r.record_id = ? 
+               LIMIT 1""",
             (filename, record_id)
         )
         

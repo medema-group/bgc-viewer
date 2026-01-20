@@ -31,11 +31,13 @@ interface ParsedLocation {
 export class JSONFileProvider extends DataProvider {
   private records: any[]
   private pfamColorMap: PfamColorMap
+  private fileMetadata: Record<string, string>
 
   constructor(options: JSONFileProviderOptions = {}) {
     super()
     this.records = options.records || []
     this.pfamColorMap = options.pfamColorMap || {}
+    this.fileMetadata = {}
   }
 
   /**
@@ -72,6 +74,15 @@ export class JSONFileProvider extends DataProvider {
       // Assume single record
       this.records = [data]
     }
+    
+    // Extract file-level metadata (version, input_file, etc.)
+    this.fileMetadata = {}
+    if (data.version) {
+      this.fileMetadata.version = data.version
+    }
+    if (data.input_file) {
+      this.fileMetadata.input_file = data.input_file
+    }
   }
 
   /**
@@ -89,6 +100,7 @@ export class JSONFileProvider extends DataProvider {
     return {
       recordId: record.id,
       filename: entryId.includes(':') ? entryId.split(':', 2)[0] : 'unknown',
+      fileMetadata: this.fileMetadata,
       recordInfo: {
         description: record.description || ''
       }

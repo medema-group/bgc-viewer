@@ -150,6 +150,7 @@ export default {
         recordInfo.value = {
           recordId: entryInfo.recordId,
           filename: entryInfo.filename,
+          fileMetadata: entryInfo.fileMetadata,
           recordInfo: entryInfo.recordInfo
         }
         

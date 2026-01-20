@@ -65,11 +65,10 @@
 
     <!-- Current Record Info -->
     <div v-if="recordInfo" class="current-record-info">
-      <span>Current Record: {{ recordInfo.recordId }} ({{ recordInfo.filename }})</span>
-      <div class="record-details">
-        <span v-if="recordInfo.recordInfo?.description" class="description">
-          {{ recordInfo.recordInfo.description }}
-        </span>
+      <span>Current Record: {{ recordInfo.recordId }} - {{ recordInfo?.recordInfo?.description }} </span>
+      <div class="file-metadata">File: {{ recordInfo.filename }}, 
+        version {{ recordInfo.fileMetadata?.version || 'unknown' }}, 
+        input {{ recordInfo.fileMetadata?.input_file || 'unknown' }}
       </div>
     </div>
     
@@ -958,14 +957,10 @@ export default {
   border: 1px solid #e0e0e0;
 }
 
-.record-details {
-  font-size: 13px;
-  color: #666;
+.file-metadata {
   margin-top: 4px;
-}
-
-.description {
-  font-style: italic;
+  font-size: 12px;
+  color: #666;
 }
 
 .controls {

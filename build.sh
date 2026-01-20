@@ -65,26 +65,30 @@ else
     exit 1
 fi
 
-# Build Python package (now with uv for consistency)
-echo "Building Python package..."
-uv build
+# Build Rust extension and Python package with maturin
+echo "Building Python package with Rust extension..."
+if command -v cargo &> /dev/null; then
+    echo "Building with Rust extension..."
+    uv pip install maturin
+    uv run maturin build --release --manifest-path rust_extensions/Cargo.toml --out dist
+else
+    echo "Warning: Rust not found. Building without Rust extension (slower preprocessing)."
+    echo "To get the optimized version, install Rust: https://rustup.rs/"
+    uv build
+fi
 
 # Verify build output
-if [ ! -f "dist/bgc_viewer-${VERSION}-py3-none-any.whl" ]; then
-    echo "Error: Python wheel was not created"
+WHEEL_FILE=$(ls dist/bgc_viewer-${VERSION}-*.whl 2>/dev/null | head -n 1)
+if [ -z "$WHEEL_FILE" ]; then
+    echo "Error: No Python wheel was created"
     exit 1
 fi
 
-# Check wheel contents
-echo "Checking package contents:"
-if [ ! -f "dist/bgc_viewer-${VERSION}-py3-none-any.whl" ]; then
-    echo "Error: Python wheel was not created"
-    exit 1
-fi
+echo "Built wheel: $(basename $WHEEL_FILE)"
 
 # Check wheel contents
 echo "Checking package contents:"
-python -m zipfile -l dist/bgc_viewer-${VERSION}-py3-none-any.whl | grep -E "(static|index\.html|\.js|\.css)" || echo "Warning: No static files found in wheel"
+python -m zipfile -l "$WHEEL_FILE" | grep -E "(static|index\.html|\.js|\.css|bgc_scanner)" || echo "Warning: Expected files not found in wheel"
 
 echo "Backend build completed successfully!"
 echo "Output: backend/dist/"

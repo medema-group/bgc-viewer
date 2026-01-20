@@ -183,5 +183,5 @@ else
     echo "   git add -u  # Only modified files"
     echo "   git commit -m \"Bump version to $new_version\""
     echo "   git tag v$new_version"
-    echo "   git push origin --follow-tags"
+    echo "   git push origin v$new_version"
 fi

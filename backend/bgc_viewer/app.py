@@ -270,7 +270,7 @@ if not PUBLIC_MODE:
                             "type": "directory", 
                             "path": str(item)
                         })
-                    elif item.suffix.lower() == '.json':
+                    elif item.suffix.lower() == '.json' or item.name.endswith('.json.gz') or item.name.endswith('.json.bz2'):
                         items.append({
                             "name": item.name,
                             "type": "file",
@@ -318,25 +318,26 @@ if not PUBLIC_MODE:
             if not resolved_path.is_dir():
                 return jsonify({"error": "Path is not a directory"}), 400
             
-            # Scan recursively for JSON files
+            # Scan recursively for JSON files (including compressed)
             json_files = []
             try:
-                # Use rglob to recursively find all JSON files
-                for json_file in resolved_path.rglob('*.json'):
-                    try:
-                        if json_file.is_file():
-                            # Calculate relative path from the base folder for display
-                            relative_path = json_file.relative_to(resolved_path)
-                            json_files.append({
-                                "name": json_file.name,
-                                "path": str(json_file),
-                                "relative_path": str(relative_path),
-                                "size": json_file.stat().st_size,
-                                "directory": str(json_file.parent.relative_to(resolved_path)) if json_file.parent != resolved_path else "."
-                            })
-                    except (OSError, PermissionError):
-                        # Skip files we can't access
-                        continue
+                # Use rglob to recursively find all JSON files (uncompressed and compressed)
+                for pattern in ['*.json', '*.json.gz', '*.json.bz2']:
+                    for json_file in resolved_path.rglob(pattern):
+                        try:
+                            if json_file.is_file():
+                                # Calculate relative path from the base folder for display
+                                relative_path = json_file.relative_to(resolved_path)
+                                json_files.append({
+                                    "name": json_file.name,
+                                    "path": str(json_file),
+                                    "relative_path": str(relative_path),
+                                    "size": json_file.stat().st_size,
+                                    "directory": str(json_file.parent.relative_to(resolved_path)) if json_file.parent != resolved_path else "."
+                                })
+                        except (OSError, PermissionError):
+                            # Skip files we can't access
+                            continue
             except PermissionError:
                 return jsonify({"error": "Permission denied to read folder"}), 403
             
@@ -919,7 +920,7 @@ if not PUBLIC_MODE:
                 total_count = len(json_files_to_process)
             else:
                 # Fallback to all JSON files in the folder (recursive scan)
-                all_json_files = list(resolved_path.rglob("*.json"))[:5000]
+                all_json_files = list(resolved_path.rglob("*.json"))
                 if not all_json_files:
                     return jsonify({"error": "No JSON files found in the folder"}), 400
                 json_files_to_process = all_json_files
