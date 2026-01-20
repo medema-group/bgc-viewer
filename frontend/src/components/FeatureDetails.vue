@@ -565,9 +565,9 @@ export default {
           rel: 'noopener noreferrer'
         }, entry.mibig_cluster),
         entry.mibig_product,
-        `${entry.percent_identity.toFixed(1)}%`,
-        entry.blast_score.toFixed(1),
-        `${entry.percent_coverage.toFixed(1)}%`,
+        `${parseFloat(entry.percent_identity).toFixed(1)}%`,
+        parseFloat(entry.blast_score).toFixed(1),
+        `${parseFloat(entry.percent_coverage).toFixed(1)}%`,
         formatEvalue(entry.evalue)
       ])
     })
