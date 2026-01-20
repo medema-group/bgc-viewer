@@ -43,6 +43,13 @@ export default defineConfig({
         ]
       },
       {
+        text: 'Examples',
+        items: [
+          { text: 'Basic Usage', link: '/examples/basic' },
+          { text: 'Interactive Demo', link: '/examples/interactive' }
+        ]
+      },
+      {
         text: 'REST API',
         items: [
           { text: 'Overview', link: '/api/overview' },
@@ -53,10 +60,9 @@ export default defineConfig({
         ]
       },
       {
-        text: 'Examples',
+        text: 'Development',
         items: [
-          { text: 'Basic Usage', link: '/examples/basic' },
-          { text: 'Interactive Demo', link: '/examples/interactive' }
+          { text: 'Database schema', link: '/development/database-schema' },
         ]
       }
     ],
