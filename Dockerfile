@@ -4,11 +4,21 @@ FROM python:3.11-slim
 # Create application directory
 WORKDIR /app
 
-# Create data directory
-RUN mkdir -p /data
+# Create data directories
+RUN mkdir -p /data_root /index
+
+# Copy demo JSON files to data_root and database to index
+COPY demos/data/*.json /data_root/
+COPY demos/data/attributes.db /index/
 
 # Install the latest bgc-viewer from PyPI with Redis support
 RUN pip install --no-cache-dir bgc-viewer[redis]
+
+# # Copy and install local code instead of PyPI version
+# COPY backend/ /app/backend/
+# WORKDIR /app/backend
+# RUN pip install --no-cache-dir -e ".[redis]"
+# WORKDIR /app
 
 # Set environment variables with defaults
 ENV BGCV_PUBLIC_MODE=true \
@@ -19,9 +29,6 @@ ENV BGCV_PUBLIC_MODE=true \
 
 # Expose the application port
 EXPOSE 5000
-
-# Volume for data files
-VOLUME ["/data"]
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
