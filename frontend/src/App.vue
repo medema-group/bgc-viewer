@@ -16,6 +16,7 @@
         <!-- Index Selection Section - Only shown in local mode and when not creating an index -->
         <IndexSelection 
           v-if="!isPublicMode && !folderForIndexing"
+          :index-path="selectedIndexPath"
           @folder-selected="handleFolderSelected"
           @folder-changed="handleFolderChanged"
           @index-changed="handleIndexChanged"
@@ -197,10 +198,14 @@ export default {
       isLoadingFiles.value = false
       needsPreprocessing.value = false
       
-      // Update the selected index path
+      // Update the selected index path - this will trigger the watcher in RecordListSelector
+      // which will call setDatabasePath and loadEntries automatically
       selectedIndexPath.value = indexPath
       
-      // Refresh the record list
+      // Give the watcher time to process the change
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // Refresh the record list to ensure it's fully loaded
       if (recordListSelectorRef.value) {
         await recordListSelectorRef.value.refreshEntries()
       }
