@@ -135,6 +135,10 @@ export default {
     const loadingRecordId = ref('')
     const hasDatabase = ref(false)
     
+    // Direct records mode (for uploaded JSON files)
+    const isDirectMode = ref(false)
+    const allDirectRecords = ref([])
+    
     // Pagination
     const currentPage = ref(1)
     const perPage = ref(20)
@@ -191,7 +195,12 @@ export default {
     
     const goToPage = (page) => {
       if (page >= 1 && page <= totalPages.value) {
-        loadEntries(page, searchQuery.value)
+        currentPage.value = page
+        if (isDirectMode.value) {
+          searchDirectRecords(searchQuery.value)
+        } else {
+          loadEntries(page, searchQuery.value)
+        }
       }
     }
     
@@ -211,6 +220,60 @@ export default {
       })
     }
     
+    const searchDirectRecords = (query) => {
+      if (!query.trim()) {
+        // No search query, show all records with pagination
+        const start = (currentPage.value - 1) * perPage.value
+        const end = start + perPage.value
+        entriesData.value = allDirectRecords.value.slice(start, end)
+        total.value = allDirectRecords.value.length
+        totalPages.value = Math.ceil(allDirectRecords.value.length / perPage.value)
+        return
+      }
+      
+      const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 0)
+      
+      // Helper function to extract all leaf values from an object
+      const extractLeafValues = (obj, values = []) => {
+        if (obj === null || obj === undefined) {
+          return values
+        }
+        
+        if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') {
+          values.push(String(obj).toLowerCase())
+          return values
+        }
+        
+        if (Array.isArray(obj)) {
+          obj.forEach(item => extractLeafValues(item, values))
+          return values
+        }
+        
+        if (typeof obj === 'object') {
+          Object.values(obj).forEach(value => extractLeafValues(value, values))
+          return values
+        }
+        
+        return values
+      }
+      
+      // Filter records by checking all leaf values for matching search terms
+      const filtered = allDirectRecords.value.filter(record => {
+        const leafValues = extractLeafValues(record)
+        const searchableText = leafValues.join(' ')
+        
+        // All search terms must match (AND logic)
+        return searchTerms.every(term => searchableText.includes(term))
+      })
+      
+      // Apply pagination to filtered results
+      const start = (currentPage.value - 1) * perPage.value
+      const end = start + perPage.value
+      entriesData.value = filtered.slice(start, end)
+      total.value = filtered.length
+      totalPages.value = Math.ceil(filtered.length / perPage.value)
+    }
+    
     const debouncedSearch = () => {
       if (searchTimeout.value) {
         clearTimeout(searchTimeout.value)
@@ -218,14 +281,22 @@ export default {
       
       searchTimeout.value = setTimeout(() => {
         currentPage.value = 1
-        loadEntries(1, searchQuery.value)
+        if (isDirectMode.value) {
+          searchDirectRecords(searchQuery.value)
+        } else {
+          loadEntries(1, searchQuery.value)
+        }
       }, 300)
     }
     
     const clearSearch = () => {
       searchQuery.value = ''
       currentPage.value = 1
-      loadEntries(1, '')
+      if (isDirectMode.value) {
+        searchDirectRecords('')
+      } else {
+        loadEntries(1, '')
+      }
     }
     
     const setDatabasePath = async (databasePath) => {
@@ -247,6 +318,8 @@ export default {
     
     const clearRecords = () => {
       entriesData.value = []
+      allDirectRecords.value = []
+      isDirectMode.value = false
       total.value = 0
       totalPages.value = 0
       currentPage.value = 1
@@ -258,16 +331,22 @@ export default {
     
     const setRecordsFromProvider = async (records) => {
       // Set records directly from a data provider (e.g., JSON file)
-      entriesData.value = records.map(record => ({
+      isDirectMode.value = true
+      allDirectRecords.value = records.map(record => ({
         entry_id: record.recordId,
         record_id: record.recordId,
         filename: record.filename || 'uploaded.json',
         description: record.recordInfo?.description || '',
         cluster_types: [] // We don't have cluster types from basic record info
       }))
-      total.value = records.length
-      totalPages.value = 1
+      
+      // Reset search and pagination
       currentPage.value = 1
+      searchQuery.value = ''
+      
+      // Apply initial pagination
+      searchDirectRecords('')
+      
       hasDatabase.value = true
       loading.value = false
     }
