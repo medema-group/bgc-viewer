@@ -12,6 +12,7 @@ import {
   TTACodonsResponse,
   ResistanceFeaturesResponse
 } from './types'
+import { fetchPfamColorMap } from './colorMapUtils'
 
 export interface JSONFileProviderOptions {
   records?: any[]
@@ -226,6 +227,13 @@ export class JSONFileProvider extends DataProvider {
    * Get PFAM domain color mapping
    */
   async getPfamColorMap(): Promise<PfamColorMap> {
+    // If we already have colors loaded, return them
+    if (Object.keys(this.pfamColorMap).length > 0) {
+      return this.pfamColorMap
+    }
+    
+    // Otherwise, fetch from public folder
+    this.pfamColorMap = await fetchPfamColorMap()
     return this.pfamColorMap
   }
 

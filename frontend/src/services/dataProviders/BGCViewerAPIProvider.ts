@@ -10,6 +10,7 @@ import {
   TTACodonsResponse,
   ResistanceFeaturesResponse
 } from './types'
+import { fetchPfamColorMap } from './colorMapUtils'
 
 export interface BGCViewerAPIProviderOptions {
   baseURL?: string
@@ -98,23 +99,7 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get PFAM domain color mapping
    */
   async getPfamColorMap(): Promise<PfamColorMap> {
-    const response = await this.axiosInstance.get<string>('/domain-colors.csv')
-    const csvText = response.data
-    const lines = csvText.split('\n')
-    
-    const colorMap: PfamColorMap = {}
-    // Skip header line and process each color mapping
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim()
-      if (line) {
-        const [id, color] = line.split(',')
-        if (id && color) {
-          colorMap[id] = color
-        }
-      }
-    }
-    
-    return colorMap
+    return fetchPfamColorMap()
   }
 
   /**
