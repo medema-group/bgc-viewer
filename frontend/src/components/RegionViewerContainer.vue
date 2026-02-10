@@ -1,6 +1,11 @@
 <template>
   <div class="region-viewer-container">
+    <div v-if="loading" class="loading-container">
+      <LoadingSpinner color="#1976d2" style="width: 48px; height: 48px; border-width: 4px;" />
+      <p class="loading-text">Loading record data...</p>
+    </div>
     <RegionViewer
+      v-else-if="recordInfo"
       :record-info="recordInfo"
       :regions="regions"
       :features="features"
@@ -21,11 +26,13 @@
 <script>
 import { ref, watch, onMounted } from 'vue'
 import RegionViewer from './RegionViewer.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 export default {
   name: 'RegionViewerContainer',
   components: {
-    RegionViewer
+    RegionViewer,
+    LoadingSpinner
   },
   props: {
     // Data provider instance (optional, defaults to BGCViewerAPIProvider)
@@ -67,6 +74,7 @@ export default {
     const selectedRegionId = ref('')
     const loading = ref(false)
     const error = ref('')
+    const currentLoadingRequestId = ref(0)
 
     // Helper functions (defined before watchers to avoid hoisting issues)
     const clearViewer = () => {
@@ -129,11 +137,13 @@ export default {
     }
 
     const loadRecord = async (recordId) => {
+      // Increment request ID to track this specific load request
+      const requestId = ++currentLoadingRequestId.value
+      
+      // Clear current data immediately and show loading
+      clearViewer()
       loading.value = true
       error.value = ''
-      
-      // Reset selected region when loading a new record
-      selectedRegionId.value = ''
       
       try {
         if (!provider.value) {
@@ -147,6 +157,13 @@ export default {
         
         // Get record info with description
         const entryInfo = await provider.value.loadEntry(entryId)
+        
+        // Check if this request is still the latest one
+        if (requestId !== currentLoadingRequestId.value) {
+          console.log('Ignoring stale load request for', recordId)
+          return // Ignore this response - a newer request has been made
+        }
+        
         recordInfo.value = {
           recordId: entryInfo.recordId,
           filename: entryInfo.filename,
@@ -156,14 +173,33 @@ export default {
         
         // Get regions
         const regionsData = await provider.value.getRegions(recordInfo.value.recordId)
+        
+        // Check again after async operation
+        if (requestId !== currentLoadingRequestId.value) {
+          console.log('Ignoring stale load request for', recordId)
+          return
+        }
+        
         regions.value = regionsData.regions || []
         regionBoundaries.value = regionsData.boundaries || null
         
         // Load TTA codons (not region-specific)
         await loadTTACodons(recordInfo.value.recordId)
         
+        // Check again after async operation
+        if (requestId !== currentLoadingRequestId.value) {
+          console.log('Ignoring stale load request for', recordId)
+          return
+        }
+        
         // Load resistance features (not region-specific)
         await loadResistanceFeatures(recordInfo.value.recordId)
+        
+        // Check again after async operation
+        if (requestId !== currentLoadingRequestId.value) {
+          console.log('Ignoring stale load request for', recordId)
+          return
+        }
         
         // Load features based on whether there are regions
         if (regions.value && regions.value.length > 0) {
@@ -175,12 +211,21 @@ export default {
           await loadAllFeatures(recordInfo.value.recordId)
         }
         
+        // Final check before marking as loaded
+        if (requestId !== currentLoadingRequestId.value) {
+          console.log('Ignoring stale load request for', recordId)
+          return
+        }
+        
         loading.value = false
       } catch (err) {
-        console.error('Error loading record:', err)
-        error.value = `Failed to load record: ${err.message}`
-        emit('error', error.value)
-        loading.value = false
+        // Only update error if this is still the current request
+        if (requestId === currentLoadingRequestId.value) {
+          console.error('Error loading record:', err)
+          error.value = `Failed to load record: ${err.message}`
+          emit('error', error.value)
+          loading.value = false
+        }
       }
     }
 
@@ -304,5 +349,23 @@ export default {
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 20px;
+  background: white;
+  border-radius: 8px;
+  padding: 40px;
+}
+
+.loading-text {
+  color: #666;
+  font-size: 16px;
+  font-weight: 500;
 }
 </style>
