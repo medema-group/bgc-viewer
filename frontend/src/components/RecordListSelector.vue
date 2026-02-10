@@ -107,6 +107,7 @@
 <script>
 import { ref, computed, onMounted, watch, toRefs } from 'vue'
 import axios from 'axios'
+import { BGCViewerAPIProvider } from '../services/dataProviders/BGCViewerAPIProvider'
 import LoadingSpinner from './LoadingSpinner.vue'
 
 export default {
@@ -138,6 +139,7 @@ export default {
     // Direct records mode (for uploaded JSON files)
     const isDirectMode = ref(false)
     const allDirectRecords = ref([])
+    const dataProvider = ref(null) // Store reference to data provider for searching
     
     // Pagination
     const currentPage = ref(1)
@@ -150,57 +152,14 @@ export default {
     const searchTimeout = ref(null)
     
     const loadEntries = async (page = 1, search = '') => {
-      loading.value = true
-      error.value = ''
-      
-      try {
-        const params = {
-          page,
-          per_page: perPage.value
-        }
-        
-        if (search.trim()) {
-          params.search = search.trim()
-        }
-        
-        const response = await axios.get('/api/database-entries', { params })
-        
-        // Map backend response to use entry_id consistently
-        // Backend returns 'id' but we use 'entry_id' in frontend for clarity
-        entriesData.value = response.data.entries.map(entry => ({
-          ...entry,
-          entry_id: entry.id  // Map id to entry_id for consistency
-        }))
-        total.value = response.data.total
-        totalPages.value = response.data.total_pages
-        currentPage.value = response.data.page
-        hasDatabase.value = true
-        
-      } catch (err) {
-        if (err.response?.status === 404) {
-          hasDatabase.value = false
-          entriesData.value = []
-          total.value = 0
-          totalPages.value = 0
-        } else {
-          error.value = err.response?.data?.error || 'Failed to load entries'
-          entriesData.value = []
-          total.value = 0
-          totalPages.value = 0
-        }
-      } finally {
-        loading.value = false
-      }
+      // Always use the provider (which is set by default or when switching sources)
+      await searchRecords(search, page)
     }
     
     const goToPage = (page) => {
       if (page >= 1 && page <= totalPages.value) {
         currentPage.value = page
-        if (isDirectMode.value) {
-          searchDirectRecords(searchQuery.value)
-        } else {
-          loadEntries(page, searchQuery.value)
-        }
+        searchRecords(searchQuery.value, page)
       }
     }
     
@@ -220,58 +179,64 @@ export default {
       })
     }
     
-    const searchDirectRecords = (query) => {
-      if (!query.trim()) {
-        // No search query, show all records with pagination
-        const start = (currentPage.value - 1) * perPage.value
-        const end = start + perPage.value
-        entriesData.value = allDirectRecords.value.slice(start, end)
-        total.value = allDirectRecords.value.length
-        totalPages.value = Math.ceil(allDirectRecords.value.length / perPage.value)
+    const searchRecords = async (query, page = null) => {
+      if (!dataProvider.value) {
         return
       }
       
-      const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 0)
+      loading.value = true
+      error.value = ''
       
-      // Helper function to extract all leaf values from an object
-      const extractLeafValues = (obj, values = []) => {
-        if (obj === null || obj === undefined) {
-          return values
+      try {
+        const currentPageNum = page !== null ? page : currentPage.value
+        
+        // Use the provider's search method with pagination
+        const result = await dataProvider.value.searchRecords(query, currentPageNum, perPage.value)
+        
+        // For file providers, we need to handle client-side pagination
+        if (isDirectMode.value) {
+          // Store all results for client-side pagination
+          allDirectRecords.value = result.records.map(record => ({
+            entry_id: record.recordId,
+            record_id: record.recordId,
+            filename: record.filename || 'uploaded.json',
+            description: record.recordInfo?.description || '',
+            cluster_types: []
+          }))
+          
+          // Apply client-side pagination
+          const start = (currentPageNum - 1) * perPage.value
+          const end = start + perPage.value
+          entriesData.value = allDirectRecords.value.slice(start, end)
+          total.value = allDirectRecords.value.length
+          totalPages.value = Math.ceil(allDirectRecords.value.length / perPage.value)
+        } else {
+          // For API provider, pagination is handled server-side
+          entriesData.value = result.records.map(record => ({
+            entry_id: record.entryId || record.recordId,  // Use full entryId from API
+            record_id: record.recordId,
+            filename: record.filename || 'unknown',
+            description: record.recordInfo?.description || '',
+            organism: record.organism,
+            products: record.products,
+            cluster_types: record.clusterTypes,
+            feature_count: record.featureCount
+          }))
+          total.value = result.total
+          totalPages.value = result.totalPages
+          currentPage.value = result.currentPage
         }
         
-        if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') {
-          values.push(String(obj).toLowerCase())
-          return values
-        }
-        
-        if (Array.isArray(obj)) {
-          obj.forEach(item => extractLeafValues(item, values))
-          return values
-        }
-        
-        if (typeof obj === 'object') {
-          Object.values(obj).forEach(value => extractLeafValues(value, values))
-          return values
-        }
-        
-        return values
+        hasDatabase.value = true
+      } catch (err) {
+        console.error('Search error:', err)
+        error.value = 'Failed to search records'
+        entriesData.value = []
+        total.value = 0
+        totalPages.value = 0
+      } finally {
+        loading.value = false
       }
-      
-      // Filter records by checking all leaf values for matching search terms
-      const filtered = allDirectRecords.value.filter(record => {
-        const leafValues = extractLeafValues(record)
-        const searchableText = leafValues.join(' ')
-        
-        // All search terms must match (AND logic)
-        return searchTerms.every(term => searchableText.includes(term))
-      })
-      
-      // Apply pagination to filtered results
-      const start = (currentPage.value - 1) * perPage.value
-      const end = start + perPage.value
-      entriesData.value = filtered.slice(start, end)
-      total.value = filtered.length
-      totalPages.value = Math.ceil(filtered.length / perPage.value)
     }
     
     const debouncedSearch = () => {
@@ -281,22 +246,14 @@ export default {
       
       searchTimeout.value = setTimeout(() => {
         currentPage.value = 1
-        if (isDirectMode.value) {
-          searchDirectRecords(searchQuery.value)
-        } else {
-          loadEntries(1, searchQuery.value)
-        }
+        searchRecords(searchQuery.value, 1)
       }, 300)
     }
     
     const clearSearch = () => {
       searchQuery.value = ''
       currentPage.value = 1
-      if (isDirectMode.value) {
-        searchDirectRecords('')
-      } else {
-        loadEntries(1, '')
-      }
+      searchRecords('', 1)
     }
     
     const setDatabasePath = async (databasePath) => {
@@ -313,13 +270,14 @@ export default {
     }
     
     const refreshEntries = async () => {
-      await loadEntries(currentPage.value, searchQuery.value)
+      await searchRecords(searchQuery.value, currentPage.value)
     }
     
     const clearRecords = () => {
       entriesData.value = []
       allDirectRecords.value = []
       isDirectMode.value = false
+      dataProvider.value = null
       total.value = 0
       totalPages.value = 0
       currentPage.value = 1
@@ -329,30 +287,30 @@ export default {
       hasDatabase.value = false
     }
     
-    const setRecordsFromProvider = async (records) => {
-      // Set records directly from a data provider (e.g., JSON file)
-      isDirectMode.value = true
-      allDirectRecords.value = records.map(record => ({
-        entry_id: record.recordId,
-        record_id: record.recordId,
-        filename: record.filename || 'uploaded.json',
-        description: record.recordInfo?.description || '',
-        cluster_types: [] // We don't have cluster types from basic record info
-      }))
+    const setRecordsFromProvider = async (provider, isDirect = true) => {
+      // Set data provider (can be JSONFileProvider or BGCViewerAPIProvider)
+      isDirectMode.value = isDirect
+      dataProvider.value = provider
       
       // Reset search and pagination
       currentPage.value = 1
       searchQuery.value = ''
       
-      // Apply initial pagination
-      searchDirectRecords('')
+      // Load initial records
+      await searchRecords('', 1)
       
       hasDatabase.value = true
       loading.value = false
     }
     
-    // Watch for index path changes - this is the primary path to the database file
+    // Watch for index path changes - tell backend which database to use
     watch(indexPath, async (newPath, oldPath) => {
+      // Ensure provider exists
+      if (!dataProvider.value) {
+        dataProvider.value = new BGCViewerAPIProvider()
+        isDirectMode.value = false
+      }
+      
       if (newPath) {
         await setDatabasePath(newPath)
         // Reload entries after setting the database path
@@ -363,14 +321,8 @@ export default {
       }
     }, { immediate: true })
     
-    onMounted(async () => {
-      // Only use indexPath - it should always point to a database file
-      if (indexPath.value) {
-        await setDatabasePath(indexPath.value)
-        await loadEntries()
-      } else {
-        await loadEntries()
-      }
+    onMounted(() => {
+      // Provider is created by the watch if needed
     })
     
     return {

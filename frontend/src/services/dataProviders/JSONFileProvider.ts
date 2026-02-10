@@ -138,6 +138,89 @@ export class JSONFileProvider extends DataProvider {
   }
 
   /**
+   * Search records by query string
+   * Searches through all leaf values in the record structure
+   * @param query - Space-separated search terms (AND logic)
+   * @param page - Page number (ignored for file provider, returns all results)
+   * @param perPage - Records per page (ignored for file provider, returns all results)
+   * @returns Filtered list of records with pagination info
+   */
+  async searchRecords(query: string, page: number = 1, perPage: number = 20): Promise<{
+    records: RecordInfo[]
+    total: number
+    totalPages: number
+    currentPage: number
+  }> {
+    let filteredRecords = this.records
+
+    if (query.trim()) {
+      const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 0)
+      
+      // Filter records by searching through all leaf values
+      filteredRecords = this.records.filter((record) => {
+        const leafValues = this.extractLeafValues(record)
+        const searchableText = leafValues.join(' ')
+        
+        // All search terms must match (AND logic)
+        return searchTerms.every(term => searchableText.includes(term))
+      })
+    }
+    
+    // Map to RecordInfo format
+    const records = filteredRecords.map((record, idx) => ({
+      recordId: record.id || `record-${idx}`,
+      filename: record._sourceFilename || `record-${idx}.json`,
+      recordInfo: {
+        description: record.description || record.definition || ''
+      }
+    }))
+    
+    // Return all results (client-side provider doesn't need server-side pagination)
+    return {
+      records,
+      total: records.length,
+      totalPages: Math.ceil(records.length / perPage),
+      currentPage: 1
+    }
+  }
+
+  /**
+   * Recursively extract all leaf values from an object
+   * @param obj - Object to traverse
+   * @param values - Accumulated values array
+   * @returns Array of stringified leaf values
+   */
+  private extractLeafValues(obj: any, values: string[] = []): string[] {
+    if (obj === null || obj === undefined) {
+      return values
+    }
+    
+    // Handle primitive types (leaf nodes)
+    if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') {
+      values.push(String(obj).toLowerCase())
+      return values
+    }
+    
+    // Handle arrays
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        this.extractLeafValues(item, values)
+      }
+      return values
+    }
+    
+    // Handle objects
+    if (typeof obj === 'object') {
+      for (const value of Object.values(obj)) {
+        this.extractLeafValues(value, values)
+      }
+      return values
+    }
+    
+    return values
+  }
+
+  /**
    * Get regions for a specific record
    */
   async getRegions(recordId: string): Promise<RegionsResponse> {

@@ -263,7 +263,7 @@ export default {
       // Replace the current data provider
       dataProvider.value = jsonProvider
       
-      // Get the combined list of records from all files
+      // Get record count
       const records = await jsonProvider.getRecords()
       console.log('Total records loaded:', records.length)
       
@@ -272,29 +272,33 @@ export default {
       currentRecordData.value = null
       initialRegionId.value = ''
       
-      // Populate the record list with records from all JSON files
+      // Pass the provider to RecordListSelector for searching
       if (recordListSelectorRef.value) {
-        await recordListSelectorRef.value.setRecordsFromProvider(records)
+        await recordListSelectorRef.value.setRecordsFromProvider(jsonProvider)
       }
     }
     
     // Watch for data source changes
-    watch(dataSource, (newSource) => {
+    watch(dataSource, async (newSource) => {
       // Clear current data when switching sources
       currentRecordId.value = ''
       currentRecordData.value = null
       initialRegionId.value = ''
       
-      // Clear record list
-      if (recordListSelectorRef.value) {
-        recordListSelectorRef.value.clearRecords()
-      }
-      
       // Reset data provider based on source
       if (newSource === 'api') {
-        dataProvider.value = new BGCViewerAPIProvider()
+        const apiProvider = new BGCViewerAPIProvider()
+        dataProvider.value = apiProvider
+        
+        // Set API provider in RecordListSelector
+        if (recordListSelectorRef.value) {
+          await recordListSelectorRef.value.setRecordsFromProvider(apiProvider, false)
+        }
       } else if (newSource === 'upload') {
-        // Will be set when file is loaded
+        // Clear records and wait for file upload
+        if (recordListSelectorRef.value) {
+          recordListSelectorRef.value.clearRecords()
+        }
         dataProvider.value = null
       }
     })

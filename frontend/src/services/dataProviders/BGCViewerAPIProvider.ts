@@ -66,6 +66,58 @@ export class BGCViewerAPIProvider extends DataProvider {
   }
 
   /**
+   * Search records by query string
+   * For API provider, this delegates to the backend search endpoint
+   * @param query - Search query string
+   * @param page - Page number (default: 1)
+   * @param perPage - Records per page (default: 20)
+   */
+  async searchRecords(query: string, page: number = 1, perPage: number = 20): Promise<{
+    records: RecordInfo[]
+    total: number
+    totalPages: number
+    currentPage: number
+  }> {
+    const params: any = {
+      page,
+      per_page: perPage
+    }
+    
+    if (query.trim()) {
+      params.search = query.trim()
+    }
+    
+    const response = await this.axiosInstance.get<{
+      entries: any[]
+      total: number
+      total_pages: number
+      page: number
+    }>('/api/database-entries', { params })
+    
+    // Map to RecordInfo format
+    const records = response.data.entries.map(entry => ({
+      recordId: entry.record_id,
+      filename: entry.filename,
+      recordInfo: {
+        description: entry.description
+      },
+      // Include additional fields for display
+      entryId: entry.id,  // Full entry ID in format "filename:recordId"
+      organism: entry.organism,
+      products: entry.products,
+      clusterTypes: entry.cluster_types,
+      featureCount: entry.feature_count
+    } as any))
+    
+    return {
+      records,
+      total: response.data.total,
+      totalPages: response.data.total_pages,
+      currentPage: response.data.page
+    }
+  }
+
+  /**
    * Get regions for a specific record
    */
   async getRegions(recordId: string): Promise<RegionsResponse> {
