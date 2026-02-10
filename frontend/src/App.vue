@@ -11,8 +11,8 @@
 
     <!-- Main content area with sidebar and viewer -->
     <div class="main-content">
-      <!-- Left sidebar for controls (30%) -->
-      <aside class="sidebar" :style="{ width: sidebarWidth + 'px' }">
+      <!-- Left sidebar for controls -->
+      <aside class="sidebar" :style="{ width: sidebarWidth + '%' }">
         <!-- Index Selection Section - Only shown in local mode and when not creating an index -->
         <IndexSelection 
           v-if="!isPublicMode && !folderForIndexing"
@@ -51,7 +51,7 @@
         @mousedown="startDragging"
       ></div>
 
-      <!-- Right main viewer area (70%) -->
+      <!-- Right main viewer area -->
       <main class="viewer-area">
         <RegionViewerContainer 
           v-if="!folderForIndexing && dataProvider"
@@ -118,10 +118,10 @@ export default {
     const initialRegionId = ref('')
     
     // Draggable divider state
-    const sidebarWidth = ref(350) // Default width in pixels
+    const sidebarWidth = ref(32) // Default width as percentage
     const isDragging = ref(false)
-    const minSidebarWidth = 250
-    const maxSidebarWidth = 800
+    const minSidebarWidth = 15 // Minimum 15%
+    const maxSidebarWidth = 50 // Maximum 50%
     
     const handleFolderSelected = async (folderPath) => {
       // Update the selected data root
@@ -233,9 +233,10 @@ export default {
     const onDrag = (e) => {
       if (!isDragging.value) return
       
-      const newWidth = e.clientX
-      if (newWidth >= minSidebarWidth && newWidth <= maxSidebarWidth) {
-        sidebarWidth.value = newWidth
+      // Calculate percentage based on window width
+      const percentage = (e.clientX / window.innerWidth) * 100
+      if (percentage >= minSidebarWidth && percentage <= maxSidebarWidth) {
+        sidebarWidth.value = percentage
       }
     }
     
