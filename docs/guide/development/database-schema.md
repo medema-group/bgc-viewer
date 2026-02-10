@@ -111,10 +111,9 @@ Attributes are extracted from two sources within each record:
     {
       "id": "NC_003888.3",
       "annotations": {
-        "region1": {
-          "product": "T1PKS",             // → attribute_name='product', attribute_value='T1PKS'
-          "category": "biosynthetic"      // → attribute_name='category', attribute_value='biosynthetic'
-        }
+        "molecule_type": "DNA",           // → attribute_name='molecule_type', attribute_value='DNA'
+        "organism": "Streptomyces coelicolor A3(2)",  // → attribute_name='organism', attribute_value='Streptomyces coelicolor A3(2)'
+        "topology": "linear"              // → attribute_name='topology', attribute_value='linear'
       }
     }
   ]
