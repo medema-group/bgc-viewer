@@ -63,6 +63,17 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
         )
     """)
     
+    # Create the file_attributes table for file-level attributes
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS file_attributes (
+            file_id INTEGER NOT NULL,
+            attribute_name TEXT NOT NULL,
+            attribute_value TEXT NOT NULL,
+            UNIQUE(file_id, attribute_name, attribute_value),
+            FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
+        )
+    """)
+    
     # Create the records table to store record metadata
     conn.execute("""
         CREATE TABLE IF NOT EXISTS records (
@@ -88,6 +99,11 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
     
     # Create indexes for efficient querying
     conn.execute("CREATE INDEX IF NOT EXISTS idx_files_path ON files (path)")
+    
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_file_attributes_file_id ON file_attributes (file_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_file_attributes_name ON file_attributes (attribute_name)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_file_attributes_value ON file_attributes (attribute_value)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_file_attributes_name_value ON file_attributes (attribute_name, attribute_value)")
     
     conn.execute("CREATE INDEX IF NOT EXISTS idx_records_file_id ON records (file_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_records_record_id ON records (record_id)")
@@ -287,18 +303,51 @@ def preprocess_antismash_files(
                 file_records = 0
                 relative_path = json_file.relative_to(input_path)
                 
-                # Insert or get file_id from files table
-                cursor = conn.execute(
-                    """INSERT OR IGNORE INTO files (path) VALUES (?)""",
-                    (str(relative_path),)
-                )
+                # Extract version and input_file from the JSON if available
+                version = None
+                input_file = None
                 
+                # First pass: extract metadata from the JSON file
+                with open_file(json_file, 'rb') as f:
+                    try:
+                        # Try to extract version
+                        f.seek(0)
+                        version_iter = ijson.items(f, 'version')
+                        for v in version_iter:
+                            version = str(v)
+                            break
+                        
+                        # Try to extract input_file
+                        f.seek(0)
+                        input_file_iter = ijson.items(f, 'input_file')
+                        for inp in input_file_iter:
+                            input_file = str(inp)
+                            break
+                    except:
+                        pass  # If extraction fails, version and input_file remain None
+                
+                # Insert file entry
                 cursor = conn.execute(
-                    """SELECT id FROM files WHERE path = ?""",
+                    """INSERT INTO files (path) VALUES (?)""",
                     (str(relative_path),)
                 )
-                result = cursor.fetchone()
-                file_id = result[0]
+                file_id = cursor.lastrowid
+                
+                # Insert version as a file attribute if available
+                if version is not None:
+                    conn.execute(
+                        """INSERT INTO file_attributes (file_id, attribute_name, attribute_value) 
+                           VALUES (?, ?, ?)""",
+                        (file_id, 'version', version)
+                    )
+                
+                # Insert input_file as a file attribute if available
+                if input_file is not None:
+                    conn.execute(
+                        """INSERT INTO file_attributes (file_id, attribute_name, attribute_value) 
+                           VALUES (?, ?, ?)""",
+                        (file_id, 'input_file', input_file)
+                    )
                 
                 # Second pass: Stream records and track byte positions
                 # Use Rust scanner if available (100x faster), otherwise fall back to Python

@@ -91,7 +91,7 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
         
         # Query the records table for byte positions (join with files table)
         cursor = conn.execute(
-            """SELECT r.byte_start, r.byte_end 
+            """SELECT r.byte_start, r.byte_end, f.id as file_id
                FROM records r
                JOIN files f ON r.file_id = f.id
                WHERE f.path = ? AND r.record_id = ?""",
@@ -104,6 +104,17 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
             return None
         
         byte_start, byte_end = result['byte_start'], result['byte_end']
+        file_id = result['file_id']
+        
+        # Query file attributes for this file
+        file_attrs_cursor = conn.execute(
+            """SELECT attribute_name, attribute_value
+               FROM file_attributes
+               WHERE file_id = ?""",
+            (file_id,)
+        )
+        file_attributes = {row['attribute_name']: row['attribute_value'] 
+                          for row in file_attrs_cursor.fetchall()}
         
         # Load the specific record using byte positions (skip metadata for performance)
         # Note: Byte positions are relative to uncompressed content
@@ -122,7 +133,8 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
                 conn.close()
                 
                 return {
-                    "records": [record_data]
+                    "records": [record_data],
+                    "file_attributes": file_attributes
                 }
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 conn.close()
@@ -138,7 +150,8 @@ def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = 
                 conn.close()
                 
                 return {
-                    "records": [record_data]
+                    "records": [record_data],
+                    "file_attributes": file_attributes
                 }
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 conn.close()

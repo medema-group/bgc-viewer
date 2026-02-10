@@ -433,6 +433,9 @@ def load_database_entry():
         # Get the loaded record info
         loaded_record = modified_data["records"][0] if modified_data["records"] else {}
         
+        # Get file attributes if available
+        file_metadata = modified_data.get("file_attributes", {})
+        
         return jsonify({
             "message": f"Successfully loaded {filename}:{record_id}",
             "filename": filename,
@@ -441,7 +444,8 @@ def load_database_entry():
                 "id": loaded_record.get("id"),
                 "description": loaded_record.get("description"),
                 "feature_count": len(loaded_record.get("features", []))
-            }
+            },
+            "file_metadata": file_metadata
         })
         
     except json.JSONDecodeError as e:
