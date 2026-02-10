@@ -46,29 +46,39 @@ export class JSONFileProvider extends DataProvider {
    */
   async loadFromFile(file: File | string): Promise<void> {
     let data: any
+    let filename: string
     
     if (file instanceof File) {
       // Read from File object (browser file input)
       const text = await file.text()
       data = JSON.parse(text)
+      filename = file.name
     } else if (typeof file === 'string') {
       // Fetch from URL
       const response = await fetch(file)
       data = await response.json()
+      filename = file.split('/').pop() || 'unknown'
     } else {
       throw new Error('Invalid file parameter')
     }
     
     // Parse the antiSMASH JSON structure
-    this.parseAntiSMASHData(data)
+    this.parseAntiSMASHData(data, filename)
   }
 
   /**
    * Parse antiSMASH JSON data structure
    */
-  private parseAntiSMASHData(data: any): void {
+  private parseAntiSMASHData(data: any, filename: string): void {
     // antiSMASH JSON has records array
     const newRecords = data.records ? data.records : [data]
+    
+    // Store the source filename and input_file with each record
+    const inputFile = data.input_file || filename
+    newRecords.forEach((record: any) => {
+      record._sourceFilename = filename
+      record._inputFile = inputFile
+    })
     
     // Append new records to existing ones (for multiple file support)
     this.records = [...this.records, ...newRecords]
@@ -102,8 +112,11 @@ export class JSONFileProvider extends DataProvider {
     
     return {
       recordId: record.id,
-      filename: entryId.includes(':') ? entryId.split(':', 2)[0] : 'unknown',
-      fileMetadata: this.fileMetadata,
+      filename: record._sourceFilename || 'unknown',
+      fileMetadata: {
+        ...this.fileMetadata,
+        input_file: record._inputFile || 'unknown'
+      },
       recordInfo: {
         description: record.description || ''
       }
@@ -116,7 +129,7 @@ export class JSONFileProvider extends DataProvider {
   async getRecords(): Promise<RecordInfo[]> {
     return this.records.map((record, idx) => ({
       recordId: record.id || `record-${idx}`,
-      filename: record.filename || `record-${idx}.json`,
+      filename: record._sourceFilename || `record-${idx}.json`,
       recordInfo: {
         description: record.description || record.definition || ''
       }
@@ -248,13 +261,25 @@ export class JSONFileProvider extends DataProvider {
     const mibigEntries = knowncluster.mibig_entries || {}
     
     if (!mibigEntries[region]) {
-      throw new Error(`No MiBIG entries available for region ${region}`)
+      return {
+        record_id: recordId,
+        locus_tag: locusTag,
+        region: region,
+        count: 0,
+        entries: []
+      }
     }
     
     const locusEntries = mibigEntries[region][locusTag] || []
     
     if (locusEntries.length === 0) {
-      throw new Error(`No MiBIG entries found for locus_tag '${locusTag}' in region ${region}`)
+      return {
+        record_id: recordId,
+        locus_tag: locusTag,
+        region: region,
+        count: 0,
+        entries: []
+      }
     }
     
     // Format the entries
