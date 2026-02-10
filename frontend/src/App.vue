@@ -13,9 +13,14 @@
     <div class="main-content">
       <!-- Left sidebar for controls -->
       <aside class="sidebar" :style="{ width: sidebarWidth + '%' }">
-        <!-- Index Selection Section - Only shown in local mode and when not creating an index -->
+        <!-- Data Source Selector -->
+        <DataSourceSelector 
+          v-model="dataSource"
+        />
+
+        <!-- API Mode: Index Selection Section - Only shown in API mode, local mode, and when not creating an index -->
         <IndexSelection 
-          v-if="!isPublicMode && !folderForIndexing"
+          v-if="dataSource === 'api' && !isPublicMode && !folderForIndexing"
           :index-path="selectedIndexPath"
           @folder-selected="handleFolderSelected"
           @folder-changed="handleFolderChanged"
@@ -23,9 +28,9 @@
           @create-index-for-folder="handleCreateIndexForFolder"
         />
 
-        <!-- Index Creation Section - Only shown in local mode when creating a new index -->
+        <!-- API Mode: Index Creation Section - Only shown in API mode, local mode, and when creating a new index -->
         <IndexCreation
-          v-if="!isPublicMode && folderForIndexing"
+          v-if="dataSource === 'api' && !isPublicMode && folderForIndexing"
           :folder-path="folderForIndexing"
           :index-path="indexPathForCreation"
           :available-files="availableFiles"
@@ -33,6 +38,12 @@
           :needs-preprocessing="needsPreprocessing"
           @preprocessing-completed="handlePreprocessingCompleted"
           @cancel="handleCancelIndexCreation"
+        />
+
+        <!-- Upload Mode: File Upload Section -->
+        <FileUpload
+          v-if="dataSource === 'upload'"
+          @files-loaded="handleFilesLoaded"
         />
 
         <!-- Record List Selector Section - Hidden when creating an index -->
@@ -73,13 +84,15 @@
 </template>
 
 <script>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import axios from 'axios'
 import RegionViewerContainer from './components/RegionViewerContainer.vue'
 import IndexSelection from './components/IndexSelection.vue'
 import IndexCreation from './components/IndexCreation.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
-import { BGCViewerAPIProvider } from '@/services/dataProviders'
+import DataSourceSelector from './components/DataSourceSelector.vue'
+import FileUpload from './components/FileUpload.vue'
+import { BGCViewerAPIProvider, JSONFileProvider } from '@/services/dataProviders'
 
 export default {
   name: 'App',
@@ -87,7 +100,9 @@ export default {
     RegionViewerContainer,
     IndexSelection,
     IndexCreation,
-    RecordListSelector
+    RecordListSelector,
+    DataSourceSelector,
+    FileUpload
   },
   setup() {
     const regionViewerRef = ref(null)
@@ -99,6 +114,7 @@ export default {
     
     // Mode information
     const isPublicMode = ref(true) // Default to true for safety
+    const dataSource = ref('api') // 'api' or 'upload'
     
     // Data root and index tracking
     const selectedDataRoot = ref('')
@@ -220,6 +236,69 @@ export default {
       needsPreprocessing.value = false
     }
     
+    const handleFilesLoaded = async (files) => {
+      if (files.length === 0) {
+        // All files removed
+        dataProvider.value = null
+        currentRecordId.value = ''
+        currentRecordData.value = null
+        initialRegionId.value = ''
+        
+        if (recordListSelectorRef.value) {
+          await recordListSelectorRef.value.clearRecords()
+        }
+        return
+      }
+      
+      console.log('Files loaded:', files.length)
+      
+      // Create a new JSONFileProvider
+      const jsonProvider = new JSONFileProvider()
+      
+      // Load all files into the provider
+      for (const fileInfo of files) {
+        await jsonProvider.loadFromFile(fileInfo.file)
+      }
+      
+      // Replace the current data provider
+      dataProvider.value = jsonProvider
+      
+      // Get the combined list of records from all files
+      const records = await jsonProvider.getRecords()
+      console.log('Total records loaded:', records.length)
+      
+      // Clear current selection
+      currentRecordId.value = ''
+      currentRecordData.value = null
+      initialRegionId.value = ''
+      
+      // Populate the record list with records from all JSON files
+      if (recordListSelectorRef.value) {
+        await recordListSelectorRef.value.setRecordsFromProvider(records)
+      }
+    }
+    
+    // Watch for data source changes
+    watch(dataSource, (newSource) => {
+      // Clear current data when switching sources
+      currentRecordId.value = ''
+      currentRecordData.value = null
+      initialRegionId.value = ''
+      
+      // Clear record list
+      if (recordListSelectorRef.value) {
+        recordListSelectorRef.value.clearRecords()
+      }
+      
+      // Reset data provider based on source
+      if (newSource === 'api') {
+        dataProvider.value = new BGCViewerAPIProvider()
+      } else if (newSource === 'upload') {
+        // Will be set when file is loaded
+        dataProvider.value = null
+      }
+    })
+    
     // Draggable divider functions
     const startDragging = (e) => {
       isDragging.value = true
@@ -292,6 +371,7 @@ export default {
       appVersion,
       appName,
       isPublicMode,
+      dataSource,
       selectedDataRoot,
       selectedIndexPath,
       folderForIndexing,
@@ -314,6 +394,7 @@ export default {
       handleCreateIndexForFolder,
       handlePreprocessingCompleted,
       handleCancelIndexCreation,
+      handleFilesLoaded,
       startDragging
     }
   }

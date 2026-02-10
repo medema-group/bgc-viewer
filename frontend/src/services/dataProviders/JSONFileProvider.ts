@@ -68,20 +68,23 @@ export class JSONFileProvider extends DataProvider {
    */
   private parseAntiSMASHData(data: any): void {
     // antiSMASH JSON has records array
-    if (data.records) {
-      this.records = data.records
-    } else {
-      // Assume single record
-      this.records = [data]
-    }
+    const newRecords = data.records ? data.records : [data]
+    
+    // Append new records to existing ones (for multiple file support)
+    this.records = [...this.records, ...newRecords]
     
     // Extract file-level metadata (version, input_file, etc.)
-    this.fileMetadata = {}
-    if (data.version) {
+    if (data.version && !this.fileMetadata.version) {
       this.fileMetadata.version = data.version
     }
     if (data.input_file) {
-      this.fileMetadata.input_file = data.input_file
+      // Store multiple input files if loading multiple files
+      if (!this.fileMetadata.input_files) {
+        this.fileMetadata.input_files = []
+      }
+      if (Array.isArray(this.fileMetadata.input_files)) {
+        this.fileMetadata.input_files.push(data.input_file)
+      }
     }
   }
 

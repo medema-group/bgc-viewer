@@ -256,6 +256,22 @@ export default {
       hasDatabase.value = false
     }
     
+    const setRecordsFromProvider = async (records) => {
+      // Set records directly from a data provider (e.g., JSON file)
+      entriesData.value = records.map(record => ({
+        entry_id: record.recordId,
+        record_id: record.recordId,
+        filename: record.filename || 'uploaded.json',
+        description: record.recordInfo?.description || '',
+        cluster_types: [] // We don't have cluster types from basic record info
+      }))
+      total.value = records.length
+      totalPages.value = 1
+      currentPage.value = 1
+      hasDatabase.value = true
+      loading.value = false
+    }
+    
     // Watch for index path changes - this is the primary path to the database file
     watch(indexPath, async (newPath, oldPath) => {
       if (newPath) {
@@ -296,7 +312,8 @@ export default {
       debouncedSearch,
       clearSearch,
       refreshEntries,
-      clearRecords
+      clearRecords,
+      setRecordsFromProvider
     }
   }
 }
