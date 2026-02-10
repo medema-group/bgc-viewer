@@ -9,9 +9,10 @@
 
 A viewer for biosynthetic gene cluster data.
 
-You are reading the development README. There are a few other READMEs:
+You are reading the README for developers. The [full documentation](https://medema-group.github.io/bgc-viewer) describes various aspects of the package in detail. In addition, there are a few other READMEs:
 - The README for end-users: [backend/README.md](backend/README.md) (it's the readme of the Python package)
 - The README for users of the bgc-viewer-components: [frontend/README.md](frontend/README.md) (the readme of the npm package with web components)
+- The README on building the documentation: [docs/README.md](docs/README.md).
 
 
 ## Project Structure

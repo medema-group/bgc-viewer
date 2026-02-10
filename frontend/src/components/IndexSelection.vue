@@ -77,7 +77,7 @@
 </template>
 
 <script>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import FolderSelectionDialog from './FolderSelectionDialog.vue'
 
@@ -86,8 +86,14 @@ export default {
   components: {
     FolderSelectionDialog
   },
+  props: {
+    indexPath: {
+      type: String,
+      default: ''
+    }
+  },
   emits: ['folder-selected', 'folder-changed', 'index-changed', 'create-index-for-folder'],
-  setup(_, { emit }) {
+  setup(props, { emit }) {
     const currentFolderPath = ref('')
     const currentIndexPath = ref('')
     const indexStats = ref(null)
@@ -276,54 +282,79 @@ export default {
     }
     
     const confirmRegenerateIndex = async () => {
-      const confirmed = window.confirm(
-        'Are you sure you want to regenerate the index?\n\n' +
-        'This will overwrite the existing database and allow you to select which files to reprocess.\n\n' +
-        'Click OK to continue or Cancel to abort.'
-      )
-      
-      if (confirmed) {
+      try {
+        const folderPath = currentFolderPath.value
+        const indexFilePath = currentIndexPath.value
+        
+        // Fetch the list of JSON files from the API
         try {
-          const folderPath = currentFolderPath.value
-          const indexFilePath = currentIndexPath.value
+          const response = await axios.post('/api/scan-folder', {
+            path: folderPath
+          })
           
-          // Fetch the list of JSON files from the API
-          try {
-            const response = await axios.post('/api/scan-folder', {
-              path: folderPath
+          if (response.data.json_files && response.data.json_files.length > 0) {
+            // Emit event to parent to show IndexCreation component
+            emit('create-index-for-folder', {
+              folderPath: folderPath,
+              indexPath: indexFilePath,
+              files: {
+                availableFiles: response.data.json_files,
+                isLoadingFiles: false,
+                needsPreprocessing: true
+              }
             })
-            
-            if (response.data.json_files && response.data.json_files.length > 0) {
-              // Emit event to parent to show IndexCreation component
-              emit('create-index-for-folder', {
-                folderPath: folderPath,
-                indexPath: indexFilePath,
-                files: {
-                  availableFiles: response.data.json_files,
-                  isLoadingFiles: false,
-                  needsPreprocessing: true
-                }
-              })
-            } else {
-              alert('No JSON files found in the selected folder')
-            }
-          } catch (error) {
-            console.error('Failed to fetch JSON files:', error)
-            alert(`Failed to fetch file list: ${error.response?.data?.error || error.message}`)
+          } else {
+            alert('No JSON files found in the selected folder')
           }
-          
         } catch (error) {
-          console.error('Failed to regenerate index:', error)
-          alert(`Failed to regenerate index: ${error.message}`)
+          console.error('Failed to fetch JSON files:', error)
+          alert(`Failed to fetch file list: ${error.response?.data?.error || error.message}`)
         }
+        
+      } catch (error) {
+        console.error('Failed to regenerate index:', error)
+        alert(`Failed to regenerate index: ${error.message}`)
       }
     }
     
     // Try to load default index path on component mount
     onMounted(() => {
       fetchVersion()
-      tryDefaultIndexPath()
+      // Only try default path if no indexPath prop is provided
+      if (!props.indexPath) {
+        tryDefaultIndexPath()
+      }
     })
+    
+    // Watch for external indexPath changes (e.g., after preprocessing completes)
+    watch(() => props.indexPath, async (newPath) => {
+      if (newPath && newPath !== currentIndexPath.value) {
+        try {
+          const response = await axios.post('/api/select-database', {
+            path: newPath
+          })
+          
+          if (response.data.database_path) {
+            currentIndexPath.value = response.data.database_path
+            currentFolderPath.value = response.data.data_root
+            indexStats.value = response.data.index_stats
+            indexVersion.value = response.data.version || ''
+            
+            // Save to localStorage
+            saveLastIndexPath(newPath)
+            
+            // Emit events
+            emit('folder-changed', currentFolderPath.value)
+            emit('folder-selected', currentFolderPath.value)
+            emit('index-changed', currentIndexPath.value)
+            
+            console.log('Updated to new index path:', newPath)
+          }
+        } catch (error) {
+          console.error('Failed to load index path from prop:', error)
+        }
+      }
+    }, { immediate: true })
     
     return {
       currentFolderPath,

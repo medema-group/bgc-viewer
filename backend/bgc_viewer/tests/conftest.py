@@ -7,6 +7,7 @@ import tempfile
 import json
 from pathlib import Path
 from bgc_viewer.app import app
+from bgc_viewer.preprocessing import preprocess_antismash_files
 
 
 @pytest.fixture
@@ -136,10 +137,18 @@ def sample_json_file(temp_dir, sample_antismash_data):
 @pytest.fixture
 def processed_data_dir(temp_dir, sample_json_file):
     """Create processed data directory with index."""
-    from bgc_viewer.preprocessing import preprocess_antismash_files
-    
     # Run preprocessing to create the index
     index_path = str(temp_dir / "attributes.db")
     result = preprocess_antismash_files(str(temp_dir), index_path)
     
     return temp_dir, result
+
+
+@pytest.fixture
+def test_database(temp_dir, sample_json_file):
+    """Create a test database with preprocessed data."""
+    # Run preprocessing to create the index
+    db_path = temp_dir / "attributes.db"
+    preprocess_antismash_files(str(temp_dir), str(db_path))
+    
+    return db_path, temp_dir

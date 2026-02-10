@@ -11,7 +11,9 @@ Example:
 
 import sys
 import argparse
+import time
 from pathlib import Path
+from tqdm import tqdm
 
 # Import the preprocessing function from the package
 try:
@@ -64,12 +66,33 @@ def main():
     print(f"Database will be created at: {index_path}")
     print("-" * 50)
     
-    # Progress callback for verbose output
+    # Track timing
+    start_time = time.time()
+    
+    # Create progress bar (will be initialized with total in the callback)
+    pbar = None
+    
+    # Progress callback using tqdm
     def progress_callback(current_file, files_processed, total_files):
-        if args.verbose:
-            print(f"Processing {current_file}... ({files_processed + 1}/{total_files})")
+        nonlocal pbar
+        
+        # Initialize progress bar on first call
+        if pbar is None:
+            pbar = tqdm(
+                total=total_files,
+                desc="Processing",
+                unit="file",
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+            )
+        
+        # Update progress bar
+        if current_file:
+            # Update with current file info
+            pbar.set_postfix_str(current_file[:50] if len(current_file) <= 50 else "..." + current_file[-47:])
+            pbar.update(1)
         else:
-            print(f"Processing {current_file}...")
+            # Final update
+            pbar.close()
     
     try:
         # Run the preprocessing
@@ -79,12 +102,33 @@ def main():
             progress_callback
         )
         
-        # Print results
-        print(f"\nProcessing completed!")
-        print(f"Files processed: {results['files_processed']}")
-        print(f"Total records: {results['total_records']}")
-        print(f"Total attributes: {results['total_attributes']}")
-        print(f"Database saved to: {results['database_path']}")
+        # Calculate total time
+        total_time = time.time() - start_time
+        
+        # Format total time
+        if total_time < 60:
+            time_str = f"{total_time:.1f}s"
+        elif total_time < 3600:
+            time_str = f"{total_time / 60:.1f}m"
+        else:
+            time_str = f"{total_time / 3600:.2f}h"
+        
+        # Print summary
+        print("\n" + "=" * 50)
+        print("PREPROCESSING SUMMARY")
+        print("=" * 50)
+        print(f"Files processed:     {results['files_processed']}")
+        print(f"Total records:       {results['total_records']}")
+        print(f"Total attributes:    {results['total_attributes']}")
+        print(f"Time elapsed:        {time_str}")
+        if results['files_processed'] > 0:
+            avg_time = total_time / results['files_processed']
+            print(f"Avg time per file:   {avg_time:.2f}s")
+        if results['total_records'] > 0:
+            avg_attrs = results['total_attributes'] / results['total_records']
+            print(f"Avg attrs per record: {avg_attrs:.1f}")
+        print(f"\nDatabase saved to:   {results['database_path']}")
+        print("=" * 50)
         
     except Exception as e:
         print(f"Error: {e}")

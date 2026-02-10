@@ -8,6 +8,7 @@
 export interface RecordInfo {
   recordId: string
   filename: string
+  fileMetadata?: Record<string, string>  // version, input_file, etc.
   recordInfo: {
     description?: string
   }
