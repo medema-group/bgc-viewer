@@ -294,19 +294,16 @@ export default {
         sortTracks(tracks)
         availableTracks.value = tracks
         
-        // Select default tracks based on context
-        if (props.regionBoundaries) {
-          // Region-specific view: select CDS, protoclusters, PFAM, candidate clusters
-          selectedTracks.value = tracks.filter(t => 
-            ['CDS'].includes(t.id) ||
-            t.id.includes('protocluster') ||
-            t.id.includes('PFAM_domain') ||
-            t.id.includes('cand_cluster')
-          ).map(t => t.id)
-        } else {
-          // All features view: select all tracks
-          selectedTracks.value = tracks.map(t => t.id)
-        }
+        // Select default tracks based on availability
+        const preferredTracks = tracks.filter(t => 
+          ['CDS'].includes(t.id) ||
+          t.id.includes('protocluster') ||
+          t.id.includes('PFAM_domain') ||
+          t.id.includes('cand_cluster')
+        ).map(t => t.id)
+
+        // If preferred tracks exist, use them; otherwise select all
+        selectedTracks.value = preferredTracks.length > 0 ? preferredTracks : tracks.map(t => t.id)
 
         console.log('Available tracks:', availableTracks.value)
         console.log('Selected tracks:', selectedTracks.value)
