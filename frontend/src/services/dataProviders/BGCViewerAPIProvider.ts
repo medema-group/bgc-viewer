@@ -121,8 +121,10 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get regions for a specific record
    */
   async getRegions(recordId: string): Promise<RegionsResponse> {
+    // Extract actual record ID from entryId format (filename:recordId)
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<RegionsResponse>(
-      `/api/records/${recordId}/regions`
+      `/api/records/${actualRecordId}/regions`
     )
     return response.data
   }
@@ -131,8 +133,10 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get all features for a record (no region filtering)
    */
   async getRecordFeatures(recordId: string): Promise<FeaturesResponse> {
+    // Extract actual record ID from entryId format (filename:recordId)
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<FeaturesResponse>(
-      `/api/records/${recordId}/features`
+      `/api/records/${actualRecordId}/features`
     )
     return response.data
   }
@@ -141,8 +145,10 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get features for a specific region within a record
    */
   async getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse> {
+    // Extract actual record ID from entryId format (filename:recordId)
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<FeaturesResponse>(
-      `/api/records/${recordId}/regions/${regionId}/features`
+      `/api/records/${actualRecordId}/regions/${regionId}/features`
     )
     return response.data
   }
