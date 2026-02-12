@@ -97,16 +97,6 @@ export class GenbankFileProvider extends DataProvider {
         })
       }
       
-      // Add gene qualifier from name property if it exists
-      if (gbFeature.name && !feature.qualifiers.gene) {
-        feature.qualifiers.gene = [gbFeature.name]
-      }
-      
-      // Add locus_tag if name exists and locus_tag wasn't in notes
-      if (gbFeature.name && !feature.qualifiers.locus_tag) {
-        feature.qualifiers.locus_tag = [gbFeature.name]
-      }
-      
       return feature
     })
     
