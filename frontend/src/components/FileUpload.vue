@@ -303,6 +303,9 @@ export default {
   flex-direction: column;
   gap: 6px;
   width: 100%;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
 }
 
 .drop-zone-content {

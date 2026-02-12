@@ -504,9 +504,11 @@ html,
 .sidebar {
   flex-shrink: 0;
   background: white;
-  overflow-y: auto;
+  overflow-y: scroll;
   display: flex;
   flex-direction: column;
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: #888 #f1f1f1; /* Firefox - thumb and track */
 }
 
 /* Draggable divider */

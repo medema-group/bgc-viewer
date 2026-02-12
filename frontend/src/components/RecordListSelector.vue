@@ -510,6 +510,7 @@ export default {
   overflow-y: auto;
   transition: opacity 0.2s ease, background-color 0.2s ease;
   flex: 1;
+  min-height: 300px;
 }
 
 .records-list.refreshing {
