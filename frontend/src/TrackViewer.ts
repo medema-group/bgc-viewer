@@ -72,6 +72,7 @@ export interface TrackViewerConfig {
   onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
   onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
   onBackgroundClick?: () => void;
+  onDomainChange?: (domain: [number, number]) => void;
 }
 
 
@@ -135,7 +136,8 @@ export class TrackViewer {
       showTrackLabels: config.showTrackLabels !== undefined ? config.showTrackLabels : true,
       onAnnotationClick: config.onAnnotationClick || (() => {}),
       onAnnotationHover: config.onAnnotationHover || (() => {}),
-      onBackgroundClick: config.onBackgroundClick || (() => {})
+      onBackgroundClick: config.onBackgroundClick || (() => {}),
+      onDomainChange: config.onDomainChange || (() => {})
     };
 
     // Store the original left margin as minimum
@@ -273,6 +275,10 @@ export class TrackViewer {
       .on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
         this.currentTransform = event.transform;
         this.drawTracks();
+        
+        // Notify about domain change
+        const domain = this.getCurrentDomain();
+        this.config.onDomainChange(domain);
       })
       .on('start', (event: any) => {
         // Only change cursor to grabbing if it's a drag (not a wheel zoom)
@@ -1441,6 +1447,12 @@ export class TrackViewer {
       annotations: [...this.data.annotations],
       primitives: this.data.primitives ? [...this.data.primitives] : []
     };
+  }
+
+  public getCurrentDomain(): [number, number] {
+    const xz = this.currentTransform.rescaleX(this.x);
+    const range = xz.range();
+    return [xz.invert(range[0]), xz.invert(range[1])];
   }
 
   public resize(): void {

@@ -196,6 +196,7 @@ export default {
     const availableTracks = ref([])
     const selectedTracks = ref([])
     const dropdownOpen = ref(false)
+    const currentDomain = ref(null)
     
     // Compute current region number from selected region
     const currentRegionNumber = computed(() => {
@@ -209,6 +210,7 @@ export default {
     let regionViewer = null
     let allTrackData = {} // Store all generated tracks
     const selectedAnnotation = ref(null) // Track the selected annotation for highlighting
+    const ANNOTATION_THRESHOLD = 500 // Max annotations to render before showing placeholder
     
     // Derive selected element from selected annotation
     const selectedElement = computed(() => {
@@ -285,11 +287,19 @@ export default {
         buildAllTracks()
         console.log('Built tracks:', Object.keys(allTrackData))
         
+        // Store original annotations for tracks with many features
+        optimizeTracksForRendering()
+        
+        // Filter annotations based on viewport (if domain is available)
+        if (currentDomain.value) {
+          filterAnnotationsForViewport(currentDomain.value)
+        }
+        
         // Extract available tracks
         const tracks = Object.values(allTrackData).map(track => ({
           id: track.id,
           label: track.label,
-          annotationCount: track.annotations.length
+          annotationCount: track._originalAnnotations?.length || track.annotations.length
         }))
         sortTracks(tracks)
         availableTracks.value = tracks
@@ -313,6 +323,13 @@ export default {
         // Initialize viewer
         console.log('Initializing viewer...')
         initializeViewer()
+        
+        // Get initial domain and filter annotations
+        if (regionViewer) {
+          currentDomain.value = regionViewer.getCurrentDomain()
+          filterAnnotationsForViewport(currentDomain.value)
+        }
+        
         updateViewer()
         console.log('Viewer initialized and updated')
         
@@ -377,6 +394,7 @@ export default {
         height: 400,
         domain: [minPos - padding, maxPos + padding],
         trackHeight: 40,
+        zoomExtent: [0.1, 1000],
         showTrackLabels: false,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
@@ -391,6 +409,11 @@ export default {
           // Clear selection when clicking background
           selectedAnnotation.value = null
           updateAnnotationHighlighting()
+          updateViewer()
+        },
+        onDomainChange: (domain) => {
+          currentDomain.value = domain
+          filterAnnotationsForViewport(domain)
           updateViewer()
         }
       })
@@ -717,6 +740,69 @@ export default {
           }
         })
       }
+    }
+
+    const optimizeTracksForRendering = () => {
+      Object.keys(allTrackData).forEach(trackId => {
+        const track = allTrackData[trackId]
+        
+        if (track.annotations.length > ANNOTATION_THRESHOLD) {
+          // Store original annotations for viewport-based filtering
+          track._originalAnnotations = track.annotations
+        }
+      })
+    }
+
+    const filterAnnotationsForViewport = (domain) => {
+      const [viewStart, viewEnd] = domain
+      const padding = (viewEnd - viewStart) * 0.1 // Add 10% padding to load slightly outside viewport
+      
+      Object.keys(allTrackData).forEach(trackId => {
+        const track = allTrackData[trackId]
+        
+        // Skip if no original annotations stored
+        if (!track._originalAnnotations) {
+          return
+        }
+        
+        // Filter annotations to only those visible in viewport (with padding)
+        const visibleAnnotations = track._originalAnnotations.filter(ann => {
+          // Check if annotation overlaps with visible range (including padding)
+          return ann.end >= (viewStart - padding) && ann.start <= (viewEnd + padding)
+        })
+        
+        console.log(`Track ${trackId}: Showing ${visibleAnnotations.length} of ${track._originalAnnotations.length} annotations in viewport [${Math.round(viewStart)}, ${Math.round(viewEnd)}]`)
+        
+        // If still too many in viewport, show placeholder
+        if (visibleAnnotations.length > ANNOTATION_THRESHOLD) {
+          const minPos = Math.min(...visibleAnnotations.flatMap(ann => [ann.start, ann.end]))
+          const maxPos = Math.max(...visibleAnnotations.flatMap(ann => [ann.start, ann.end]))
+          ANNOTATION_THRESHOLD
+          track.annotations = [{
+            id: `${trackId}-placeholder`,
+            trackId: trackId,
+            type: 'box',
+            classes: ['track-placeholder'],
+            label: `${track.label}: zoom in further to see ${visibleAnnotations.length.toLocaleString()} features`,
+            labelPosition: 'center',
+            showLabel: 'always',
+            start: minPos,
+            end: maxPos,
+            fill: '#cccccc',
+            stroke: '#999999',
+            opacity: 0.6,
+            heightFraction: 0.8,
+            data: { 
+              _elementType: 'Placeholder', 
+              count: visibleAnnotations.length,
+              message: 'This viewport has too many features to display. Zoom in further to see details.'
+            }
+          }]
+        } else {
+          // Show visible annotations
+          track.annotations = visibleAnnotations
+        }
+      })
     }
 
 
@@ -1147,6 +1233,11 @@ export default {
   fill: #444;
 }
 
+:global(.track-placeholder) {
+  fill: #cccccc;
+  stroke: #999999;
+  opacity: 0.6;
+}
 
 /* Feature styling classes for the RegionViewer */
 
