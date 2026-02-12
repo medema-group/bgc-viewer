@@ -470,9 +470,22 @@ export default {
 
             const cluster_index = feature.qualifiers?.candidate_cluster_number?.[0] || 'unknown'
             const cluster_kind = feature.qualifiers?.kind?.[0] || 'unknown'
-            trackId = `cand_cluster-${cluster_index}`
-            trackLabel = `Candidate Cluster ${cluster_index}`
+            const paddedClusterIndex = cluster_index !== 'unknown' ? String(cluster_index).padStart(3, '0') : cluster_index
+            trackId = `cand_cluster-track-${paddedClusterIndex}`
+            trackLabel = `Candidate Cluster track ${cluster_index}`
             classes.push(`candidate-${stringToClass(cluster_kind)}`)
+
+            // See if there is any room on existing tracks. This is the case when none of the annotations
+            // on the track overlap with the current annotation.
+            for (let key of Object.keys(allTrackData)) {
+              if (!key.startsWith('cand_cluster-track-')) continue
+              const track = allTrackData[key]
+              const overlaps = track.annotations.some(ann => !(location.end < ann.start || location.start > ann.end))
+              if (!overlaps) {
+                trackId = key
+                break // Exit the loop once we find a suitable track
+              }
+            }
             makeSureTrackExists(trackId, trackLabel)
 
             allTrackData[trackId].annotations.push({
@@ -547,7 +560,8 @@ export default {
             classes.push(protocluster_category)
             classes.push(protocluster_product)
             const core_location = parseGeneLocation(feature.qualifiers?.core_location?.[0] || null)
-            trackId = `protocluster-track-${protocluster_number}`
+            const paddedProtoclusterNumber = protocluster_number !== 'unknown' ? String(protocluster_number).padStart(3, '0') : protocluster_number
+            trackId = `protocluster-track-${paddedProtoclusterNumber}`
             trackLabel = `Protocluster track ${protocluster_number}`
 
             // See if there is any room on existing tracks. This is the case when none of the annotations
