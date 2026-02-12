@@ -62,11 +62,19 @@
       <div class="spinner"></div>
       <span>Loading file...</span>
     </div>
+    
+    <div v-if="loadedFiles.length > 0" class="storage-info">
+      <svg class="info-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <span>Files saved to browser storage and will reload automatically</span>
+    </div>
   </div>
 </template>
 
 <script>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { fileStorage } from '@/services/fileStorage'
 
 export default {
   name: 'FileUpload',
@@ -78,6 +86,25 @@ export default {
     const error = ref('')
     const isLoading = ref(false)
     let fileIdCounter = 0
+    
+    // Auto-restore files on mount
+    onMounted(async () => {
+      try {
+        const hasFiles = await fileStorage.hasStoredFiles()
+        if (hasFiles) {
+          console.log('Restoring previously loaded files...')
+          const storedFiles = await fileStorage.loadFiles()
+          if (storedFiles.length > 0) {
+            loadedFiles.value = storedFiles
+            fileIdCounter = storedFiles.length
+            emit('files-loaded', loadedFiles.value)
+          }
+        }
+      } catch (err) {
+        console.error('Failed to restore files:', err)
+        // Don't show error to user, just silently fail
+      }
+    })
     
     const formatFileSize = (bytes) => {
       if (bytes < 1024) return bytes + ' B'
@@ -183,15 +210,35 @@ export default {
       // Emit all loaded files
       if (newFiles.length > 0) {
         emit('files-loaded', loadedFiles.value)
+        
+        // Save to IndexedDB for persistence
+        try {
+          await fileStorage.saveFiles(loadedFiles.value)
+          console.log('Files saved to browser storage')
+        } catch (err) {
+          console.error('Failed to save files to storage:', err)
+          // Don't show error to user, just log it
+        }
       }
     }
     
-    const removeFile = (fileId) => {
+    const removeFile = async (fileId) => {
       loadedFiles.value = loadedFiles.value.filter(f => f.id !== fileId)
       error.value = ''
       
       // Emit updated file list
       emit('files-loaded', loadedFiles.value)
+      
+      // Update storage
+      try {
+        if (loadedFiles.value.length > 0) {
+          await fileStorage.saveFiles(loadedFiles.value)
+        } else {
+          await fileStorage.clearFiles()
+        }
+      } catch (err) {
+        console.error('Failed to update storage:', err)
+      }
     }
     
     return {
@@ -412,6 +459,24 @@ export default {
   border-top-color: transparent;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+.storage-info {
+  margin-top: 12px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #e8f5e9;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #2e7d32;
+}
+
+.info-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 @keyframes spin {

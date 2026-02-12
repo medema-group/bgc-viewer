@@ -114,7 +114,10 @@ export default {
     
     // Mode information
     const isPublicMode = ref(true) // Default to true for safety
-    const dataSource = ref('api') // 'api' or 'upload'
+    
+    // Restore data source from localStorage, default to 'api'
+    const savedDataSource = localStorage.getItem('bgc-viewer-data-source')
+    const dataSource = ref(savedDataSource || 'api') // 'api' or 'upload'
     
     // Data root and index tracking
     const selectedDataRoot = ref('')
@@ -309,6 +312,9 @@ export default {
     
     // Watch for data source changes
     watch(dataSource, async (newSource) => {
+      // Save to localStorage
+      localStorage.setItem('bgc-viewer-data-source', newSource)
+      
       // Clear current data when switching sources
       currentRecordId.value = ''
       currentRecordData.value = null
