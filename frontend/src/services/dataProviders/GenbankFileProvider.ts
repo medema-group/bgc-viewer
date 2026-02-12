@@ -90,12 +90,26 @@ export class GenbankFileProvider extends DataProvider {
         qualifiers: {}
       }
       
-      // Copy qualifiers from notes (bio-parsers stores them in 'notes', not 'qualifiers')
+      // bio-parsers stores qualifiers in 'notes' field
       if (gbFeature.notes) {
         Object.entries(gbFeature.notes).forEach(([key, value]) => {
           feature.qualifiers[key] = Array.isArray(value) ? value : [String(value)]
         })
       }
+      
+      // bio-parsers stores gene name in 'name' field, map it to 'gene' qualifier
+      if (gbFeature.name) {
+        feature.qualifiers.gene = [gbFeature.name]
+      }
+      
+      // Also check for other common properties that might be at the top level
+      const directProps = ['locus_tag', 'product', 'protein_id', 'translation', 'organism', 'strain']
+      directProps.forEach(prop => {
+        if (gbFeature[prop] && !feature.qualifiers[prop]) {
+          const value = gbFeature[prop]
+          feature.qualifiers[prop] = Array.isArray(value) ? value : [String(value)]
+        }
+      })
       
       return feature
     })
@@ -178,13 +192,23 @@ export class GenbankFileProvider extends DataProvider {
       const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 0)
       
       filteredRecords = this.records.filter((record) => {
-        const searchableText = [
+        // Build searchable text from record metadata
+        const metadataText = [
           record.id,
           record._recordName,
           record.description,
-          record._sourceFilename,
-          JSON.stringify(record.features)
-        ].join(' ').toLowerCase()
+          record._sourceFilename
+        ].filter(Boolean).join(' ')
+        
+        // Build searchable text from feature qualifiers
+        const featureText = (record.features || []).map((feature: any) => {
+          const qualifierValues = Object.values(feature.qualifiers || {})
+            .flat()
+            .join(' ')
+          return qualifierValues
+        }).join(' ')
+        
+        const searchableText = (metadataText + ' ' + featureText).toLowerCase()
         
         return searchTerms.every(term => searchableText.includes(term))
       })

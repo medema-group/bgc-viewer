@@ -104,9 +104,9 @@ ORIGIN
     
     // Should have qualifiers
     expect(cdsFeature.qualifiers).toBeDefined()
-    expect(cdsFeature.qualifiers.gene).toContain('testA')
-    expect(cdsFeature.qualifiers.locus_tag).toContain('TEST_001')
-    expect(cdsFeature.qualifiers.product).toContain('Test enzyme A')
+    expect(cdsFeature.qualifiers.gene).toEqual(['testA'])
+    expect(cdsFeature.qualifiers.locus_tag).toEqual(['TEST_001'])
+    expect(cdsFeature.qualifiers.product).toEqual(['Test enzyme A'])
   })
 
   test('should handle multiple files without ID conflicts', async () => {

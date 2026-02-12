@@ -108,16 +108,35 @@ export class JSONFileProvider extends DataProvider {
    * Load an entry (no-op for JSON file provider as data is already in memory)
    */
   async loadEntry(entryId: string): Promise<RecordInfo> {
-    // entryId is already in format "filename:record_id" for unique identification
-    const record = this.records.find(r => r.id === entryId)
+    // entryId can be in format "filename:record_id" or just "record_id"
+    // Try exact match first
+    let record = this.records.find(r => r.id === entryId)
+    
+    // If not found and entryId has colon, try matching just the record ID part
+    if (!record && entryId.includes(':')) {
+      const recordIdPart = entryId.split(':')[1]
+      record = this.records.find(r => r.id === recordIdPart || r._originalId === recordIdPart)
+    }
+    
+    // If still not found, try matching against _originalId
+    if (!record) {
+      record = this.records.find(r => r._originalId === entryId)
+    }
+    
     if (!record) {
       throw new Error(`Record ${entryId} not found`)
+    }
+    
+    // Extract filename from entryId if not stored in record
+    let filename = record._sourceFilename
+    if (!filename && entryId.includes(':')) {
+      filename = entryId.split(':')[0]
     }
     
     return {
       entryId: record.id,  // Full unique ID for internal use
       recordId: record._originalId || record.id,  // Display name
-      filename: record._sourceFilename || 'unknown',
+      filename: filename || 'unknown',
       fileMetadata: {
         ...this.fileMetadata,
         input_file: record._inputFile || 'unknown'
