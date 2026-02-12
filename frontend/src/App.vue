@@ -92,7 +92,7 @@ import IndexCreation from './components/IndexCreation.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
 import DataSourceSelector from './components/DataSourceSelector.vue'
 import FileUpload from './components/FileUpload.vue'
-import { BGCViewerAPIProvider, JSONFileProvider } from '@/services/dataProviders'
+import { BGCViewerAPIProvider, JSONFileProvider, GenbankFileProvider } from '@/services/dataProviders'
 
 export default {
   name: 'App',
@@ -252,19 +252,48 @@ export default {
       
       console.log('Files loaded:', files.length)
       
-      // Create a new JSONFileProvider
-      const jsonProvider = new JSONFileProvider()
+      // Detect file types and create appropriate providers
+      const jsonFiles = files.filter(f => f.type === 'json')
+      const genbankFiles = files.filter(f => f.type === 'genbank')
       
-      // Load all files into the provider
-      for (const fileInfo of files) {
-        await jsonProvider.loadFromFile(fileInfo.file)
+      let provider = null
+      
+      if (jsonFiles.length > 0 && genbankFiles.length > 0) {
+        // Mixed file types - not supported yet
+        console.error('Mixed file types not supported. Please upload only JSON or only GenBank files.')
+        return
+      } else if (jsonFiles.length > 0) {
+        // Create JSONFileProvider
+        const jsonProvider = new JSONFileProvider()
+        
+        // Load all JSON files into the provider
+        for (const fileInfo of jsonFiles) {
+          await jsonProvider.loadFromFile(fileInfo.file)
+        }
+        
+        provider = jsonProvider
+      } else if (genbankFiles.length > 0) {
+        // Create GenbankFileProvider
+        const genbankProvider = new GenbankFileProvider()
+        
+        // Load all GenBank files into the provider
+        for (const fileInfo of genbankFiles) {
+          await genbankProvider.loadFromFile(fileInfo.file)
+        }
+        
+        provider = genbankProvider
+      }
+      
+      if (!provider) {
+        console.error('No valid files to load')
+        return
       }
       
       // Replace the current data provider
-      dataProvider.value = jsonProvider
+      dataProvider.value = provider
       
       // Get record count
-      const records = await jsonProvider.getRecords()
+      const records = await provider.getRecords()
       console.log('Total records loaded:', records.length)
       
       // Clear current selection
@@ -274,7 +303,7 @@ export default {
       
       // Pass the provider to RecordListSelector for searching
       if (recordListSelectorRef.value) {
-        await recordListSelectorRef.value.setRecordsFromProvider(jsonProvider)
+        await recordListSelectorRef.value.setRecordsFromProvider(provider)
       }
     }
     

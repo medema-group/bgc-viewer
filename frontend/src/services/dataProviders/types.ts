@@ -6,7 +6,8 @@
  */
 
 export interface RecordInfo {
-  recordId: string
+  entryId?: string  // Full unique ID (e.g., "filename:recordId") for API calls
+  recordId: string  // Display name / short ID
   filename: string
   fileMetadata?: Record<string, string>  // version, input_file, etc.
   recordInfo: {

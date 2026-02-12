@@ -165,14 +165,15 @@ export default {
         }
         
         recordInfo.value = {
-          recordId: entryInfo.recordId,
+          entryId: entryInfo.entryId || entryId,  // Full unique ID for API calls
+          recordId: entryInfo.recordId,  // Display name
           filename: entryInfo.filename,
           fileMetadata: entryInfo.fileMetadata,
           recordInfo: entryInfo.recordInfo
         }
         
-        // Get regions
-        const regionsData = await provider.value.getRegions(recordInfo.value.recordId)
+        // Get regions (use entryId for unique identification)
+        const regionsData = await provider.value.getRegions(recordInfo.value.entryId || recordInfo.value.recordId)
         
         // Check again after async operation
         if (requestId !== currentLoadingRequestId.value) {
@@ -193,7 +194,7 @@ export default {
         }
         
         // Load resistance features (not region-specific)
-        await loadResistanceFeatures(recordInfo.value.recordId)
+        await loadResistanceFeatures(recordInfo.value.entryId || recordInfo.value.recordId)
         
         // Check again after async operation
         if (requestId !== currentLoadingRequestId.value) {
@@ -205,10 +206,10 @@ export default {
         if (regions.value && regions.value.length > 0) {
           // If there are regions, select the first one and load its features
           selectedRegionId.value = regions.value[0].id
-          await loadRegionFeatures(recordInfo.value.recordId, selectedRegionId.value)
+          await loadRegionFeatures(recordInfo.value.entryId || recordInfo.value.recordId, selectedRegionId.value)
         } else {
           // No regions - load all features for the record
-          await loadAllFeatures(recordInfo.value.recordId)
+          await loadAllFeatures(recordInfo.value.entryId || recordInfo.value.recordId)
         }
         
         // Final check before marking as loaded

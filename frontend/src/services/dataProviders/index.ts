@@ -8,12 +8,14 @@
 export * from './types'
 export { BGCViewerAPIProvider } from './BGCViewerAPIProvider'
 export { JSONFileProvider } from './JSONFileProvider'
+export { GenbankFileProvider } from './GenbankFileProvider'
 
 import { DataProvider } from './types'
 import { BGCViewerAPIProvider } from './BGCViewerAPIProvider'
 import { JSONFileProvider } from './JSONFileProvider'
+import { GenbankFileProvider } from './GenbankFileProvider'
 
-export type ProviderType = 'api' | 'json'
+export type ProviderType = 'api' | 'json' | 'genbank'
 
 export interface ProviderOptions {
   baseURL?: string

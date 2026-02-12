@@ -6,7 +6,7 @@
     <input
       ref="fileInputRef"
       type="file"
-      accept=".json,application/json"
+      accept=".json,application/json,.gb,.gbk,.genbank"
       multiple
       style="display: none"
       @change="handleFileSelect"
@@ -126,22 +126,37 @@ export default {
       
       for (const file of files) {
         // Validate file type
-        if (!file.name.endsWith('.json')) {
-          console.warn(`Skipping non-JSON file: ${file.name}`)
+        if (!file.name.match(/\.(json|gb|gbk|genbank)$/i)) {
+          console.warn(`Skipping non-supported file: ${file.name}`)
           continue
         }
         
         try {
-          // Read and parse the file
-          const text = await file.text()
-          const data = JSON.parse(text)
+          // Detect file type
+          const isGenbank = file.name.match(/\.(gb|gbk|genbank)$/i)
+          const isJSON = file.name.match(/\.json$/i)
           
-          // Count records in the file
           let recordCount = 0
-          if (data.records && Array.isArray(data.records)) {
-            recordCount = data.records.length
-          } else if (data.id) {
-            recordCount = 1
+          let fileType = 'unknown'
+          let data = null
+          
+          if (isJSON) {
+            // Parse JSON file
+            const text = await file.text()
+            data = JSON.parse(text)
+            fileType = 'json'
+            
+            // Count records in the file
+            if (data.records && Array.isArray(data.records)) {
+              recordCount = data.records.length
+            } else if (data.id) {
+              recordCount = 1
+            }
+          } else if (isGenbank) {
+            // GenBank files will be parsed by the provider
+            // Just estimate record count (usually 1 per file)
+            fileType = 'genbank'
+            recordCount = 1  // Will be updated by provider
           }
           
           // Add to loaded files
@@ -151,7 +166,8 @@ export default {
             size: formatFileSize(file.size),
             recordCount: recordCount,
             file: file,
-            data: data
+            data: data,
+            type: fileType
           }
           
           newFiles.push(fileInfo)
