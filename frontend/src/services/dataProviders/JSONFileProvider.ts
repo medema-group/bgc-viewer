@@ -75,10 +75,15 @@ export class JSONFileProvider extends DataProvider {
     const newRecords = data.records ? data.records : [data]
     
     // Store the source filename and input_file with each record
+    // Also create unique record IDs using filename:recordId format
     const inputFile = data.input_file || filename
     newRecords.forEach((record: any) => {
+      const originalId = record.id
+      record._originalId = originalId
       record._sourceFilename = filename
       record._inputFile = inputFile
+      // Create unique ID: filename:recordId
+      record.id = `${filename}:${originalId}`
     })
     
     // Append new records to existing ones (for multiple file support)
@@ -103,16 +108,15 @@ export class JSONFileProvider extends DataProvider {
    * Load an entry (no-op for JSON file provider as data is already in memory)
    */
   async loadEntry(entryId: string): Promise<RecordInfo> {
-    // For JSON file provider, extract recordId from entryId (format: "filename:record_id")
-    const recordId = entryId.includes(':') ? entryId.split(':', 2)[1] : entryId
-    
-    const record = this.records.find(r => r.id === recordId)
+    // entryId is already in format "filename:record_id" for unique identification
+    const record = this.records.find(r => r.id === entryId)
     if (!record) {
-      throw new Error(`Record ${recordId} not found`)
+      throw new Error(`Record ${entryId} not found`)
     }
     
     return {
-      recordId: record.id,
+      entryId: record.id,  // Full unique ID for internal use
+      recordId: record._originalId || record.id,  // Display name
       filename: record._sourceFilename || 'unknown',
       fileMetadata: {
         ...this.fileMetadata,
@@ -128,9 +132,9 @@ export class JSONFileProvider extends DataProvider {
    * Get a list of available records
    */
   async getRecords(): Promise<RecordInfo[]> {
-    return this.records.map((record, idx) => ({
-      recordId: record.id || `record-${idx}`,
-      filename: record._sourceFilename || `record-${idx}.json`,
+    return this.records.map((record) => ({
+      recordId: record.id,  // Already unique with filename:originalId format
+      filename: record._sourceFilename || 'unknown.json',
       recordInfo: {
         description: record.description || record.definition || ''
       }
@@ -167,9 +171,9 @@ export class JSONFileProvider extends DataProvider {
     }
     
     // Map to RecordInfo format
-    const records = filteredRecords.map((record, idx) => ({
-      recordId: record.id || `record-${idx}`,
-      filename: record._sourceFilename || `record-${idx}.json`,
+    const records = filteredRecords.map((record) => ({
+      recordId: record.id,  // Already unique with filename:originalId format
+      filename: record._sourceFilename || 'unknown.json',
       recordInfo: {
         description: record.description || record.definition || ''
       }
