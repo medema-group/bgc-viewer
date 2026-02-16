@@ -914,8 +914,11 @@ export default {
       // Update highlighting in allTrackData
       updateAnnotationHighlighting()
       
-      // Update the viewer with new opacity values
-      updateViewer()
+      // Force re-render by calling drawTracks on the viewer
+      // This updates the opacity without changing the viewport
+      if (regionViewer && regionViewer.drawTracks) {
+        regionViewer.drawTracks()
+      }
     }
     
     // Clear selected element
