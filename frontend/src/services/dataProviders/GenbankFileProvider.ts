@@ -154,7 +154,7 @@ export class GenbankFileProvider extends DataProvider {
     
     return {
       entryId: record.id,  // Full unique ID for internal use
-      recordId: record._recordName || record.id,  // Display name
+      recordId: record.id,  // Use full ID for consistency
       filename: record._sourceFilename || 'unknown.gb',
       fileMetadata: {
         version: record.version || 'unknown'
@@ -232,10 +232,38 @@ export class GenbankFileProvider extends DataProvider {
   }
 
   /**
-   * Get regions (GenBank doesn't have regions like antiSMASH)
+   * Get regions (extract from 'region' type features in GenBank)
    */
   async getRegions(recordId: string): Promise<RegionsResponse> {
-    return { regions: [] }
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Filter features for type 'region'
+    const regionFeatures = (record.features || []).filter((f: any) => f.type === 'region')
+    
+    // Convert to Region format
+    const regions = regionFeatures.map((feature: any) => {
+      // Parse location to get start and end
+      const locationMatch = feature.location?.match(/\[<?(\d+):>?(\d+)\]/)
+      const start = locationMatch ? parseInt(locationMatch[1]) : 0
+      const end = locationMatch ? parseInt(locationMatch[2]) : 0
+      
+      const qualifiers = feature.qualifiers || {}
+      const regionNumber = qualifiers.region_number?.[0] || '1'
+      const products = qualifiers.product || []
+      
+      return {
+        id: `region-${regionNumber}`,
+        region_number: regionNumber,
+        product: products,
+        start: start,
+        end: end
+      }
+    })
+
+    return { regions }
   }
 
   /**
@@ -253,10 +281,42 @@ export class GenbankFileProvider extends DataProvider {
   }
 
   /**
-   * Get features for a region (not applicable for GenBank)
+   * Get features for a region
    */
   async getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse> {
-    return this.getRecordFeatures(recordId)
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Get the region to determine boundaries
+    const regionsResponse = await this.getRegions(recordId)
+    const region = regionsResponse.regions.find(r => r.id === regionId)
+    
+    if (!region) {
+      // If region not found, return all features
+      return this.getRecordFeatures(recordId)
+    }
+
+    // Filter features that fall within the region boundaries
+    const featuresInRegion = (record.features || []).filter((feature: any) => {
+      const locationMatch = feature.location?.match(/\[<?(\d+):>?(\d+)\]/)
+      if (!locationMatch) return false
+      
+      const start = parseInt(locationMatch[1])
+      const end = parseInt(locationMatch[2])
+      
+      // Feature overlaps with region if it starts before region ends and ends after region starts
+      return start < region.end && end > region.start
+    })
+
+    return {
+      features: featuresInRegion,
+      region_boundaries: {
+        start: region.start,
+        end: region.end
+      }
+    }
   }
 
   /**
