@@ -98,7 +98,8 @@ export class GenbankFileProvider extends DataProvider {
       }
       
       // bio-parsers stores gene name in 'name' field, map it to 'gene' qualifier
-      if (gbFeature.name) {
+      // Skip if it's the default "Untitled Feature" value or if gene qualifier already exists
+      if (gbFeature.name && gbFeature.name !== 'Untitled Feature' && !feature.qualifiers.gene) {
         feature.qualifiers.gene = [gbFeature.name]
       }
       
