@@ -571,7 +571,7 @@ html,
 /* Sidebar top section */
 .sidebar-top {
   flex-shrink: 0;
-  overflow-y: auto; /* Allow scrolling when content exceeds height */
+  overflow: hidden; /* No scrollbar - children handle scrolling */
   display: flex;
   flex-direction: column;
   min-height: 100px; /* Prevent it from becoming too small */

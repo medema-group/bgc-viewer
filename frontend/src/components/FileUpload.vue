@@ -262,6 +262,10 @@ export default {
 .file-upload-section {
   padding: 15px;
   border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* Allow shrinking */
+  flex: 1; /* Take available space */
 }
 
 .file-upload-section h3 {
@@ -296,6 +300,10 @@ export default {
   background-color: transparent;
   cursor: default;
   padding: 0;
+  flex: 1; /* Take available space */
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* Allow shrinking */
 }
 
 .files-list {
@@ -303,7 +311,10 @@ export default {
   flex-direction: column;
   gap: 6px;
   width: 100%;
+  overflow-y: auto;
   padding: 4px;
+  max-height: 100%; /* Constrained by parent but grows naturally to content */
+  min-height: 0; /* Allow shrinking below content size */
 }
 
 .drop-zone-content {
