@@ -13,47 +13,59 @@
     <div class="main-content">
       <!-- Left sidebar for controls -->
       <aside class="sidebar" :style="{ width: sidebarWidth + '%' }">
-        <!-- Data Source Selector -->
-        <DataSourceSelector 
-          v-model="dataSource"
-        />
+        <!-- Top section: Data source and file controls -->
+        <div class="sidebar-top" :style="{ height: sidebarTopHeight + '%' }">
+          <!-- Data Source Selector -->
+          <DataSourceSelector 
+            v-model="dataSource"
+          />
 
-        <!-- API Mode: Index Selection Section - Only shown in API mode, local mode, and when not creating an index -->
-        <IndexSelection 
-          v-if="dataSource === 'api' && !isPublicMode && !folderForIndexing"
-          :index-path="selectedIndexPath"
-          @folder-selected="handleFolderSelected"
-          @folder-changed="handleFolderChanged"
-          @index-changed="handleIndexChanged"
-          @create-index-for-folder="handleCreateIndexForFolder"
-        />
+          <!-- API Mode: Index Selection Section - Only shown in API mode, local mode, and when not creating an index -->
+          <IndexSelection 
+            v-if="dataSource === 'api' && !isPublicMode && !folderForIndexing"
+            :index-path="selectedIndexPath"
+            @folder-selected="handleFolderSelected"
+            @folder-changed="handleFolderChanged"
+            @index-changed="handleIndexChanged"
+            @create-index-for-folder="handleCreateIndexForFolder"
+          />
 
-        <!-- API Mode: Index Creation Section - Only shown in API mode, local mode, and when creating a new index -->
-        <IndexCreation
-          v-if="dataSource === 'api' && !isPublicMode && folderForIndexing"
-          :folder-path="folderForIndexing"
-          :index-path="indexPathForCreation"
-          :available-files="availableFiles"
-          :is-loading-files="isLoadingFiles"
-          :needs-preprocessing="needsPreprocessing"
-          @preprocessing-completed="handlePreprocessingCompleted"
-          @cancel="handleCancelIndexCreation"
-        />
+          <!-- API Mode: Index Creation Section - Only shown in API mode, local mode, and when creating a new index -->
+          <IndexCreation
+            v-if="dataSource === 'api' && !isPublicMode && folderForIndexing"
+            :folder-path="folderForIndexing"
+            :index-path="indexPathForCreation"
+            :available-files="availableFiles"
+            :is-loading-files="isLoadingFiles"
+            :needs-preprocessing="needsPreprocessing"
+            @preprocessing-completed="handlePreprocessingCompleted"
+            @cancel="handleCancelIndexCreation"
+          />
 
-        <!-- Upload Mode: File Upload Section -->
-        <FileUpload
-          v-if="dataSource === 'upload'"
-          @files-loaded="handleFilesLoaded"
-        />
+          <!-- Upload Mode: File Upload Section -->
+          <FileUpload
+            v-if="dataSource === 'upload'"
+            @files-loaded="handleFilesLoaded"
+          />
+        </div>
 
-        <!-- Record List Selector Section - Hidden when creating an index -->
-        <RecordListSelector 
-          v-if="!folderForIndexing"
-          ref="recordListSelectorRef"
-          :data-root="selectedDataRoot"
-          :index-path="selectedIndexPath"
-          @record-selected="handleRecordSelected" 
-        />
+        <!-- Horizontal draggable divider -->
+        <div 
+          class="horizontal-divider"
+          @mousedown="startVerticalDragging"
+        ></div>
+
+        <!-- Bottom section: Record list -->
+        <div class="sidebar-bottom">
+          <!-- Record List Selector Section - Hidden when creating an index -->
+          <RecordListSelector 
+            v-if="!folderForIndexing"
+            ref="recordListSelectorRef"
+            :data-root="selectedDataRoot"
+            :index-path="selectedIndexPath"
+            @record-selected="handleRecordSelected" 
+          />
+        </div>
       </aside>
 
       <!-- Draggable divider -->
@@ -141,6 +153,12 @@ export default {
     const isDragging = ref(false)
     const minSidebarWidth = 15 // Minimum 15%
     const maxSidebarWidth = 50 // Maximum 50%
+    
+    // Vertical (horizontal divider) state for sidebar sections
+    const sidebarTopHeight = ref(30) // Default top section height as percentage
+    const isVerticalDragging = ref(false)
+    const minSidebarTopHeight = 15 // Minimum 15%
+    const maxSidebarTopHeight = 70 // Maximum 70%
     
     const handleFolderSelected = async (folderPath) => {
       // Update the selected data root
@@ -366,6 +384,40 @@ export default {
       document.body.style.userSelect = ''
     }
     
+    // Vertical draggable divider functions (for sidebar sections)
+    const startVerticalDragging = (e) => {
+      isVerticalDragging.value = true
+      e.preventDefault()
+      document.addEventListener('mousemove', onVerticalDrag)
+      document.addEventListener('mouseup', stopVerticalDragging)
+      document.body.style.cursor = 'row-resize'
+      document.body.style.userSelect = 'none'
+    }
+    
+    const onVerticalDrag = (e) => {
+      if (!isVerticalDragging.value) return
+      
+      // Get sidebar element to calculate relative position
+      const sidebar = e.target.closest('.sidebar')
+      if (!sidebar) return
+      
+      const sidebarRect = sidebar.getBoundingClientRect()
+      const relativeY = e.clientY - sidebarRect.top
+      const percentage = (relativeY / sidebarRect.height) * 100
+      
+      if (percentage >= minSidebarTopHeight && percentage <= maxSidebarTopHeight) {
+        sidebarTopHeight.value = percentage
+      }
+    }
+    
+    const stopVerticalDragging = () => {
+      isVerticalDragging.value = false
+      document.removeEventListener('mousemove', onVerticalDrag)
+      document.removeEventListener('mouseup', stopVerticalDragging)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    
     const fetchVersion = async () => {
       try {
         const response = await axios.get('/api/version')
@@ -402,6 +454,8 @@ export default {
     onUnmounted(() => {
       document.removeEventListener('mousemove', onDrag)
       document.removeEventListener('mouseup', stopDragging)
+      document.removeEventListener('mousemove', onVerticalDrag)
+      document.removeEventListener('mouseup', stopVerticalDragging)
     })
     
     return {
@@ -421,6 +475,7 @@ export default {
       dataProvider,
       currentRecordId,
       currentRecordData,
+      sidebarTopHeight,
       initialRegionId,
       sidebarWidth,
       handleFolderSelected,
@@ -434,7 +489,8 @@ export default {
       handlePreprocessingCompleted,
       handleCancelIndexCreation,
       handleFilesLoaded,
-      startDragging
+      startDragging,
+      startVerticalDragging
     }
   }
 }
@@ -504,11 +560,47 @@ html,
 .sidebar {
   flex-shrink: 0;
   background: white;
-  overflow-y: scroll;
+  overflow: hidden; /* Parent doesn't scroll */
   display: flex;
   flex-direction: column;
+  min-height: 0; /* Critical for flexbox scrolling */
   scrollbar-width: thin; /* Firefox */
   scrollbar-color: #888 #f1f1f1; /* Firefox - thumb and track */
+}
+
+/* Sidebar top section */
+.sidebar-top {
+  flex-shrink: 0;
+  overflow: hidden; /* No scrollbar */
+  display: flex;
+  flex-direction: column;
+  min-height: 100px; /* Prevent it from becoming too small */
+}
+
+/* Horizontal draggable divider */
+.horizontal-divider {
+  height: 4px;
+  background: #e0e0e0;
+  cursor: row-resize;
+  flex-shrink: 0;
+  transition: background-color 0.2s;
+}
+
+.horizontal-divider:hover {
+  background: #1976d2;
+}
+
+.horizontal-divider:active {
+  background: #1565c0;
+}
+
+/* Sidebar bottom section */
+.sidebar-bottom {
+  flex: 1;
+  overflow: hidden; /* No scrollbar */
+  display: flex;
+  flex-direction: column;
+  min-height: 100px; /* Prevent it from becoming too small */
 }
 
 /* Draggable divider */
@@ -546,21 +638,25 @@ html,
   font-style: italic;
 }
 
-/* Scrollbar styling for sidebar */
-.sidebar::-webkit-scrollbar {
+/* Scrollbar styling for sidebar sections */
+.sidebar-top::-webkit-scrollbar,
+.sidebar-bottom::-webkit-scrollbar {
   width: 8px;
 }
 
-.sidebar::-webkit-scrollbar-track {
+.sidebar-top::-webkit-scrollbar-track,
+.sidebar-bottom::-webkit-scrollbar-track {
   background: #f1f1f1;
 }
 
-.sidebar::-webkit-scrollbar-thumb {
+.sidebar-top::-webkit-scrollbar-thumb,
+.sidebar-bottom::-webkit-scrollbar-thumb {
   background: #888;
   border-radius: 4px;
 }
 
-.sidebar::-webkit-scrollbar-thumb:hover {
+.sidebar-top::-webkit-scrollbar-thumb:hover,
+.sidebar-bottom::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
 

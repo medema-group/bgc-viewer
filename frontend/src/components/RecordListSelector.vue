@@ -357,6 +357,7 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0; /* Critical for nested flexbox scrolling */
 }
 
 .record-list-selector-section h2 {
@@ -398,6 +399,7 @@ export default {
   flex-direction: column;
   overflow: hidden;
   flex: 1;
+  min-height: 0; /* Critical for nested flexbox scrolling */
 }
 
 .controls-bar {
@@ -501,6 +503,7 @@ export default {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-height: 0; /* Critical for nested flexbox scrolling */
 }
 
 .records-list {
@@ -510,7 +513,7 @@ export default {
   overflow-y: auto;
   transition: opacity 0.2s ease, background-color 0.2s ease;
   flex: 1;
-  min-height: 300px;
+  min-height: 100px; /* Smaller minimum to allow pagination to always show */
 }
 
 .records-list.refreshing {
@@ -612,6 +615,7 @@ export default {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid #eee;
+  flex-shrink: 0; /* Prevent pagination info from being compressed */
 }
 
 /* Responsive design */
