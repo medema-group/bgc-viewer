@@ -271,6 +271,11 @@ export default {
         return
       }
       
+      // Signal to RecordListSelector that loading has started
+      if (recordListSelectorRef.value) {
+        recordListSelectorRef.value.setLoadingState()
+      }
+      
       console.log('Files loaded:', files.length)
       
       // Detect file types and create appropriate providers

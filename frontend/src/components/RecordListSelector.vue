@@ -2,7 +2,14 @@
   <section class="record-list-selector-section">
     <h2>Record selection</h2>
     
-    <div v-if="!hasDatabase" class="no-database-message">
+    <!-- Loading State - Show when loading and no database yet -->
+    <div v-if="loading && !hasDatabase" class="loading-container">
+      <LoadingSpinner />
+      <p>Loading records...</p>
+    </div>
+    
+    <!-- No Database Message - Show when not loading and no database -->
+    <div v-else-if="!hasDatabase" class="no-database-message">
       <p>No processed database found. Please select a folder and run preprocessing first.</p>
     </div>
     
@@ -47,6 +54,12 @@
       <!-- Error State -->
       <div v-if="error" class="error">
         {{ error }}
+      </div>
+      
+      <!-- Loading State -->
+      <div v-else-if="loading && entriesData.length === 0" class="loading-container">
+        <LoadingSpinner />
+        <p>Loading records...</p>
       </div>
       
       <!-- Records List -->
@@ -186,6 +199,7 @@ export default {
       
       loading.value = true
       error.value = ''
+      hasDatabase.value = true // Set this early so loading spinner shows with entries-section
       
       try {
         const currentPageNum = page !== null ? page : currentPage.value
@@ -288,6 +302,10 @@ export default {
     }
     
     const setRecordsFromProvider = async (provider, isDirect = true) => {
+      // Set loading state immediately
+      loading.value = true
+      hasDatabase.value = true
+      
       // Set data provider (can be JSONFileProvider or BGCViewerAPIProvider)
       isDirectMode.value = isDirect
       dataProvider.value = provider
@@ -299,8 +317,14 @@ export default {
       // Load initial records
       await searchRecords('', 1)
       
-      hasDatabase.value = true
       loading.value = false
+    }
+    
+    const setLoadingState = () => {
+      // Signal that files are being loaded/parsed
+      loading.value = true
+      hasDatabase.value = true
+      entriesData.value = []
     }
     
     // Watch for index path changes - tell backend which database to use
@@ -344,7 +368,8 @@ export default {
       clearSearch,
       refreshEntries,
       clearRecords,
-      setRecordsFromProvider
+      setRecordsFromProvider,
+      setLoadingState
     }
   }
 }
@@ -376,11 +401,14 @@ export default {
   font-size: 13px;
 }
 
-.loading {
+.loading-container {
   text-align: center;
   padding: 30px 15px;
   color: #666;
-  font-style: italic;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   font-size: 13px;
 }
 
