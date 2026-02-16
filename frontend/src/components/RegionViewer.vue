@@ -414,6 +414,7 @@ export default {
         onDomainChange: (domain) => {
           currentDomain.value = domain
           filterAnnotationsForViewport(domain)
+          updateAnnotationHighlighting()  // Apply highlighting to newly visible annotations
           updateViewer()
         }
       })
