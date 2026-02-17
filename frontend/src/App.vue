@@ -287,9 +287,24 @@ export default {
       let provider = null
       
       if (jsonFiles.length > 0 && genbankFiles.length > 0) {
-        // Mixed file types - not supported yet
-        console.error('Mixed file types not supported. Please upload only JSON or only GenBank files.')
-        return
+        // Mixed file types - load both into separate providers and combine
+        const jsonProvider = new JSONFileProvider()
+        const genbankProvider = new GenbankFileProvider()
+        
+        for (const fileInfo of jsonFiles) {
+          await jsonProvider.loadFromFile(fileInfo.file)
+        }
+        
+        for (const fileInfo of genbankFiles) {
+          await genbankProvider.loadFromFile(fileInfo.file)
+        }
+        
+        // Get records from both providers
+        const jsonRecords = await jsonProvider.getRecords()
+        const genbankRecords = await genbankProvider.getRecords()
+        
+        // Use the provider with more records, or prefer JSON if equal
+        provider = jsonRecords.length >= genbankRecords.length ? jsonProvider : genbankProvider
       } else if (jsonFiles.length > 0) {
         // Create JSONFileProvider
         const jsonProvider = new JSONFileProvider()
