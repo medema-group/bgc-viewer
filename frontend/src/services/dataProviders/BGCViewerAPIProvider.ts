@@ -106,7 +106,8 @@ export class BGCViewerAPIProvider extends DataProvider {
       organism: entry.organism,
       products: entry.products,
       clusterTypes: entry.cluster_types,
-      featureCount: entry.feature_count
+      featureCount: entry.feature_count,
+      regionCount: entry.region_count
     } as any))
     
     return {

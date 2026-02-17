@@ -215,13 +215,20 @@ export class GenbankFileProvider extends DataProvider {
       })
     }
     
-    const records = filteredRecords.map((record) => ({
-      recordId: record.id,  // Already unique with filename:recordName format
-      filename: record._sourceFilename || 'unknown.gb',
-      recordInfo: {
-        description: record.description || ''
+    const records = filteredRecords.map((record) => {
+      // Count regions (features with type='region')
+      const regionCount = (record.features || []).filter((f: any) => f.type === 'region').length
+      
+      return {
+        recordId: record.id,  // Already unique with filename:recordName format
+        filename: record._sourceFilename || 'unknown.gb',
+        recordInfo: {
+          description: record.description || ''
+        },
+        featureCount: (record.features || []).length,
+        regionCount
       }
-    }))
+    })
     
     return {
       records,

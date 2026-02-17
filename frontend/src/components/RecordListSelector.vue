@@ -89,6 +89,8 @@
                 <span class="detail-item" v-if="record.organism">{{ record.organism }}</span>
                 <span class="detail-separator" v-if="record.organism">•</span>
                 <span class="detail-item" v-if="record.description">{{ record.description }}</span>
+                <span class="detail-separator">•</span>
+                <span class="detail-item">{{ record.region_count }} regions</span>
                 <span class="detail-separator" v-if="record.description">•</span>
                 <span class="detail-item">{{ record.feature_count }} features</span>
                 <span class="detail-separator" v-if="record.products && record.products.length > 0">•</span>
@@ -215,7 +217,11 @@ export default {
             record_id: record.recordId,
             filename: record.filename || 'uploaded.json',
             description: record.recordInfo?.description || '',
-            cluster_types: []
+            organism: record.organism,
+            products: record.products,
+            cluster_types: record.clusterTypes || [],
+            feature_count: record.featureCount || 0,
+            region_count: record.regionCount || 0
           }))
           
           // Apply client-side pagination
@@ -234,7 +240,8 @@ export default {
             organism: record.organism,
             products: record.products,
             cluster_types: record.clusterTypes,
-            feature_count: record.featureCount
+            feature_count: record.featureCount,
+            region_count: record.regionCount
           }))
           total.value = result.total
           totalPages.value = result.totalPages

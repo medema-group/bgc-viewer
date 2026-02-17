@@ -190,13 +190,26 @@ export class JSONFileProvider extends DataProvider {
     }
     
     // Map to RecordInfo format
-    const records = filteredRecords.map((record) => ({
-      recordId: record.id,  // Already unique with filename:originalId format
-      filename: record._sourceFilename || 'unknown.json',
-      recordInfo: {
-        description: record.description || record.definition || ''
+    const records = filteredRecords.map((record) => {
+      // Count regions
+      let regionCount = 0
+      if (record.regions && Array.isArray(record.regions)) {
+        regionCount = record.regions.length
+      } else if (record.features && Array.isArray(record.features)) {
+        // Count region-type features
+        regionCount = record.features.filter((f: any) => f.type === 'region').length
       }
-    }))
+      
+      return {
+        recordId: record.id,  // Already unique with filename:originalId format
+        filename: record._sourceFilename || 'unknown.json',
+        recordInfo: {
+          description: record.description || record.definition || ''
+        },
+        featureCount: (record.features || []).length,
+        regionCount
+      }
+    })
     
     // Return all results (client-side provider doesn't need server-side pagination)
     return {

@@ -88,12 +88,16 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
     try:
         conn = sqlite3.connect(db_path)
         
-        # Build query to get records with file paths
+        # Build query to get records with file paths and commonly used attributes
         base_query = """
             SELECT 
                 f.path as filename, 
                 r.record_id,
-                r.id as internal_id
+                r.id as internal_id,
+                (SELECT attribute_value FROM attributes WHERE record_id = r.id AND attribute_name = 'description' LIMIT 1) as description,
+                (SELECT attribute_value FROM attributes WHERE record_id = r.id AND attribute_name = 'organism' LIMIT 1) as organism,
+                r.feature_count,
+                r.region_count
             FROM records r
             JOIN files f ON r.file_id = f.id
         """
@@ -142,13 +146,34 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         entries = []
         
         for row in cursor.fetchall():
-            filename, record_id, internal_id = row
+            filename, record_id, internal_id, description, organism, feature_count, region_count = row
+            
+            # Get products and cluster_types for this record
+            products_cursor = conn.execute("""
+                SELECT DISTINCT attribute_value FROM attributes 
+                WHERE record_id = ? AND attribute_name = 'regions_product'
+                LIMIT 5
+            """, (internal_id,))
+            products = [row[0] for row in products_cursor.fetchall()]
+            
+            cluster_types_cursor = conn.execute("""
+                SELECT DISTINCT attribute_value FROM attributes 
+                WHERE record_id = ? AND attribute_name IN ('regions_product_category', 'regions_product')
+                LIMIT 5
+            """, (internal_id,))
+            cluster_types = [row[0] for row in cluster_types_cursor.fetchall()]
             
             entries.append({
                 "filename": filename,
                 "record_id": record_id,
                 "id": f"{filename}:{record_id}",  # Unique identifier for frontend
-                "internal_id": internal_id  # Internal database ID
+                "internal_id": internal_id,  # Internal database ID
+                "description": description or "",
+                "organism": organism or "",
+                "feature_count": feature_count or 0,
+                "region_count": region_count or 0,
+                "products": products,
+                "cluster_types": cluster_types
             })
         
         conn.close()
