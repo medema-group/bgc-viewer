@@ -149,13 +149,15 @@ export default {
     const initialRegionId = ref('')
     
     // Draggable divider state
-    const sidebarWidth = ref(32) // Default width as percentage
+    const savedSidebarWidth = localStorage.getItem('bgc-viewer-sidebar-width')
+    const sidebarWidth = ref(savedSidebarWidth ? parseFloat(savedSidebarWidth) : 32) // Default width as percentage
     const isDragging = ref(false)
     const minSidebarWidth = 15 // Minimum 15%
     const maxSidebarWidth = 50 // Maximum 50%
     
     // Vertical (horizontal divider) state for sidebar sections
-    const sidebarTopHeight = ref(30) // Default top section height as percentage
+    const savedSidebarTopHeight = localStorage.getItem('bgc-viewer-sidebar-top-height')
+    const sidebarTopHeight = ref(savedSidebarTopHeight ? parseFloat(savedSidebarTopHeight) : 30) // Default top section height as percentage
     const isVerticalDragging = ref(false)
     const minSidebarTopHeight = 15 // Minimum 15%
     const maxSidebarTopHeight = 70 // Maximum 70%
@@ -387,6 +389,9 @@ export default {
       document.removeEventListener('mouseup', stopDragging)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      
+      // Save to localStorage
+      localStorage.setItem('bgc-viewer-sidebar-width', sidebarWidth.value.toString())
     }
     
     // Vertical draggable divider functions (for sidebar sections)
@@ -418,6 +423,9 @@ export default {
     const stopVerticalDragging = () => {
       isVerticalDragging.value = false
       document.removeEventListener('mousemove', onVerticalDrag)
+      
+      // Save to localStorage
+      localStorage.setItem('bgc-viewer-sidebar-top-height', sidebarTopHeight.value.toString())
       document.removeEventListener('mouseup', stopVerticalDragging)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
