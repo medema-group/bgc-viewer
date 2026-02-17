@@ -59,7 +59,8 @@ class FileStorageService {
           lastModified: fileInfo.file.lastModified,
           recordCount: fileInfo.recordCount,
           fileType: fileInfo.type,
-          data: fileInfo.data,
+          // Don't store parsed data - it can contain non-cloneable objects
+          // We'll re-parse from arrayBuffer when loading
           arrayBuffer: arrayBuffer,
           timestamp: Date.now()
         }
@@ -104,13 +105,24 @@ class FileStorageService {
             lastModified: record.lastModified
           })
 
+          // Re-parse JSON data if it's a JSON file
+          let data = null
+          if (record.fileType === 'json') {
+            try {
+              const text = new TextDecoder().decode(record.arrayBuffer)
+              data = JSON.parse(text)
+            } catch (err) {
+              console.error(`Failed to re-parse ${record.name}:`, err)
+            }
+          }
+
           return {
             id: index + 1,
             name: record.name,
             size: this.formatFileSize(record.size),
             recordCount: record.recordCount,
             file: file,
-            data: record.data,
+            data: data,
             type: record.fileType
           }
         })
