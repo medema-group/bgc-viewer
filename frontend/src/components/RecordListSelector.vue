@@ -155,6 +155,7 @@ export default {
     const isDirectMode = ref(false)
     const allDirectRecords = ref([])
     const dataProvider = ref(null) // Store reference to data provider for searching
+    const dataProviders = ref([]) // Store all providers (one per file)
     
     // Pagination
     const currentPage = ref(1)
@@ -195,7 +196,10 @@ export default {
     }
     
     const searchRecords = async (query, page = null) => {
-      if (!dataProvider.value) {
+      // Handle multiple providers or single provider
+      const providers = dataProviders.value.length > 0 ? dataProviders.value : (dataProvider.value ? [dataProvider.value] : [])
+      
+      if (providers.length === 0) {
         return
       }
       
@@ -206,47 +210,34 @@ export default {
       try {
         const currentPageNum = page !== null ? page : currentPage.value
         
-        // Use the provider's search method with pagination
-        const result = await dataProvider.value.searchRecords(query, currentPageNum, perPage.value)
+        // Query all providers and combine results
+        const allResults = []
         
-        // For file providers, we need to handle client-side pagination
-        if (isDirectMode.value) {
-          // Store all results for client-side pagination
-          allDirectRecords.value = result.records.map(record => ({
-            entry_id: record.recordId,
-            record_id: record.recordId,
-            filename: record.filename || 'uploaded.json',
-            description: record.recordInfo?.description || '',
-            organism: record.organism,
-            products: record.products,
-            cluster_types: record.clusterTypes || [],
-            feature_count: record.featureCount || 0,
-            region_count: record.regionCount || 0
-          }))
-          
-          // Apply client-side pagination
-          const start = (currentPageNum - 1) * perPage.value
-          const end = start + perPage.value
-          entriesData.value = allDirectRecords.value.slice(start, end)
-          total.value = allDirectRecords.value.length
-          totalPages.value = Math.ceil(allDirectRecords.value.length / perPage.value)
-        } else {
-          // For API provider, pagination is handled server-side
-          entriesData.value = result.records.map(record => ({
-            entry_id: record.entryId || record.recordId,  // Use full entryId from API
-            record_id: record.recordId,
-            filename: record.filename || 'unknown',
-            description: record.recordInfo?.description || '',
-            organism: record.organism,
-            products: record.products,
-            cluster_types: record.clusterTypes,
-            feature_count: record.featureCount,
-            region_count: record.regionCount
-          }))
-          total.value = result.total
-          totalPages.value = result.totalPages
-          currentPage.value = result.currentPage
+        for (const provider of providers) {
+          const result = await provider.searchRecords(query, 1, 10000) // Get all results from each provider
+          allResults.push(...result.records)
         }
+        
+        // Map all results to unified format
+        allDirectRecords.value = allResults.map(record => ({
+          entry_id: record.recordId,
+          record_id: record.recordId,
+          filename: record.filename || 'uploaded',
+          description: record.recordInfo?.description || '',
+          organism: record.organism,
+          products: record.products,
+          cluster_types: record.clusterTypes || [],
+          feature_count: record.featureCount || 0,
+          region_count: record.regionCount || 0
+        }))
+        
+        // Apply client-side pagination
+        const start = (currentPageNum - 1) * perPage.value
+        const end = start + perPage.value
+        entriesData.value = allDirectRecords.value.slice(start, end)
+        total.value = allDirectRecords.value.length
+        totalPages.value = Math.ceil(allDirectRecords.value.length / perPage.value)
+        currentPage.value = currentPageNum
         
         hasDatabase.value = true
       } catch (err) {
@@ -299,6 +290,7 @@ export default {
       allDirectRecords.value = []
       isDirectMode.value = false
       dataProvider.value = null
+      dataProviders.value = []
       total.value = 0
       totalPages.value = 0
       currentPage.value = 1
@@ -306,6 +298,28 @@ export default {
       loadingRecordId.value = ''
       searchQuery.value = ''
       hasDatabase.value = false
+    }
+    
+    const setRecordsFromProviders = async (providers) => {
+      // Set loading state immediately
+      loading.value = true
+      hasDatabase.value = true
+      
+      // Store all providers
+      dataProviders.value = providers
+      isDirectMode.value = true
+      
+      // Clear single provider reference
+      dataProvider.value = null
+      
+      // Reset search and pagination
+      currentPage.value = 1
+      searchQuery.value = ''
+      
+      // Load initial records
+      await searchRecords('', 1)
+      
+      loading.value = false
     }
     
     const setRecordsFromProvider = async (provider, isDirect = true) => {
@@ -316,6 +330,7 @@ export default {
       // Set data provider (can be JSONFileProvider or BGCViewerAPIProvider)
       isDirectMode.value = isDirect
       dataProvider.value = provider
+      dataProviders.value = [] // Clear multiple providers
       
       // Reset search and pagination
       currentPage.value = 1
@@ -376,6 +391,7 @@ export default {
       refreshEntries,
       clearRecords,
       setRecordsFromProvider,
+      setRecordsFromProviders,
       setLoadingState
     }
   }

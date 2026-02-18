@@ -142,8 +142,9 @@ export default {
     const isLoadingFiles = ref(false)
     const needsPreprocessing = ref(false)
     
-    // Region viewer state - much simpler now!
-    const dataProvider = ref(null)
+    // Region viewer state
+    const dataProvider = ref(null) // Active provider for viewing
+    const dataProviders = ref([]) // All providers (one per file)
     const currentRecordId = ref('')
     const currentRecordData = ref(null)
     const initialRegionId = ref('')
@@ -195,6 +196,17 @@ export default {
         entryId: recordData.entryId,
         recordId: recordData.recordId,
         filename: recordData.filename
+      }
+      
+      // Find the provider that contains this record
+      if (dataProviders.value.length > 0) {
+        for (const provider of dataProviders.value) {
+          const records = await provider.getRecords()
+          if (records.some(r => r.recordId === recordData.entryId)) {
+            dataProvider.value = provider
+            break
+          }
+        }
       }
       
       // Set the record ID to trigger the container to load
@@ -263,6 +275,7 @@ export default {
       if (files.length === 0) {
         // All files removed
         dataProvider.value = null
+        dataProviders.value = []
         currentRecordId.value = ''
         currentRecordData.value = null
         initialRegionId.value = ''
@@ -280,73 +293,52 @@ export default {
       
       console.log('Files loaded:', files.length)
       
-      // Detect file types and create appropriate providers
-      const jsonFiles = files.filter(f => f.type === 'json')
-      const genbankFiles = files.filter(f => f.type === 'genbank')
+      // Create one provider per file
+      const providers = []
       
-      let provider = null
-      
-      if (jsonFiles.length > 0 && genbankFiles.length > 0) {
-        // Mixed file types - load both into separate providers and combine
-        const jsonProvider = new JSONFileProvider()
-        const genbankProvider = new GenbankFileProvider()
+      for (const fileInfo of files) {
+        let provider = null
         
-        for (const fileInfo of jsonFiles) {
-          await jsonProvider.loadFromFile(fileInfo.file)
+        if (fileInfo.type === 'json') {
+          provider = new JSONFileProvider()
+          await provider.loadFromFile(fileInfo.file)
+        } else if (fileInfo.type === 'genbank') {
+          provider = new GenbankFileProvider()
+          await provider.loadFromFile(fileInfo.file)
         }
         
-        for (const fileInfo of genbankFiles) {
-          await genbankProvider.loadFromFile(fileInfo.file)
+        if (provider) {
+          providers.push(provider)
         }
-        
-        // Get records from both providers
-        const jsonRecords = await jsonProvider.getRecords()
-        const genbankRecords = await genbankProvider.getRecords()
-        
-        // Use the provider with more records, or prefer JSON if equal
-        provider = jsonRecords.length >= genbankRecords.length ? jsonProvider : genbankProvider
-      } else if (jsonFiles.length > 0) {
-        // Create JSONFileProvider
-        const jsonProvider = new JSONFileProvider()
-        
-        // Load all JSON files into the provider
-        for (const fileInfo of jsonFiles) {
-          await jsonProvider.loadFromFile(fileInfo.file)
-        }
-        
-        provider = jsonProvider
-      } else if (genbankFiles.length > 0) {
-        // Create GenbankFileProvider
-        const genbankProvider = new GenbankFileProvider()
-        
-        // Load all GenBank files into the provider
-        for (const fileInfo of genbankFiles) {
-          await genbankProvider.loadFromFile(fileInfo.file)
-        }
-        
-        provider = genbankProvider
       }
       
-      if (!provider) {
+      if (providers.length === 0) {
         console.error('No valid files to load')
         return
       }
       
-      // Replace the current data provider
-      dataProvider.value = provider
+      // Store all providers
+      dataProviders.value = providers
       
-      // Get record count
-      const records = await provider.getRecords()
-      console.log('Total records loaded:', records.length)
+      // Set the first provider as active for viewing
+      dataProvider.value = providers[0]
+      
+      // Count total records across all providers
+      let totalRecords = 0
+      for (const provider of providers) {
+        const records = await provider.getRecords()
+        totalRecords += records.length
+      }
+      console.log('Total records loaded:', totalRecords, 'from', providers.length, 'files')
       
       // Clear current selection
       currentRecordId.value = ''
       currentRecordData.value = null
       initialRegionId.value = ''
       
-      // Pass the provider to RecordListSelector for searching
+      // Pass all providers to RecordListSelector for searching
       if (recordListSelectorRef.value) {
-        await recordListSelectorRef.value.setRecordsFromProvider(provider)
+        await recordListSelectorRef.value.setRecordsFromProviders(providers)
       }
     }
     
