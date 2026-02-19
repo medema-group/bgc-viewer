@@ -253,6 +253,23 @@ export default {
       selectedRegion.value = newVal
     }, { immediate: true })
 
+    watch(() => props.regionBoundaries, (newBoundaries) => {
+      // When region boundaries change, zoom the viewer to the new region
+      if (newBoundaries && regionViewer) {
+        console.log('[RegionViewer] Region boundaries changed, zooming to:', newBoundaries)
+        const { start, end } = newBoundaries
+        const chartWidth = regionViewer.getConfig().width - regionViewer.getConfig().margin.left - regionViewer.getConfig().margin.right
+        const x = regionViewer.x
+        const scale = chartWidth / (x(end) - x(start))
+        const translate = -x(start) * scale
+        
+        const transform = zoomIdentity.translate(translate, 0).scale(scale)
+        // Apply transform with animation for smoother transition
+        regionViewer.svg.transition().duration(500).call(regionViewer.zoom.transform, transform)
+        regionViewer.currentTransform = transform
+      }
+    }, { deep: true })
+
     onMounted(() => {
       console.log('[RegionViewer] Component mounted, features:', props.features?.length || 0)
       // Add event listeners
