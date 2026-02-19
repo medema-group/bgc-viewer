@@ -431,20 +431,21 @@ export default {
           updateViewer()
         },
         onDomainChange: (domain) => {
-          // Update domain ref for tracking
+          // Update domain ref for tracking (called continuously during pan/zoom)
           currentDomain.value = domain
-          
-          // Debounce viewport-changed emit to avoid excessive updates during pan/zoom
-          // TrackViewer already handles its own rendering, so we don't need to redraw here
+        },
+        onZoomEnd: (domain) => {
+          // Called when pan/zoom ends - trigger data loading
+          // Debounce to handle rapid zoom operations
           if (viewportChangeTimeout.value) {
             clearTimeout(viewportChangeTimeout.value)
           }
           
           viewportChangeTimeout.value = setTimeout(() => {
             const viewport = { start: Math.floor(domain[0]), end: Math.ceil(domain[1]) }
-            console.log('[RegionViewer] Emitting viewport-changed:', viewport)
+            console.log('[RegionViewer] Zoom ended, emitting viewport-changed:', viewport)
             emit('viewport-changed', viewport)
-          }, 800) // 800ms debounce for loading new features
+          }, 300) // 300ms debounce after zoom ends
         }
       })
       console.log('TrackViewer created successfully')

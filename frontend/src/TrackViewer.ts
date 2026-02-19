@@ -73,6 +73,7 @@ export interface TrackViewerConfig {
   onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
   onBackgroundClick?: () => void;
   onDomainChange?: (domain: [number, number]) => void;
+  onZoomEnd?: (domain: [number, number]) => void;
 }
 
 
@@ -137,7 +138,8 @@ export class TrackViewer {
       onAnnotationClick: config.onAnnotationClick || (() => {}),
       onAnnotationHover: config.onAnnotationHover || (() => {}),
       onBackgroundClick: config.onBackgroundClick || (() => {}),
-      onDomainChange: config.onDomainChange || (() => {})
+      onDomainChange: config.onDomainChange || (() => {}),
+      onZoomEnd: config.onZoomEnd || (() => {})
     };
 
     // Store the original left margin as minimum
@@ -258,7 +260,7 @@ export class TrackViewer {
 
     this.zoom = (d3.zoom() as ZoomBehavior<SVGSVGElement, unknown>)
       .scaleExtent(this.config.zoomExtent)
-      .translateExtent([[0, 0], [chartWidth, chartHeight]])
+      // Remove translateExtent to allow free panning across the data domain
       .extent([[0, 0], [chartWidth, chartHeight]])
       .filter((event: any) => {
         // Track when dragging starts (mousedown without wheel)
@@ -273,6 +275,7 @@ export class TrackViewer {
         return !event.ctrlKey && !event.button;
       })
       .on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
+        console.log('[TrackViewer] zoom event:', event.transform);
         this.currentTransform = event.transform;
         this.drawTracks();
         
@@ -281,6 +284,7 @@ export class TrackViewer {
         this.config.onDomainChange(domain);
       })
       .on('start', (event: any) => {
+        console.log('[TrackViewer] zoom start event:', event.sourceEvent?.type);
         // Only change cursor to grabbing if it's a drag (not a wheel zoom)
         if (event.sourceEvent && event.sourceEvent.type === 'mousedown') {
           this.clippedChart.select('.chart-background').style('cursor', 'grabbing');
@@ -288,14 +292,20 @@ export class TrackViewer {
         }
       })
       .on('end', () => {
+        console.log('[TrackViewer] zoom end event');
         this.isDragging = false;
         this.clippedChart.select('.chart-background').style('cursor', 'grab');
         this.svg.style('cursor', '');
+        
+        // Notify about zoom end for data loading
+        const domain = this.getCurrentDomain();
+        this.config.onZoomEnd(domain);
       });
 
     // Apply zoom behavior to the main SVG instead of an overlay
     // This allows individual elements to handle their own mouse events
     this.svg.call(this.zoom);
+    console.log('[TrackViewer] Zoom behavior applied to SVG');
 
     // Create a background rect for empty areas to still capture zoom events
     this.clippedChart

@@ -375,7 +375,7 @@ export default {
         } else {
           console.log(`Viewport change too small, skipping reload (threshold: ${threshold})`)
         }
-      }, 800) // 800ms debounce delay
+      }, 500) // 500ms debounce delay after zoom ends
     }
 
     onMounted(async () => {
