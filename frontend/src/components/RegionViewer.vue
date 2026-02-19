@@ -146,6 +146,11 @@ export default {
       default: null
       // Expected shape: { start, end }
     },
+    // Whether to zoom to regionBoundaries when they change
+    shouldZoomToBoundaries: {
+      type: Boolean,
+      default: false
+    },
     // PFAM color mapping
     pfamColorMap: {
       type: Object,
@@ -253,22 +258,38 @@ export default {
       selectedRegion.value = newVal
     }, { immediate: true })
 
-    watch(() => props.regionBoundaries, (newBoundaries) => {
-      // When region boundaries change, zoom the viewer to the new region
-      if (newBoundaries && regionViewer) {
-        console.log('[RegionViewer] Region boundaries changed, zooming to:', newBoundaries)
-        const { start, end } = newBoundaries
-        const chartWidth = regionViewer.getConfig().width - regionViewer.getConfig().margin.left - regionViewer.getConfig().margin.right
-        const x = regionViewer.x
-        const scale = chartWidth / (x(end) - x(start))
-        const translate = -x(start) * scale
+    // Watch shouldZoomToBoundaries to trigger zoom when explicitly requested
+    watch(() => props.shouldZoomToBoundaries, (shouldZoom) => {
+      if (shouldZoom && props.regionBoundaries && regionViewer) {
+        console.log('[RegionViewer] Zooming to region boundaries:', props.regionBoundaries)
         
-        const transform = zoomIdentity.translate(translate, 0).scale(scale)
-        // Apply transform with animation for smoother transition
-        regionViewer.svg.transition().duration(500).call(regionViewer.zoom.transform, transform)
-        regionViewer.currentTransform = transform
+        // Use nextTick to ensure viewer is updated before zooming
+        nextTick(() => {
+          if (!regionViewer) return
+          
+          const { start, end } = props.regionBoundaries
+          const chartWidth = regionViewer.getConfig().width - regionViewer.getConfig().margin.left - regionViewer.getConfig().margin.right
+          const x = regionViewer.x
+          
+          console.log('[RegionViewer] Chart width:', chartWidth)
+          console.log('[RegionViewer] Zoom target:', start, '-', end)
+          console.log('[RegionViewer] Scale domain:', x.domain())
+          console.log('[RegionViewer] Scale range:', x.range())
+          
+          const scale = chartWidth / (x(end) - x(start))
+          const translate = -x(start) * scale
+          
+          console.log('[RegionViewer] Calculated scale:', scale, 'translate:', translate)
+          
+          const transform = zoomIdentity.translate(translate, 0).scale(scale)
+          // Apply transform with animation for smoother transition
+          regionViewer.svg.transition().duration(500).call(regionViewer.zoom.transform, transform)
+          regionViewer.currentTransform = transform
+          
+          console.log('[RegionViewer] Zoom transform applied')
+        })
       }
-    }, { deep: true })
+    })
 
     onMounted(() => {
       console.log('[RegionViewer] Component mounted, features:', props.features?.length || 0)

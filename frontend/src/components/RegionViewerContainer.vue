@@ -10,6 +10,7 @@
       :regions="regions"
       :features="features"
       :region-boundaries="regionBoundaries"
+      :should-zoom-to-boundaries="shouldZoomToBoundaries"
       :pfam-color-map="pfamColorMap"
       :selected-region-id="selectedRegionId"
       :data-provider="dataProvider"
@@ -25,7 +26,7 @@
 </template>
 
 <script>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import RegionViewer from './RegionViewer.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 
@@ -79,6 +80,7 @@ export default {
     const currentLoadingRequestId = ref(0)
     const currentViewport = ref({ start: 0, end: 0 })
     const viewportChangeTimeout = ref(null)
+    const shouldZoomToBoundaries = ref(false) // Control when viewer should zoom to boundaries
 
     // Helper functions (defined before watchers to avoid hoisting issues)
     const clearViewer = () => {
@@ -220,11 +222,20 @@ export default {
           // If there are regions, select the first one and load its features by range
           const firstRegion = regions.value[0]
           selectedRegionId.value = firstRegion.id
-          // Use coordinate-based loading
+          // Use coordinate-based loading with zoom
           if (firstRegion.start !== undefined && firstRegion.end !== undefined) {
             await loadFeaturesByRange(recordInfo.value.entryId, firstRegion.start, firstRegion.end)
             // Set initial viewport to the region boundaries
             currentViewport.value = { start: firstRegion.start, end: firstRegion.end }
+            
+            // Trigger zoom after data is loaded
+            await nextTick()
+            shouldZoomToBoundaries.value = true
+            
+            // Reset flag after a brief delay
+            setTimeout(() => {
+              shouldZoomToBoundaries.value = false
+            }, 200)
           } else {
             await loadAllFeatures(recordInfo.value.entryId)
           }
@@ -311,20 +322,31 @@ export default {
         await loadAllFeatures(recordInfo.value.entryId)
         // Reset viewport tracking when showing all features
         currentViewport.value = { start: 0, end: 0 }
+        shouldZoomToBoundaries.value = false
       } else {
         // Find the selected region to get its coordinates
         const region = regions.value.find(r => r.id === regionId)
         if (region && region.start !== undefined && region.end !== undefined) {
-          // Use coordinate-based loading
+          // Use coordinate-based loading FIRST
           await loadFeaturesByRange(recordInfo.value.entryId, region.start, region.end)
           // Set viewport to the region boundaries
           currentViewport.value = { start: region.start, end: region.end }
           console.log(`Region ${regionId} selected, loaded features for range ${region.start}-${region.end}`)
           
+          // THEN trigger zoom after data is loaded
+          await nextTick()
+          shouldZoomToBoundaries.value = true
+          
+          // Reset flag after a brief delay to allow zoom to trigger
+          setTimeout(() => {
+            shouldZoomToBoundaries.value = false
+          }, 200)
+          
           // Load TFBS hits for this region
           await loadTFBSHits(recordInfo.value.entryId, regionId)
         } else {
           // Fallback to region-based loading if coordinates not available
+          shouldZoomToBoundaries.value = false
           await loadRegionFeatures(recordInfo.value.entryId, regionId)
         }
       }
@@ -366,8 +388,9 @@ export default {
         if (hasExpandedBeyond || hasChangedSignificantly) {
           console.log(`Loading features for new viewport: ${start}-${end} (expanded: ${hasExpandedBeyond}, changed significantly: ${hasChangedSignificantly})`)
           
-          // Load features for the new viewport
+          // Load features for the new viewport WITHOUT zooming
           if (recordInfo.value?.entryId) {
+            shouldZoomToBoundaries.value = false
             await loadFeaturesByRange(recordInfo.value.entryId, start, end)
             // Update viewport tracking after successful load
             currentViewport.value = { start, end }
@@ -444,6 +467,7 @@ export default {
       regions,
       features,
       regionBoundaries,
+      shouldZoomToBoundaries,
       pfamColorMap,
       tfbsHits,
       ttaCodons,
