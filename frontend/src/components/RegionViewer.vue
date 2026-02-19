@@ -184,6 +184,7 @@ export default {
     'region-changed',      // Emitted when user selects a different region
     'annotation-clicked',  // Emitted when user clicks an annotation
     'annotation-hovered',  // Emitted when user hovers over an annotation
+    'viewport-changed',    // Emitted when the viewport changes (zoom/pan)
     'error'                // Emitted when an error occurs
   ],
   setup(props, { emit, expose }) {
@@ -197,6 +198,7 @@ export default {
     const selectedTracks = ref([])
     const dropdownOpen = ref(false)
     const currentDomain = ref(null)
+    const viewportChangeTimeout = ref(null)
     
     // Compute current region number from selected region
     const currentRegionNumber = computed(() => {
@@ -219,6 +221,7 @@ export default {
 
     // Watch for prop changes and rebuild the viewer
     watch(() => props.features, () => {
+      console.log('[RegionViewer] features changed, triggering rebuildViewer')
       if (props.features && props.features.length > 0) {
         rebuildViewer()
       }
@@ -250,17 +253,26 @@ export default {
     }, { immediate: true })
 
     onMounted(() => {
+      console.log('[RegionViewer] Component mounted, features:', props.features?.length || 0)
       // Add event listeners
       document.addEventListener('click', handleClickOutside)
       
       // Initial build if we already have features
       if (props.features && props.features.length > 0) {
+        console.log('[RegionViewer] Calling rebuildViewer from onMounted')
         rebuildViewer()
+      } else {
+        console.log('[RegionViewer] Skipping initial rebuild - no features')
       }
     })
 
     onUnmounted(() => {
       document.removeEventListener('click', handleClickOutside)
+      
+      // Clean up debounce timeout
+      if (viewportChangeTimeout.value) {
+        clearTimeout(viewportChangeTimeout.value)
+      }
       
       // Clean up TrackViewer instance to prevent stale references after HMR
       if (regionViewer) {
@@ -270,15 +282,16 @@ export default {
     })
 
     const rebuildViewer = async () => {
+      console.log('[RegionViewer] rebuildViewer called')
       try {
         error.value = ''
         
         if (!props.features || props.features.length === 0) {
-          console.warn('No features provided')
+          console.warn('[RegionViewer] No features provided - props.features:', props.features)
           return
         }
         
-        console.log('Building viewer with', props.features.length, 'features')
+        console.log('[RegionViewer] Building viewer with', props.features.length, 'features')
         
         // Clear selection when rebuilding
         selectedAnnotation.value = null
@@ -346,11 +359,17 @@ export default {
     }
     
     const initializeViewer = () => {
+      console.log('[RegionViewer] initializeViewer called')
       if (regionViewer) {
+        console.log('[RegionViewer] Destroying existing regionViewer')
         regionViewer.destroy()
       }
       
-      if (!viewerContainer.value) return
+      if (!viewerContainer.value) {
+        console.warn('[RegionViewer] viewerContainer.value is null, cannot initialize viewer')
+        return
+      }
+      console.log('[RegionViewer] viewerContainer.value is valid, proceeding with initialization')
       
       let minPos, maxPos, padding
       
@@ -412,10 +431,20 @@ export default {
           updateViewer()
         },
         onDomainChange: (domain) => {
+          // Update domain ref for tracking
           currentDomain.value = domain
-          filterAnnotationsForViewport(domain)
-          updateAnnotationHighlighting()  // Apply highlighting to newly visible annotations
-          updateViewer()
+          
+          // Debounce viewport-changed emit to avoid excessive updates during pan/zoom
+          // TrackViewer already handles its own rendering, so we don't need to redraw here
+          if (viewportChangeTimeout.value) {
+            clearTimeout(viewportChangeTimeout.value)
+          }
+          
+          viewportChangeTimeout.value = setTimeout(() => {
+            const viewport = { start: Math.floor(domain[0]), end: Math.ceil(domain[1]) }
+            console.log('[RegionViewer] Emitting viewport-changed:', viewport)
+            emit('viewport-changed', viewport)
+          }, 800) // 800ms debounce for loading new features
         }
       })
       console.log('TrackViewer created successfully')

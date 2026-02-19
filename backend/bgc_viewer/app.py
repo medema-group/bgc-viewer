@@ -586,6 +586,60 @@ def get_record_features(record_id):
         "features": features
     })
 
+@app.route('/api/records/<record_id>/features/range')
+def get_features_by_range(record_id):
+    """API endpoint to get features within a coordinate range.
+    
+    Query parameters:
+        start: Start coordinate (required)
+        end: End coordinate (required)
+        type: Feature type filter (optional)
+    """
+    # Get data from session cache
+    antismash_data, data_root = get_current_entry_data()
+    
+    if not antismash_data:
+        return jsonify({"error": "No data loaded. Please load an entry first."}), 404
+    
+    # Get required query parameters
+    try:
+        start = int(request.args.get('start'))
+        end = int(request.args.get('end'))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid or missing start/end parameters"}), 400
+    
+    # Get optional query parameters
+    feature_type = request.args.get('type')
+    
+    record = next((r for r in antismash_data.get("records", []) if r.get("id") == record_id), None)
+    if not record:
+        return jsonify({"error": "Record not found"}), 404
+    
+    # Filter features that overlap with the specified range
+    range_features = []
+    for feature in record.get("features", []):
+        # Parse feature location
+        feature_location = feature.get("location", "")
+        feature_start, feature_end = match_location(feature_location) or (None, None)
+        if feature_start is None or feature_end is None:
+            continue
+        
+        # Check if feature overlaps with the specified range
+        if not (feature_end < start or feature_start > end):
+            # Apply type filter if specified
+            if feature_type and feature.get("type") != feature_type:
+                continue
+            range_features.append(feature)
+    
+    return jsonify({
+        "record_id": record_id,
+        "start": start,
+        "end": end,
+        "feature_type": feature_type or "all",
+        "count": len(range_features),
+        "features": range_features
+    })
+
 @app.route('/api/version')
 def get_version():
     """API endpoint to get the application version."""

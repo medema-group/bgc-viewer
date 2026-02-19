@@ -351,6 +351,35 @@ export class JSONFileProvider extends DataProvider {
   }
 
   /**
+   * Get features within a coordinate range (viewport-based)
+   */
+  async getFeaturesByRange(recordId: string, start: number, end: number): Promise<FeaturesResponse> {
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    const features: Feature[] = record.features || []
+    
+    // Filter features that overlap with the specified range
+    const rangeFeatures = features.filter(feature => {
+      const location = this.parseLocation(feature.location)
+      if (!location) return false
+      
+      // Check if feature overlaps with the specified range
+      return !(location.end < start || location.start > end)
+    })
+
+    return {
+      features: rangeFeatures,
+      region_boundaries: {
+        start: start,
+        end: end
+      }
+    }
+  }
+
+  /**
    * Get PFAM domain color mapping
    */
   async getPfamColorMap(): Promise<PfamColorMap> {

@@ -156,6 +156,21 @@ export class BGCViewerAPIProvider extends DataProvider {
   }
 
   /**
+   * Get features within a coordinate range (viewport-based)
+   */
+  async getFeaturesByRange(recordId: string, start: number, end: number): Promise<FeaturesResponse> {
+    // Extract actual record ID from entryId format (filename:recordId)
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
+    const response = await this.axiosInstance.get<FeaturesResponse>(
+      `/api/records/${actualRecordId}/features/range`,
+      {
+        params: { start, end }
+      }
+    )
+    return response.data
+  }
+
+  /**
    * Get PFAM domain color mapping
    */
   async getPfamColorMap(): Promise<PfamColorMap> {

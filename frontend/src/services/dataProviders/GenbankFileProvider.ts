@@ -328,6 +328,36 @@ export class GenbankFileProvider extends DataProvider {
   }
 
   /**
+   * Get features within a coordinate range (viewport-based)
+   */
+  async getFeaturesByRange(recordId: string, start: number, end: number): Promise<FeaturesResponse> {
+    const record = this.findRecord(recordId)
+    if (!record) {
+      throw new Error(`Record not found: ${recordId}`)
+    }
+
+    // Filter features that overlap with the specified range
+    const features = (record.features || []).filter((feature: any) => {
+      const locationMatch = feature.location?.match(/\[<?(\d+):>?(\d+)\]/)
+      if (!locationMatch) return false
+      
+      const featureStart = parseInt(locationMatch[1])
+      const featureEnd = parseInt(locationMatch[2])
+      
+      // Check if feature overlaps with the specified range
+      return !(featureEnd < start || featureStart > end)
+    })
+
+    return {
+      features,
+      region_boundaries: {
+        start: start,
+        end: end
+      }
+    }
+  }
+
+  /**
    * Get PFAM color map
    */
   async getPfamColorMap(): Promise<PfamColorMap> {

@@ -163,6 +163,12 @@ export abstract class DataProvider {
   abstract getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse>
 
   /**
+   * Get features within a coordinate range (viewport-based)
+   * This allows dynamic loading of features based on visible range
+   */
+  abstract getFeaturesByRange(recordId: string, start: number, end: number): Promise<FeaturesResponse>
+
+  /**
    * Get PFAM domain color mapping
    */
   abstract getPfamColorMap(): Promise<PfamColorMap>

@@ -18,13 +18,14 @@
       :resistance-features="resistanceFeatures"
       @region-changed="handleRegionChanged"
       @annotation-clicked="handleAnnotationClicked"
+      @viewport-changed="handleViewportChanged"
       @error="handleError"
     />
   </div>
 </template>
 
 <script>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import RegionViewer from './RegionViewer.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 
@@ -69,12 +70,15 @@ export default {
     const regionBoundaries = ref(null)
     const pfamColorMap = ref({})
     const tfbsHits = ref([])
-    const ttaCodons = ref([])
+    const allTTACodons = ref([])  // Store all TTA codons for the record
+    const ttaCodons = ref([])     // Filtered TTA codons for current viewport
     const resistanceFeatures = ref([])
     const selectedRegionId = ref('')
     const loading = ref(false)
     const error = ref('')
     const currentLoadingRequestId = ref(0)
+    const currentViewport = ref({ start: 0, end: 0 })
+    const viewportChangeTimeout = ref(null)
 
     // Helper functions (defined before watchers to avoid hoisting issues)
     const clearViewer = () => {
@@ -83,6 +87,7 @@ export default {
       features.value = []
       regionBoundaries.value = null
       tfbsHits.value = []
+      allTTACodons.value = []
       ttaCodons.value = []
       resistanceFeatures.value = []
       selectedRegionId.value = ''
@@ -116,12 +121,22 @@ export default {
       if (!provider.value) return
       try {
         const ttaData = await provider.value.getTTACodons(recordId)
-        ttaCodons.value = ttaData.codons || []
-        console.log('Loaded', ttaCodons.value.length, 'TTA codons for record', recordId)
+        allTTACodons.value = ttaData.codons || []
+        console.log('Loaded', allTTACodons.value.length, 'TTA codons for record', recordId)
       } catch (err) {
         console.warn('Failed to load TTA codons:', err.message)
-        ttaCodons.value = [] // Clear on error
+        allTTACodons.value = [] // Clear on error
+        ttaCodons.value = []
       }
+    }
+
+    const filterTTACodonsByRange = (start, end) => {
+      // Filter TTA codons to only those within the coordinate range
+      ttaCodons.value = allTTACodons.value.filter(codon => {
+        const pos = codon.start || codon.position || codon
+        return pos >= start && pos <= end
+      })
+      console.log(`Filtered TTA codons: ${ttaCodons.value.length} of ${allTTACodons.value.length} within range ${start}-${end}`)
     }
 
     const loadResistanceFeatures = async (recordId) => {
@@ -202,9 +217,17 @@ export default {
         
         // Load features based on whether there are regions
         if (regions.value && regions.value.length > 0) {
-          // If there are regions, select the first one and load its features
-          selectedRegionId.value = regions.value[0].id
-          await loadRegionFeatures(recordInfo.value.entryId, selectedRegionId.value)
+          // If there are regions, select the first one and load its features by range
+          const firstRegion = regions.value[0]
+          selectedRegionId.value = firstRegion.id
+          // Use coordinate-based loading
+          if (firstRegion.start !== undefined && firstRegion.end !== undefined) {
+            await loadFeaturesByRange(recordInfo.value.entryId, firstRegion.start, firstRegion.end)
+            // Set initial viewport to the region boundaries
+            currentViewport.value = { start: firstRegion.start, end: firstRegion.end }
+          } else {
+            await loadAllFeatures(recordInfo.value.entryId)
+          }
         } else {
           // No regions - load all features for the record
           await loadAllFeatures(recordInfo.value.entryId)
@@ -243,11 +266,33 @@ export default {
       }
     }
 
+    const loadFeaturesByRange = async (recordId, start, end) => {
+      try {
+        const featuresData = await provider.value.getFeaturesByRange(recordId, start, end)
+        features.value = featuresData.features || []
+        
+        // Set region boundaries to the requested range to control the initial zoom level
+        regionBoundaries.value = { start, end }
+        
+        // Filter TTA codons to the same range
+        filterTTACodonsByRange(start, end)
+        
+        console.log(`Loaded ${features.value.length} features for range ${start}-${end}`)
+      } catch (err) {
+        console.error('Error loading features by range:', err)
+        error.value = `Failed to load features: ${err.message}`
+        emit('error', error.value)
+      }
+    }
+
     const loadAllFeatures = async (recordId) => {
       try {
         const featuresData = await provider.value.getRecordFeatures(recordId)
         features.value = featuresData.features || []
         regionBoundaries.value = null // No region boundaries when showing all features
+        
+        // Show all TTA codons when showing all features
+        ttaCodons.value = allTTACodons.value
         
         // Clear TFBS hits when showing all features (not region-specific)
         tfbsHits.value = []
@@ -264,9 +309,24 @@ export default {
       if (!regionId) {
         // Load all features
         await loadAllFeatures(recordInfo.value.entryId)
+        // Reset viewport tracking when showing all features
+        currentViewport.value = { start: 0, end: 0 }
       } else {
-        // Load region-specific features
-        await loadRegionFeatures(recordInfo.value.entryId, regionId)
+        // Find the selected region to get its coordinates
+        const region = regions.value.find(r => r.id === regionId)
+        if (region && region.start !== undefined && region.end !== undefined) {
+          // Use coordinate-based loading
+          await loadFeaturesByRange(recordInfo.value.entryId, region.start, region.end)
+          // Set viewport to the region boundaries
+          currentViewport.value = { start: region.start, end: region.end }
+          console.log(`Region ${regionId} selected, loaded features for range ${region.start}-${region.end}`)
+          
+          // Load TFBS hits for this region
+          await loadTFBSHits(recordInfo.value.entryId, regionId)
+        } else {
+          // Fallback to region-based loading if coordinates not available
+          await loadRegionFeatures(recordInfo.value.entryId, regionId)
+        }
       }
       
       emit('region-changed', regionId)
@@ -280,6 +340,44 @@ export default {
       emit('error', err)
     }
 
+    const handleViewportChanged = (viewport) => {
+      console.log('[RegionViewerContainer] handleViewportChanged called with:', viewport)
+      
+      // Debounce viewport changes to avoid excessive API calls during rapid zoom/pan
+      if (viewportChangeTimeout.value) {
+        clearTimeout(viewportChangeTimeout.value)
+      }
+      
+      viewportChangeTimeout.value = setTimeout(async () => {
+        const { start, end } = viewport
+        
+        console.log(`Viewport changed to ${start}-${end}, current loaded: ${currentViewport.value.start}-${currentViewport.value.end}`)
+        
+        // Check if we need to load more features:
+        // 1. Viewport has expanded beyond current boundaries
+        // 2. OR viewport has changed significantly (>5% of viewport size)
+        const hasExpandedBeyond = start < currentViewport.value.start || end > currentViewport.value.end
+        const viewportSize = end - start
+        const threshold = viewportSize * 0.05 // 5% change threshold (more sensitive)
+        const hasChangedSignificantly = 
+          Math.abs(start - currentViewport.value.start) >= threshold ||
+          Math.abs(end - currentViewport.value.end) >= threshold
+        
+        if (hasExpandedBeyond || hasChangedSignificantly) {
+          console.log(`Loading features for new viewport: ${start}-${end} (expanded: ${hasExpandedBeyond}, changed significantly: ${hasChangedSignificantly})`)
+          
+          // Load features for the new viewport
+          if (recordInfo.value?.entryId) {
+            await loadFeaturesByRange(recordInfo.value.entryId, start, end)
+            // Update viewport tracking after successful load
+            currentViewport.value = { start, end }
+          }
+        } else {
+          console.log(`Viewport change too small, skipping reload (threshold: ${threshold})`)
+        }
+      }, 800) // 800ms debounce delay
+    }
+
     onMounted(async () => {
       // Use provided data provider (required)
       if (!props.dataProvider) {
@@ -291,6 +389,13 @@ export default {
       
       // Load PFAM color map
       await loadColorMap()
+    })
+
+    onUnmounted(() => {
+      // Clean up viewport change timeout
+      if (viewportChangeTimeout.value) {
+        clearTimeout(viewportChangeTimeout.value)
+      }
     })
 
     // Watch for recordId changes
@@ -317,7 +422,19 @@ export default {
       if (newRegionId && regions.value.length > 0) {
         selectedRegionId.value = newRegionId
         if (recordInfo.value) {
-          loadRegionFeatures(recordInfo.value.entryId, newRegionId)
+          // Find the region to get its coordinates
+          const region = regions.value.find(r => r.id === newRegionId)
+          if (region && region.start !== undefined && region.end !== undefined) {
+            // Use coordinate-based loading
+            loadFeaturesByRange(recordInfo.value.entryId, region.start, region.end)
+            // Set viewport to the region boundaries
+            currentViewport.value = { start: region.start, end: region.end }
+            // Load TFBS hits
+            loadTFBSHits(recordInfo.value.entryId, newRegionId)
+          } else {
+            // Fallback to region-based loading
+            loadRegionFeatures(recordInfo.value.entryId, newRegionId)
+          }
         }
       }
     })
@@ -336,6 +453,7 @@ export default {
       error,
       handleRegionChanged,
       handleAnnotationClicked,
+      handleViewportChanged,
       handleError
     }
   }
