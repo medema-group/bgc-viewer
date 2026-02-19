@@ -146,7 +146,7 @@ export class GenbankFileProvider extends DataProvider {
    * Load an entry
    */
   async loadEntry(entryId: string): Promise<RecordInfo> {
-    // entryId is already in format "filename:recordName"
+    // entryId is in format "filename:recordName"
     const record = this.records.find(r => r.id === entryId)
     if (!record) {
       throw new Error(`Record ${entryId} not found`)
@@ -154,7 +154,7 @@ export class GenbankFileProvider extends DataProvider {
     
     return {
       entryId: record.id,  // Full unique ID for internal use
-      recordId: record.id,  // Use full ID for consistency
+      recordId: record._recordName || record.id,  // Display name (just the recordName part)
       filename: record._sourceFilename || 'unknown.gb',
       fileMetadata: {
         version: record.version || 'unknown'

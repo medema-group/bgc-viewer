@@ -47,6 +47,7 @@ export class BGCViewerAPIProvider extends DataProvider {
     })
     
     return {
+      entryId: entryId,
       recordId: response.data.record_id,
       filename: response.data.filename,
       fileMetadata: response.data.file_metadata,
@@ -165,8 +166,9 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get MiBIG entries for a specific locus_tag
    */
   async getMiBIGEntries(recordId: string, locusTag: string, region: string = '1'): Promise<MiBIGEntriesResponse> {
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<MiBIGEntriesResponse>(
-      `/api/records/${recordId}/mibig-entries/${locusTag}`,
+      `/api/records/${actualRecordId}/mibig-entries/${locusTag}`,
       { params: { region } }
     )
     return response.data
@@ -176,8 +178,9 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get TFBS finder binding site hits for a specific region
    */
   async getTFBSHits(recordId: string, region: string = '1'): Promise<TFBSHitsResponse> {
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<TFBSHitsResponse>(
-      `/api/records/${recordId}/tfbs-hits`,
+      `/api/records/${actualRecordId}/tfbs-hits`,
       { params: { region } }
     )
     return response.data
@@ -187,8 +190,9 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get TTA codon positions for a record
    */
   async getTTACodons(recordId: string): Promise<TTACodonsResponse> {
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<TTACodonsResponse>(
-      `/api/records/${recordId}/tta-codons`
+      `/api/records/${actualRecordId}/tta-codons`
     )
     return response.data
   }
@@ -197,8 +201,9 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get resistance features for a record
    */
   async getResistanceFeatures(recordId: string): Promise<ResistanceFeaturesResponse> {
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<ResistanceFeaturesResponse>(
-      `/api/records/${recordId}/resistance`
+      `/api/records/${actualRecordId}/resistance`
     )
     return response.data
   }

@@ -185,7 +185,7 @@ export default {
         regionBoundaries.value = regionsData.boundaries || null
         
         // Load TTA codons (not region-specific)
-        await loadTTACodons(recordInfo.value.recordId)
+        await loadTTACodons(recordInfo.value.entryId || recordInfo.value.recordId)
         
         // Check again after async operation
         if (requestId !== currentLoadingRequestId.value) {
