@@ -108,6 +108,7 @@
 <script>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { TrackViewer } from '../TrackViewer'
+import { zoomIdentity } from 'd3-zoom'
 import FeatureDetails from './FeatureDetails.vue'
 import SimpleDetails from './SimpleDetails.vue'
 import './cand-cluster-styling.css'
@@ -337,18 +338,33 @@ export default {
 
         await nextTick() // Wait for DOM update
         
-        // Initialize viewer
-        console.log('Initializing viewer...')
-        initializeViewer()
+        // Check if we can just update the existing viewer or need to recreate it
+        console.log('[RegionViewer] rebuildViewer - checking if viewer needs init:', {
+          hasViewer: !!regionViewer,
+          hasContainer: !!viewerContainer.value,
+          trackCount: Object.keys(allTrackData).length
+        })
         
-        // Get initial domain and filter annotations
-        if (regionViewer) {
-          currentDomain.value = regionViewer.getCurrentDomain()
-          filterAnnotationsForViewport(currentDomain.value)
+        // Only recreate if: no viewer exists, or container is invalid
+        const needsReinit = !regionViewer || !viewerContainer.value
+        
+        if (needsReinit) {
+          console.log('[RegionViewer] Initializing new viewer...')
+          initializeViewer()
+          
+          // Get current domain after initialization
+          if (regionViewer) {
+            currentDomain.value = regionViewer.getCurrentDomain()
+          }
+        } else {
+          console.log('[RegionViewer] Viewer already exists, preserving viewport...')
         }
         
+        // Always update the viewer with current track data
+        // This is needed both for new viewers and when updating existing ones
         updateViewer()
-        console.log('Viewer initialized and updated')
+        
+        console.log('[RegionViewer] Viewer updated, regionViewer exists:', !!regionViewer)
         
       } catch (err) {
         console.error('Error in rebuildViewer:', err)
@@ -377,15 +393,30 @@ export default {
       
       let minPos, maxPos, padding
       
-      if (props.regionBoundaries) {
-        // Use region boundaries if provided
-        minPos = props.regionBoundaries.start
-        maxPos = props.regionBoundaries.end
-        padding = (maxPos - minPos) * 0.02
-        console.log('Using region boundaries:', minPos, '-', maxPos)
-      } else {
-        // Fallback to calculating from features
-        console.log('Calculating boundaries from', props.features.length, 'features')
+      // Step 1: Calculate the full record domain from all available regions
+      // This determines the pannable area - should be the full record length
+      if (props.regions && props.regions.length > 0) {
+        const regionPositions = props.regions
+          .filter(r => r.start !== undefined && r.end !== undefined)
+          .flatMap(r => [r.start, r.end])
+        
+        if (regionPositions.length > 0) {
+          minPos = Math.min(...regionPositions)
+          maxPos = Math.max(...regionPositions)
+          const recordSize = maxPos - minPos
+          
+          // Add 5% padding on each side for the full record domain
+          padding = recordSize * 0.05
+          minPos = Math.max(0, minPos - padding)
+          maxPos = maxPos + padding
+          
+          console.log(`Full record domain from regions: ${minPos}-${maxPos}`)
+        }
+      }
+      
+      // If no regions or couldn't calculate from regions, fall back to features
+      if (minPos === undefined || maxPos === undefined) {
+        console.log('Calculating domain from', props.features.length, 'features')
         const positions = props.features
           .filter(f => f.location)
           .map(f => {
@@ -396,8 +427,6 @@ export default {
           .filter(Boolean)
           .flat()
         
-        console.log('Extracted positions:', positions.slice(0, 10), positions.length > 10 ? `... (${positions.length} total)` : '')
-        
         if (positions.length === 0) {
           console.warn('No valid positions found, using default domain')
           minPos = 0
@@ -405,17 +434,35 @@ export default {
         } else {
           minPos = Math.min(...positions)
           maxPos = Math.max(...positions)
+          padding = (maxPos - minPos) * 0.05
+          minPos = Math.max(0, minPos - padding)
+          maxPos = maxPos + padding
         }
-        padding = (maxPos - minPos) * 0.02  // Reduced padding from 0.1 to 0.02 for more zoomed-in view
-        console.log('Calculated domain:', minPos - padding, 'to', maxPos + padding)
+        console.log('Calculated domain from features:', minPos, '-', maxPos)
       }
       
-      console.log('Creating TrackViewer...')
+      // Step 2: Determine initial viewport (what to zoom to initially)
+      // This is separate from the domain - region only determines initial zoom level
+      let targetStart, targetEnd
+      
+      if (props.regionBoundaries) {
+        // Zoom to the specific region initially
+        targetStart = props.regionBoundaries.start
+        targetEnd = props.regionBoundaries.end
+        console.log(`Initial zoom target: ${targetStart}-${targetEnd}`)
+      } else {
+        // Zoom to show all features
+        targetStart = minPos
+        targetEnd = maxPos
+      }
+      
+      console.log('Creating TrackViewer with full record domain...')
+      
       regionViewer = new TrackViewer({
         container: viewerContainer.value,
         // width is not specified, so it will be responsive
         height: 400,
-        domain: [minPos - padding, maxPos + padding],
+        domain: [minPos, maxPos],  // Full record domain with padding already included
         trackHeight: 40,
         zoomExtent: [0.1, 1000],
         showTrackLabels: false,
@@ -452,6 +499,22 @@ export default {
           }, 300) // 300ms debounce after zoom ends
         }
       })
+      
+      // If we expanded the domain for panning, zoom to the actual region
+      if (props.regionBoundaries) {
+        // Use zoomTo to zoom to the region without animation
+        console.log(`Zooming to region: ${targetStart}-${targetEnd}`)
+        const chartWidth = regionViewer.getConfig().width - regionViewer.getConfig().margin.left - regionViewer.getConfig().margin.right
+        const x = regionViewer.x // Access the scale
+        const scale = chartWidth / (x(targetEnd) - x(targetStart))
+        const translate = -x(targetStart) * scale
+        
+        const transform = zoomIdentity.translate(translate, 0).scale(scale)
+        // Apply transform without animation for initial load
+        regionViewer.svg.call(regionViewer.zoom.transform, transform)
+        regionViewer.currentTransform = transform
+      }
+      
       console.log('TrackViewer created successfully')
     }
     
