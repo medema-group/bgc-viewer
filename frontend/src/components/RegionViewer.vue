@@ -288,6 +288,10 @@ export default {
         
         if (!props.features || props.features.length === 0) {
           console.warn('[RegionViewer] No features provided - props.features:', props.features)
+          // Clear tracks when features are empty (e.g., when switching records)
+          allTrackData = {}
+          availableTracks.value = []
+          selectedTracks.value = []
           return
         }
         
@@ -501,8 +505,12 @@ export default {
     }
 
     const buildAllTracks = () => {
-      // Reset track data
-      allTrackData = {}
+      // Clear annotations from existing tracks but keep track structure
+      // This prevents tracks from disappearing when zooming to areas without those features
+      Object.values(allTrackData).forEach(track => {
+        track.annotations = []
+        track.primitives = track.primitives?.filter(p => p.id === 'cds-baseline') || [] // Keep baseline
+      })
       
       // Process all features to build all possible tracks
       props.features.forEach(feature => {

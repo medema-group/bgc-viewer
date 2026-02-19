@@ -275,7 +275,6 @@ export class TrackViewer {
         return !event.ctrlKey && !event.button;
       })
       .on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
-        console.log('[TrackViewer] zoom event:', event.transform);
         this.currentTransform = event.transform;
         this.drawTracks();
         
@@ -284,7 +283,6 @@ export class TrackViewer {
         this.config.onDomainChange(domain);
       })
       .on('start', (event: any) => {
-        console.log('[TrackViewer] zoom start event:', event.sourceEvent?.type);
         // Only change cursor to grabbing if it's a drag (not a wheel zoom)
         if (event.sourceEvent && event.sourceEvent.type === 'mousedown') {
           this.clippedChart.select('.chart-background').style('cursor', 'grabbing');
@@ -292,7 +290,6 @@ export class TrackViewer {
         }
       })
       .on('end', () => {
-        console.log('[TrackViewer] zoom end event');
         this.isDragging = false;
         this.clippedChart.select('.chart-background').style('cursor', 'grab');
         this.svg.style('cursor', '');
@@ -305,7 +302,6 @@ export class TrackViewer {
     // Apply zoom behavior to the main SVG instead of an overlay
     // This allows individual elements to handle their own mouse events
     this.svg.call(this.zoom);
-    console.log('[TrackViewer] Zoom behavior applied to SVG');
 
     // Create a background rect for empty areas to still capture zoom events
     this.clippedChart
