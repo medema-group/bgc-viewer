@@ -220,7 +220,8 @@ export class GenbankFileProvider extends DataProvider {
       const regionCount = (record.features || []).filter((f: any) => f.type === 'region').length
       
       return {
-        recordId: record.id,  // Already unique with filename:recordName format
+        entryId: record.id,  // Full unique ID in format "filename:recordName"
+        recordId: record._recordName || record.id.split(':')[1],  // Just the record name part
         filename: record._sourceFilename || 'unknown.gb',
         recordInfo: {
           description: record.description || ''
@@ -251,18 +252,18 @@ export class GenbankFileProvider extends DataProvider {
     const regionFeatures = (record.features || []).filter((f: any) => f.type === 'region')
     
     // Convert to Region format
-    const regions = regionFeatures.map((feature: any) => {
+    const regions = regionFeatures.map((feature: any, idx: number) => {
       // Parse location to get start and end
       const locationMatch = feature.location?.match(/\[<?(\d+):>?(\d+)\]/)
       const start = locationMatch ? parseInt(locationMatch[1]) : 0
       const end = locationMatch ? parseInt(locationMatch[2]) : 0
       
       const qualifiers = feature.qualifiers || {}
-      const regionNumber = qualifiers.region_number?.[0] || '1'
+      const regionNumber = parseInt(qualifiers.region_number?.[0]) || (idx + 1)
       const products = qualifiers.product || []
       
       return {
-        id: `region-${regionNumber}`,
+        id: `region_${regionNumber}`,
         region_number: regionNumber,
         product: products,
         start: start,

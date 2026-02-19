@@ -201,7 +201,8 @@ export class JSONFileProvider extends DataProvider {
       }
       
       return {
-        recordId: record.id,  // Already unique with filename:originalId format
+        entryId: record.id,  // Full unique ID in format "filename:originalId"
+        recordId: record._originalId || record.id.split(':')[1],  // Just the record ID part
         filename: record._sourceFilename || 'unknown.json',
         recordInfo: {
           description: record.description || record.definition || ''
@@ -268,18 +269,18 @@ export class JSONFileProvider extends DataProvider {
     const regions: Region[] = []
     const features: Feature[] = record.features || []
 
-    // Find region features
-    features.forEach((feature, idx) => {
-      if (feature.type === 'region') {
-        const location = this.parseLocation(feature.location)
-        regions.push({
-          id: `region-${idx}`,
-          region_number: feature.qualifiers?.region_number?.[0] || (idx + 1),
-          product: feature.qualifiers?.product || [],
-          start: location?.start,
-          end: location?.end
-        })
-      }
+    // Filter and map region features
+    const regionFeatures = features.filter(f => f.type === 'region')
+    regionFeatures.forEach((feature, idx) => {
+      const location = this.parseLocation(feature.location)
+      const regionNumber = parseInt(feature.qualifiers?.region_number?.[0]) || (idx + 1)
+      regions.push({
+        id: `region_${regionNumber}`,
+        region_number: regionNumber,
+        product: feature.qualifiers?.product || [],
+        start: location?.start,
+        end: location?.end
+      })
     })
 
     return { regions }
@@ -310,11 +311,18 @@ export class JSONFileProvider extends DataProvider {
 
     const features: Feature[] = record.features || []
     
-    // Find the region feature
-    const regionIdx = parseInt(regionId.replace('region-', ''))
-    const regionFeature = features[regionIdx]
+    // Extract region number from regionId (format: "region_1", "region_2", etc.)
+    const regionNumber = regionId.replace('region_', '')
     
-    if (!regionFeature || regionFeature.type !== 'region') {
+    // Find the region feature by matching region_number qualifier
+    const regionFeature = features.find(f => {
+      if (f.type !== 'region') return false
+      const featureRegionNumber = f.qualifiers?.region_number?.[0]
+      // Compare as strings since qualifiers can be strings or numbers
+      return String(featureRegionNumber) === regionNumber
+    })
+    
+    if (!regionFeature) {
       throw new Error(`Region not found: ${regionId}`)
     }
 

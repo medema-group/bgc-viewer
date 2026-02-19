@@ -220,7 +220,7 @@ export default {
         
         // Map all results to unified format
         allDirectRecords.value = allResults.map(record => ({
-          entry_id: record.entryId || record.recordId,
+          entry_id: record.entryId,
           record_id: record.recordId,
           filename: record.filename || 'uploaded',
           description: record.recordInfo?.description || '',

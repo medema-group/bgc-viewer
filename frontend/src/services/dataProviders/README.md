@@ -25,7 +25,7 @@ const { regions } = await provider.getRegions('NC_003888.3')
 const { features } = await provider.getRecordFeatures('NC_003888.3')
 
 // Get features for a specific region
-const { features, region_boundaries } = await provider.getRegionFeatures('NC_003888.3', 'region-1')
+const { features, region_boundaries } = await provider.getRegionFeatures('NC_003888.3', 'region_1')
 
 // Get PFAM color mapping
 const colorMap = await provider.getPfamColorMap()
