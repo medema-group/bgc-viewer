@@ -237,34 +237,17 @@ export default {
     })
 
     // Watch for prop changes and rebuild the viewer
-    watch(() => props.features, () => {
-      console.log('[RegionViewer] features changed, triggering rebuildViewer')
-      // Always rebuild when features change, even if empty (e.g., when loading new viewport)
-      rebuildViewer()
-    })
-
-    watch(() => props.tfbsHits, () => {
-      // Rebuild viewer when TFBS hits change
-      if (props.features && props.features.length > 0) {
+    // Combined watcher for all data props to avoid duplicate rebuilds
+    watch(
+      () => [props.features, props.tfbsHits, props.ttaCodons, props.resistanceFeatures],
+      () => {
+        console.log('[RegionViewer] Data props changed, triggering rebuildViewer')
+        // Always rebuild when features change, even if empty (e.g., when loading new viewport)
         rebuildViewer()
       }
-    })
+    )
 
-    watch(() => props.ttaCodons, () => {
-      // Rebuild viewer when TTA codons change
-      if (props.features && props.features.length > 0) {
-        rebuildViewer()
-      }
-    })
-
-    watch(() => props.resistanceFeatures, () => {
-      // Rebuild viewer when resistance features change
-      if (props.features && props.features.length > 0) {
-        rebuildViewer()
-      }
-    })
-
-    watch(() => props.loadedRange, (newRange, oldRange) => {
+    watch(() => props.loadedRange, (newRange) => {
       // Update viewer when loaded range changes (to update unloaded area indicators)
       if (regionViewer && newRange) {
         updateViewer()
