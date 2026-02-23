@@ -18,6 +18,7 @@ import { fetchPfamColorMap } from './colorMapUtils'
  * Converts GenBank format to antiSMASH-compatible structure for rendering
  */
 export class GenbankFileProvider extends DataProvider {
+  readonly isLocal = true
   private records: any[]
   private pfamColorMap: PfamColorMap
   private recordCounter: number

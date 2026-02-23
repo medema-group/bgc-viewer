@@ -30,6 +30,7 @@ interface ParsedLocation {
  * This can be used for offline viewing or when data is stored locally
  */
 export class JSONFileProvider extends DataProvider {
+  readonly isLocal = true
   private records: any[]
   private pfamColorMap: PfamColorMap
   private fileMetadata: Record<string, string>

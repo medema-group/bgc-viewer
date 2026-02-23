@@ -216,7 +216,6 @@ export default {
     const dropdownOpen = ref(false)
     const currentDomain = ref(null)  // Current viewport domain [start, end]
     const fullRecordDomain = ref(null)  // Full record domain [min, max]
-    const viewportChangeTimeout = ref(null)
     
     // Compute current region number from selected region
     const currentRegionNumber = computed(() => {
@@ -268,7 +267,6 @@ export default {
     watch(() => props.loadedRange, (newRange, oldRange) => {
       // Update viewer when loaded range changes (to update unloaded area indicators)
       if (regionViewer && newRange) {
-        console.log('[RegionViewer] Loaded range changed:', { old: oldRange, new: newRange })
         updateViewer()
       }
     }, { deep: true })
@@ -327,11 +325,6 @@ export default {
     onUnmounted(() => {
       document.removeEventListener('click', handleClickOutside)
       
-      // Clean up debounce timeout
-      if (viewportChangeTimeout.value) {
-        clearTimeout(viewportChangeTimeout.value)
-      }
-      
       // Clean up TrackViewer instance to prevent stale references after HMR
       if (regionViewer) {
         regionViewer.destroy()
@@ -360,7 +353,6 @@ export default {
         
         // Build all tracks from features
         buildAllTracks()
-        console.log('Built tracks:', Object.keys(allTrackData))
         
         // Store original annotations for tracks with many features
         optimizeTracksForRendering()
@@ -402,17 +394,7 @@ export default {
           selectedTracks.value = preferredTracks.length > 0 ? preferredTracks : tracks.map(t => t.id)
         }
 
-        console.log('Available tracks:', availableTracks.value)
-        console.log('Selected tracks:', selectedTracks.value)
-
         await nextTick() // Wait for DOM update
-        
-        // Check if we can just update the existing viewer or need to recreate it
-        console.log('[RegionViewer] rebuildViewer - checking if viewer needs init:', {
-          hasViewer: !!regionViewer,
-          hasContainer: !!viewerContainer.value,
-          trackCount: Object.keys(allTrackData).length
-        })
         
         // Only recreate if: no viewer exists, or container is invalid
         const needsReinit = !regionViewer || !viewerContainer.value
@@ -560,17 +542,10 @@ export default {
           // Unloaded indicators are updated via the loadedRange watcher
         },
         onZoomEnd: (domain) => {
-          // Called when pan/zoom ends - trigger data loading
-          // Debounce to handle rapid zoom operations
-          if (viewportChangeTimeout.value) {
-            clearTimeout(viewportChangeTimeout.value)
-          }
-          
-          viewportChangeTimeout.value = setTimeout(() => {
-            const viewport = { start: Math.floor(domain[0]), end: Math.ceil(domain[1]) }
-            console.log('[RegionViewer] Zoom ended, emitting viewport-changed:', viewport)
-            emit('viewport-changed', viewport)
-          }, 300) // 300ms debounce after zoom ends
+          // Called when pan/zoom ends - trigger data loading immediately
+          const viewport = { start: Math.floor(domain[0]), end: Math.ceil(domain[1]) }
+          console.log('[RegionViewer] Zoom ended, emitting viewport-changed:', viewport)
+          emit('viewport-changed', viewport)
         }
       })
       
@@ -897,7 +872,6 @@ export default {
         props.resistanceFeatures.forEach((resistFeature, idx) => {
           const locusTag = resistFeature.locus_tag
           const location = locusTagMap[locusTag]
-          console.log('Mapping resistance feature', resistFeature.reference_id, 'to locus tag', locusTag, 'with location', location)
           
           if (location) {
             allTrackData[cdsTrackId].annotations.push({
@@ -1011,21 +985,10 @@ export default {
         const [recordMin, recordMax] = fullRecordDomain.value
         const { start: loadedStart, end: loadedEnd } = props.loadedRange
         
-        console.log('[RegionViewer] Adding unloaded indicators:', {
-          fullRecordDomain: fullRecordDomain.value,
-          loadedRange: props.loadedRange,
-          recordMin,
-          recordMax,
-          loadedStart,
-          loadedEnd,
-          trackCount: tracks.length
-        })
-        
         // For each track, add placeholder boxes for unloaded areas
         tracks.forEach(track => {
           // Add left unloaded area (from record start to loaded start)
           if (loadedStart > recordMin) {
-            console.log(`[RegionViewer] Adding left unloaded box for ${track.id}: ${recordMin} to ${loadedStart}`)
             annotations.push({
               id: `${track.id}-unloaded-left`,
               trackId: track.id,
@@ -1042,7 +1005,6 @@ export default {
           
           // Add right unloaded area (from loaded end to record end)
           if (loadedEnd < recordMax) {
-            console.log(`[RegionViewer] Adding right unloaded box for ${track.id}: ${loadedEnd} to ${recordMax}`)
             annotations.push({
               id: `${track.id}-unloaded-right`,
               trackId: track.id,
@@ -1056,13 +1018,6 @@ export default {
               classes: ['unloaded-indicator']
             })
           }
-        })
-      } else {
-        console.log('[RegionViewer] NOT adding unloaded indicators:', {
-          hasFullRecordDomain: !!fullRecordDomain.value,
-          hasLoadedRange: !!props.loadedRange,
-          loadedRange: props.loadedRange,
-          trackCount: tracks.length
         })
       }
       
