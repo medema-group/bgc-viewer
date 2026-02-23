@@ -184,6 +184,11 @@ export default {
       type: Array,
       default: () => []
       // Expected shape: [{ locus_tag, query_id, reference_id, subfunctions, description, bitscore, evalue, query_start, query_end }]
+    },
+    // Loading viewport - when true, shows placeholder while loading data
+    loadingViewport: {
+      type: Boolean,
+      default: false
     }
   },
   emits: [
@@ -251,6 +256,14 @@ export default {
       // Rebuild viewer when resistance features change
       if (props.features && props.features.length > 0) {
         rebuildViewer()
+      }
+    })
+
+    watch(() => props.loadingViewport, (isLoading) => {
+      // Update viewer when loading state changes
+      if (regionViewer) {
+        console.log('[RegionViewer] Loading viewport state changed:', isLoading)
+        updateViewer()
       }
     })
 
@@ -360,16 +373,28 @@ export default {
         sortTracks(tracks)
         availableTracks.value = tracks
         
-        // Select default tracks based on availability
-        const preferredTracks = tracks.filter(t => 
-          ['CDS'].includes(t.id) ||
-          t.id.includes('protocluster') ||
-          t.id.includes('PFAM_domain') ||
-          t.id.includes('cand_cluster')
-        ).map(t => t.id)
+        // Preserve user's track selection if possible
+        const previousSelection = selectedTracks.value || []
+        const availableTrackIds = new Set(tracks.map(t => t.id))
+        
+        // Keep tracks that are still available
+        const preservedTracks = previousSelection.filter(id => availableTrackIds.has(id))
+        
+        // Only use default selection if no previous selection or none can be preserved
+        if (preservedTracks.length > 0) {
+          selectedTracks.value = preservedTracks
+        } else {
+          // Select default tracks based on availability
+          const preferredTracks = tracks.filter(t => 
+            ['CDS'].includes(t.id) ||
+            t.id.includes('protocluster') ||
+            t.id.includes('PFAM_domain') ||
+            t.id.includes('cand_cluster')
+          ).map(t => t.id)
 
-        // If preferred tracks exist, use them; otherwise select all
-        selectedTracks.value = preferredTracks.length > 0 ? preferredTracks : tracks.map(t => t.id)
+          // If preferred tracks exist, use them; otherwise select all
+          selectedTracks.value = preferredTracks.length > 0 ? preferredTracks : tracks.map(t => t.id)
+        }
 
         console.log('Available tracks:', availableTracks.value)
         console.log('Selected tracks:', selectedTracks.value)
@@ -958,16 +983,48 @@ export default {
       })
       
       // Convert to RegionViewer format
-      const tracks = selectedTrackData.map(track => ({
+      let tracks = selectedTrackData.map(track => ({
         id: track.id,
         label: track.label,
         height: track.height || undefined
       }))
       
-      const annotations = selectedTrackData
+      let annotations = selectedTrackData
         .flatMap(track => track.annotations)
-      const primitives = selectedTrackData
+      let primitives = selectedTrackData
         .flatMap(track => track.primitives)
+      
+      // Only show loading placeholder if we have no features to display AND we're loading
+      // Don't show it during rebuild when new features have already arrived
+      if (props.loadingViewport && currentDomain.value && annotations.length === 0) {
+        const [start, end] = currentDomain.value
+        
+        const loadingTrack = {
+          id: '__loading__',
+          label: 'Loading...',
+          height: 60
+        }
+        
+        const loadingAnnotation = {
+          id: '__loading_placeholder__',
+          trackId: '__loading__',
+          type: 'box',
+          start: start,
+          end: end,
+          fill: '#e0e0e0',
+          stroke: '#bdbdbd',
+          opacity: 0.6,
+          heightFraction: 0.8,
+          label: 'Loading features...',
+          labelPosition: 'center',
+          showLabel: 'always',
+          classes: ['loading-placeholder']
+        }
+        
+        // Add loading track at the beginning
+        tracks = [loadingTrack, ...tracks]
+        annotations = [loadingAnnotation, ...annotations]
+      }
       
       regionViewer.setData({ tracks, annotations, primitives })
     }
@@ -1427,6 +1484,24 @@ export default {
 :global(.x-axis) {
   font-size: 14px;
   font-family: sans-serif;
+}
+
+/* Loading placeholder styling */
+:global(.loading-placeholder) {
+  fill: #e0e0e0;
+  stroke: #bdbdbd;
+  stroke-width: 2px;
+  opacity: 0.6;
+  animation: pulse-loading 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-loading {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 </style>

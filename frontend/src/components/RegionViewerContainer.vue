@@ -11,6 +11,7 @@
       :features="features"
       :region-boundaries="regionBoundaries"
       :should-zoom-to-boundaries="shouldZoomToBoundaries"
+      :loading-viewport="loadingViewport"
       :pfam-color-map="pfamColorMap"
       :selected-region-id="selectedRegionId"
       :data-provider="dataProvider"
@@ -81,6 +82,7 @@ export default {
     const currentViewport = ref({ start: 0, end: 0 })
     const viewportChangeTimeout = ref(null)
     const shouldZoomToBoundaries = ref(false) // Control when viewer should zoom to boundaries
+    const loadingViewport = ref(false) // Track when loading data from viewport change
 
     // Helper functions (defined before watchers to avoid hoisting issues)
     const clearViewer = () => {
@@ -391,9 +393,14 @@ export default {
           // Load features for the new viewport WITHOUT zooming
           if (recordInfo.value?.entryId) {
             shouldZoomToBoundaries.value = false
-            await loadFeaturesByRange(recordInfo.value.entryId, start, end)
-            // Update viewport tracking after successful load
-            currentViewport.value = { start, end }
+            loadingViewport.value = true
+            try {
+              await loadFeaturesByRange(recordInfo.value.entryId, start, end)
+              // Update viewport tracking after successful load
+              currentViewport.value = { start, end }
+            } finally {
+              loadingViewport.value = false
+            }
           }
         } else {
           console.log(`Viewport change too small, skipping reload (threshold: ${threshold})`)
@@ -468,6 +475,7 @@ export default {
       features,
       regionBoundaries,
       shouldZoomToBoundaries,
+      loadingViewport,
       pfamColorMap,
       tfbsHits,
       ttaCodons,
