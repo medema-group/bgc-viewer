@@ -1220,7 +1220,7 @@ export default {
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  overflow-y: auto;
+  overflow-y: scroll;
 }
 
 .current-record-info {
