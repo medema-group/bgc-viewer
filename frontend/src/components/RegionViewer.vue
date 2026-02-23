@@ -189,6 +189,12 @@ export default {
     loadingViewport: {
       type: Boolean,
       default: false
+    },
+    // Loaded range - the coordinate range for which features have been loaded
+    loadedRange: {
+      type: Object,
+      default: null
+      // Expected shape: { start, end }
     }
   },
   emits: [
@@ -208,7 +214,8 @@ export default {
     const availableTracks = ref([])
     const selectedTracks = ref([])
     const dropdownOpen = ref(false)
-    const currentDomain = ref(null)
+    const currentDomain = ref(null)  // Current viewport domain [start, end]
+    const fullRecordDomain = ref(null)  // Full record domain [min, max]
     const viewportChangeTimeout = ref(null)
     
     // Compute current region number from selected region
@@ -233,9 +240,8 @@ export default {
     // Watch for prop changes and rebuild the viewer
     watch(() => props.features, () => {
       console.log('[RegionViewer] features changed, triggering rebuildViewer')
-      if (props.features && props.features.length > 0) {
-        rebuildViewer()
-      }
+      // Always rebuild when features change, even if empty (e.g., when loading new viewport)
+      rebuildViewer()
     })
 
     watch(() => props.tfbsHits, () => {
@@ -259,13 +265,13 @@ export default {
       }
     })
 
-    watch(() => props.loadingViewport, (isLoading) => {
-      // Update viewer when loading state changes
-      if (regionViewer) {
-        console.log('[RegionViewer] Loading viewport state changed:', isLoading)
+    watch(() => props.loadedRange, (newRange, oldRange) => {
+      // Update viewer when loaded range changes (to update unloaded area indicators)
+      if (regionViewer && newRange) {
+        console.log('[RegionViewer] Loaded range changed:', { old: oldRange, new: newRange })
         updateViewer()
       }
-    })
+    }, { deep: true })
 
     watch(() => props.selectedRegionId, (newVal) => {
       selectedRegion.value = newVal
@@ -521,6 +527,9 @@ export default {
       
       console.log('Creating TrackViewer with full record domain...')
       
+      // Store the full record domain for use in showing unloaded areas
+      fullRecordDomain.value = [minPos, maxPos]
+      
       regionViewer = new TrackViewer({
         container: viewerContainer.value,
         // width is not specified, so it will be responsive
@@ -547,6 +556,8 @@ export default {
         onDomainChange: (domain) => {
           // Update domain ref for tracking (called continuously during pan/zoom)
           currentDomain.value = domain
+          // Note: We don't call updateViewer here to avoid performance issues
+          // Unloaded indicators are updated via the loadedRange watcher
         },
         onZoomEnd: (domain) => {
           // Called when pan/zoom ends - trigger data loading
@@ -994,36 +1005,65 @@ export default {
       let primitives = selectedTrackData
         .flatMap(track => track.primitives)
       
-      // Only show loading placeholder if we have no features to display AND we're loading
-      // Don't show it during rebuild when new features have already arrived
-      if (props.loadingViewport && currentDomain.value && annotations.length === 0) {
-        const [start, end] = currentDomain.value
+      // Add placeholder annotations for unloaded areas to ALL tracks
+      // Always add them (even when not visible) so they appear immediately when panning
+      if (fullRecordDomain.value && props.loadedRange && tracks.length > 0) {
+        const [recordMin, recordMax] = fullRecordDomain.value
+        const { start: loadedStart, end: loadedEnd } = props.loadedRange
         
-        const loadingTrack = {
-          id: '__loading__',
-          label: 'Loading...',
-          height: 60
-        }
+        console.log('[RegionViewer] Adding unloaded indicators:', {
+          fullRecordDomain: fullRecordDomain.value,
+          loadedRange: props.loadedRange,
+          recordMin,
+          recordMax,
+          loadedStart,
+          loadedEnd,
+          trackCount: tracks.length
+        })
         
-        const loadingAnnotation = {
-          id: '__loading_placeholder__',
-          trackId: '__loading__',
-          type: 'box',
-          start: start,
-          end: end,
-          fill: '#e0e0e0',
-          stroke: '#bdbdbd',
-          opacity: 0.6,
-          heightFraction: 0.8,
-          label: 'Loading features...',
-          labelPosition: 'center',
-          showLabel: 'always',
-          classes: ['loading-placeholder']
-        }
-        
-        // Add loading track at the beginning
-        tracks = [loadingTrack, ...tracks]
-        annotations = [loadingAnnotation, ...annotations]
+        // For each track, add placeholder boxes for unloaded areas
+        tracks.forEach(track => {
+          // Add left unloaded area (from record start to loaded start)
+          if (loadedStart > recordMin) {
+            console.log(`[RegionViewer] Adding left unloaded box for ${track.id}: ${recordMin} to ${loadedStart}`)
+            annotations.push({
+              id: `${track.id}-unloaded-left`,
+              trackId: track.id,
+              type: 'box',
+              start: recordMin,
+              end: loadedStart,
+              fill: '#d0d0d0',
+              stroke: 'none',
+              opacity: 0.6,
+              heightFraction: 1.0,
+              classes: ['unloaded-indicator']
+            })
+          }
+          
+          // Add right unloaded area (from loaded end to record end)
+          if (loadedEnd < recordMax) {
+            console.log(`[RegionViewer] Adding right unloaded box for ${track.id}: ${loadedEnd} to ${recordMax}`)
+            annotations.push({
+              id: `${track.id}-unloaded-right`,
+              trackId: track.id,
+              type: 'box',
+              start: loadedEnd,
+              end: recordMax,
+              fill: '#d0d0d0',
+              stroke: 'none',
+              opacity: 0.6,
+              heightFraction: 1.0,
+              classes: ['unloaded-indicator']
+            })
+          }
+        })
+      } else {
+        console.log('[RegionViewer] NOT adding unloaded indicators:', {
+          hasFullRecordDomain: !!fullRecordDomain.value,
+          hasLoadedRange: !!props.loadedRange,
+          loadedRange: props.loadedRange,
+          trackCount: tracks.length
+        })
       }
       
       regionViewer.setData({ tracks, annotations, primitives })
@@ -1486,22 +1526,12 @@ export default {
   font-family: sans-serif;
 }
 
-/* Loading placeholder styling */
-:global(.loading-placeholder) {
-  fill: #e0e0e0;
-  stroke: #bdbdbd;
-  stroke-width: 2px;
-  opacity: 0.6;
-  animation: pulse-loading 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse-loading {
-  0%, 100% {
-    opacity: 0.6;
-  }
-  50% {
-    opacity: 0.3;
-  }
+/* Unloaded data indicator styling - light gray overlay on tracks */
+:global(.unloaded-indicator) {
+  fill: #f5f5f5;
+  stroke: none;
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 </style>

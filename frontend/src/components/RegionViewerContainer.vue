@@ -12,6 +12,7 @@
       :region-boundaries="regionBoundaries"
       :should-zoom-to-boundaries="shouldZoomToBoundaries"
       :loading-viewport="loadingViewport"
+      :loaded-range="currentViewport"
       :pfam-color-map="pfamColorMap"
       :selected-region-id="selectedRegionId"
       :data-provider="dataProvider"
@@ -476,6 +477,7 @@ export default {
       regionBoundaries,
       shouldZoomToBoundaries,
       loadingViewport,
+      currentViewport,
       pfamColorMap,
       tfbsHits,
       ttaCodons,
