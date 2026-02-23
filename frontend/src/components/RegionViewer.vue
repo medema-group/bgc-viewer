@@ -109,6 +109,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { TrackViewer } from '../TrackViewer'
 import { zoomIdentity } from 'd3-zoom'
+import * as d3 from 'd3-selection'
 import FeatureDetails from './FeatureDetails.vue'
 import SimpleDetails from './SimpleDetails.vue'
 import './cand-cluster-styling.css'
@@ -241,7 +242,6 @@ export default {
     watch(
       () => [props.features, props.tfbsHits, props.ttaCodons, props.resistanceFeatures],
       () => {
-        console.log('[RegionViewer] Data props changed, triggering rebuildViewer')
         // Always rebuild when features change, even if empty (e.g., when loading new viewport)
         rebuildViewer()
       }
@@ -261,8 +261,6 @@ export default {
     // Watch shouldZoomToBoundaries to trigger zoom when explicitly requested
     watch(() => props.shouldZoomToBoundaries, (shouldZoom) => {
       if (shouldZoom && props.regionBoundaries && regionViewer) {
-        console.log('[RegionViewer] Zooming to region boundaries:', props.regionBoundaries)
-        
         // Use nextTick to ensure viewer is updated before zooming
         nextTick(() => {
           if (!regionViewer) return
@@ -271,37 +269,24 @@ export default {
           const chartWidth = regionViewer.getConfig().width - regionViewer.getConfig().margin.left - regionViewer.getConfig().margin.right
           const x = regionViewer.x
           
-          console.log('[RegionViewer] Chart width:', chartWidth)
-          console.log('[RegionViewer] Zoom target:', start, '-', end)
-          console.log('[RegionViewer] Scale domain:', x.domain())
-          console.log('[RegionViewer] Scale range:', x.range())
-          
           const scale = chartWidth / (x(end) - x(start))
           const translate = -x(start) * scale
-          
-          console.log('[RegionViewer] Calculated scale:', scale, 'translate:', translate)
           
           const transform = zoomIdentity.translate(translate, 0).scale(scale)
           // Apply transform with animation for smoother transition
           regionViewer.svg.transition().duration(500).call(regionViewer.zoom.transform, transform)
           regionViewer.currentTransform = transform
-          
-          console.log('[RegionViewer] Zoom transform applied')
         })
       }
     })
 
     onMounted(() => {
-      console.log('[RegionViewer] Component mounted, features:', props.features?.length || 0)
       // Add event listeners
       document.addEventListener('click', handleClickOutside)
       
       // Initial build if we already have features
       if (props.features && props.features.length > 0) {
-        console.log('[RegionViewer] Calling rebuildViewer from onMounted')
         rebuildViewer()
-      } else {
-        console.log('[RegionViewer] Skipping initial rebuild - no features')
       }
     })
 
@@ -316,7 +301,6 @@ export default {
     })
 
     const rebuildViewer = async () => {
-      console.log('[RegionViewer] rebuildViewer called')
       try {
         error.value = ''
         
@@ -328,8 +312,6 @@ export default {
           selectedTracks.value = []
           return
         }
-        
-        console.log('[RegionViewer] Building viewer with', props.features.length, 'features')
         
         // Clear selection when rebuilding
         selectedAnnotation.value = null
@@ -383,22 +365,17 @@ export default {
         const needsReinit = !regionViewer || !viewerContainer.value
         
         if (needsReinit) {
-          console.log('[RegionViewer] Initializing new viewer...')
           initializeViewer()
           
           // Get current domain after initialization
           if (regionViewer) {
             currentDomain.value = regionViewer.getCurrentDomain()
           }
-        } else {
-          console.log('[RegionViewer] Viewer already exists, preserving viewport...')
         }
         
         // Always update the viewer with current track data
         // This is needed both for new viewers and when updating existing ones
         updateViewer()
-        
-        console.log('[RegionViewer] Viewer updated, regionViewer exists:', !!regionViewer)
         
       } catch (err) {
         console.error('Error in rebuildViewer:', err)
@@ -413,9 +390,7 @@ export default {
     }
     
     const initializeViewer = () => {
-      console.log('[RegionViewer] initializeViewer called')
       if (regionViewer) {
-        console.log('[RegionViewer] Destroying existing regionViewer')
         regionViewer.destroy()
       }
       
@@ -423,7 +398,6 @@ export default {
         console.warn('[RegionViewer] viewerContainer.value is null, cannot initialize viewer')
         return
       }
-      console.log('[RegionViewer] viewerContainer.value is valid, proceeding with initialization')
       
       let minPos, maxPos, padding
       
@@ -504,7 +478,6 @@ export default {
         zoomExtent: [0.1, 1000],
         showTrackLabels: false,
         onAnnotationClick: (annotation, track) => {
-          console.log('Clicked annotation:', annotation, 'on track:', track)
           handleAnnotationClick(annotation, track)
           emit('annotation-clicked', { annotation, track })
         },
@@ -525,9 +498,8 @@ export default {
           // Unloaded indicators are updated via the loadedRange watcher
         },
         onZoomEnd: (domain) => {
-          // Called when pan/zoom ends - trigger data loading immediately
+          // Called when pan/zoom ends (TrackViewer already filters out non-changes)
           const viewport = { start: Math.floor(domain[0]), end: Math.ceil(domain[1]) }
-          console.log('[RegionViewer] Zoom ended, emitting viewport-changed:', viewport)
           emit('viewport-changed', viewport)
         }
       })
@@ -1089,10 +1061,37 @@ export default {
       // Update highlighting in allTrackData
       updateAnnotationHighlighting()
       
-      // Force re-render by calling drawTracks on the viewer
-      // This updates the opacity without changing the viewport
-      if (regionViewer && regionViewer.drawTracks) {
-        regionViewer.drawTracks()
+      // Update opacity directly on rendered elements instead of re-rendering everything
+      // This avoids visual jumps from re-rendering
+      if (regionViewer) {
+        // Update annotation opacities directly in the SVG
+        const svg = regionViewer.svg
+        svg.selectAll('.element.annotation').each(function(d) {
+          const element = d3.select(this)
+          const annotationId = element.attr('id')
+          
+          // Find the annotation data to get its opacity
+          Object.values(allTrackData).forEach(track => {
+            const annotation = track.annotations.find(ann => ann.id === annotationId)
+            if (annotation && annotation.opacity !== undefined) {
+              element.style('opacity', annotation.opacity)
+            }
+          })
+        })
+        
+        // Update primitive opacities directly in the SVG
+        svg.selectAll('.element.primitive').each(function(d) {
+          const element = d3.select(this)
+          const primitiveId = element.attr('id')
+          
+          // Find the primitive data to get its opacity
+          Object.values(allTrackData).forEach(track => {
+            const primitive = track.primitives?.find(prim => prim.id === primitiveId)
+            if (primitive && primitive.opacity !== undefined) {
+              element.style('opacity', primitive.opacity)
+            }
+          })
+        })
       }
     }
     

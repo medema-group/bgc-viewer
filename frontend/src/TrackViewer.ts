@@ -86,6 +86,7 @@ export class TrackViewer {
   private tooltip!: Selection<HTMLDivElement, unknown, null, undefined>;
   private x!: ScaleLinear<number, number>;
   private currentTransform: ZoomTransform;
+  private domainAtZoomStart: [number, number] | null = null; // Track domain when zoom/pan starts
   private zoom!: ZoomBehavior<SVGSVGElement, unknown>;
   private data: TrackViewerData = { tracks: [], annotations: [], primitives: [] };
   private trackGroups!: Selection<SVGGElement, TrackData, SVGGElement, unknown>;
@@ -263,6 +264,10 @@ export class TrackViewer {
       // Remove translateExtent to allow free panning across the data domain
       .extent([[0, 0], [chartWidth, chartHeight]])
       .filter((event: any) => {
+        // Exclude double-click events to prevent double-click zoom
+        if (event.type === 'dblclick') {
+          return false;
+        }
         // Track when dragging starts (mousedown without wheel)
         if (event.type === 'mousedown' && event.button === 0) {
           this.isDragging = true;
@@ -283,20 +288,33 @@ export class TrackViewer {
         this.config.onDomainChange(domain);
       })
       .on('start', (event: any) => {
+        // Capture the domain when zoom starts so we can compare in zoom end
+        this.domainAtZoomStart = this.getCurrentDomain();
         // Only change cursor to grabbing if it's a drag (not a wheel zoom)
         if (event.sourceEvent && event.sourceEvent.type === 'mousedown') {
           this.clippedChart.select('.chart-background').style('cursor', 'grabbing');
           this.svg.style('cursor', 'grabbing');
         }
       })
-      .on('end', () => {
+      .on('end', (event: any) => {
         this.isDragging = false;
         this.clippedChart.select('.chart-background').style('cursor', 'grab');
         this.svg.style('cursor', '');
         
-        // Notify about zoom end for data loading
-        const domain = this.getCurrentDomain();
-        this.config.onZoomEnd(domain);
+        // Get current domain and compare to start domain
+        const currentDomain = this.getCurrentDomain();
+        const startDomain = this.domainAtZoomStart || currentDomain;
+        
+        // Only notify if domain actually changed due to user interaction (not just resize)
+        const domainChanged = Math.abs(currentDomain[0] - startDomain[0]) > 1 ||
+                              Math.abs(currentDomain[1] - startDomain[1]) > 1;
+        
+        if (domainChanged) {
+          this.config.onZoomEnd(currentDomain);
+        }
+        
+        // Clear the start domain
+        this.domainAtZoomStart = null;
       });
 
     // Apply zoom behavior to the main SVG instead of an overlay
@@ -849,7 +867,9 @@ export class TrackViewer {
         // Always try to hide tooltip on mouseout
         this.hideTooltip();
       })
-      .on('click', () => {
+      .on('click', (event: any) => {
+        // Stop propagation to prevent zoom behavior from processing this click
+        event.stopPropagation();
         this.config.onAnnotationClick(annotation, trackData);
       });
 
@@ -1471,16 +1491,33 @@ export class TrackViewer {
     
     // Only update if the width has changed significantly
     if (Math.abs(this.config.width - newWidth) > 10) {
+      // CRITICAL: Capture the current domain (viewport) before changing scale range
+      // We'll recalculate the transform to maintain this domain after resizing
+      const currentDomain = this.getCurrentDomain();
+      
+      const oldWidth = this.config.width;
       this.config.width = newWidth;
       
       // Update SVG width
       this.svg.attr('width', newWidth);
       
       // Update x scale range
-      this.x.range([0, newWidth - this.config.margin.left - this.config.margin.right]);
+      const chartWidth = newWidth - this.config.margin.left - this.config.margin.right;
+      const oldChartWidth = oldWidth - this.config.margin.left - this.config.margin.right;
+      this.x.range([0, chartWidth]);
+      
+      // Recalculate transform to maintain the same domain with the new scale range
+      // k = chartWidth / (x(d1) - x(d0))
+      // tx = -k * x(d0)
+      const [d0, d1] = currentDomain;
+      const x0 = this.x(d0);
+      const x1 = this.x(d1);
+      const k = chartWidth / (x1 - x0);
+      const tx = -k * x0;
+      
+      this.currentTransform = d3.zoomIdentity.translate(tx, 0).scale(k);
       
       // Update clipping path and background width
-      const chartWidth = newWidth - this.config.margin.left - this.config.margin.right;
       this.svg.select('clipPath rect').attr('width', chartWidth);
       this.clippedChart.select('.chart-background').attr('width', chartWidth);
       
@@ -1490,7 +1527,10 @@ export class TrackViewer {
         .translateExtent([[0, 0], [chartWidth, chartHeight]])
         .extent([[0, 0], [chartWidth, chartHeight]]);
       
-      // Redraw everything with new dimensions
+      // Apply the new transform to the zoom behavior
+      this.svg.call(this.zoom.transform, this.currentTransform);
+      
+      // Redraw everything with new dimensions and transform
       this.drawTracks();
     }
   }

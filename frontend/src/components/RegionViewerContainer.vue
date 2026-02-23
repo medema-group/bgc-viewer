@@ -284,7 +284,6 @@ export default {
       try {
         const featuresData = await provider.value.getFeaturesByRange(recordId, start, end)
         features.value = featuresData.features || []
-        console.log('🎨 [REDRAW START] Features loaded, triggering redraw with', features.value.length, 'features')
         
         // Set region boundaries to the requested range to control the initial zoom level
         regionBoundaries.value = { start, end }
@@ -398,7 +397,6 @@ export default {
           if (recordInfo.value?.entryId) {
             shouldZoomToBoundaries.value = false
             loadingViewport.value = true
-            console.log('🔄 [LOADING START] Fetching features for viewport:', start, '-', end)
             try {
               await loadFeaturesByRange(recordInfo.value.entryId, start, end)
               // Update viewport tracking after successful load
