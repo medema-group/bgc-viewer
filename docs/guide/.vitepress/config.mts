@@ -38,8 +38,8 @@ export default defineConfig({
       {
         text: 'Components',
         items: [
-          { text: 'Track Viewer', link: '/components/track-viewer' },
-          { text: 'Web Components', link: '/components/web-components' }
+          { text: 'Web Components', link: '/components/web-components' },
+          { text: 'Track Viewer', link: '/components/track-viewer' }
         ]
       },
       {

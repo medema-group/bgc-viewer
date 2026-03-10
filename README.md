@@ -26,12 +26,9 @@ The backend has two functions:
 - An API that preprocesses, searches and serves data from a root directory containing huge amounts of data. The backend serves from the local file system in local mode, or from a fixed data directory in public mode [see configuration](#configuration).
 - It serves the statically built frontend (html + javascript); the Python package contains everything to run the viewer as a stand-alone application.
 
-The frontend also has multiple functions:
-- The BGC Viewer is a web application that can either use the backend API or other data sources.
-- The frontend components can be used separately in other applications. They are available as an npm package.
-
-In other words, the frontend can act as a web application with or without the backend. It is packaged with the backend for convenience for end-users, but could perfectly be run in a separate process.
-
+The frontend has two functions, which are reflected in two separate build targets.
+- The BGC Viewer is a stand-alone web application that can either use the backend API or other data sources. It is packaged with the backend for convenience for end-users, but could perfectly be run in a separate process.
+- The frontend components can be used separately in other applications. They are published as an npm package.
 
 
 ## Installation & usage

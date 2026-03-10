@@ -4,12 +4,11 @@ Welcome to BGC Viewer! This guide will help you get started with visualizing bio
 
 ## What is BGC Viewer?
 
-BGC Viewer is an interactive visualization tool for exploring Biosynthetic Gene Clusters (BGCs) from antiSMASH output files. It provides:
+BGC Viewer is an interactive visualization tool for exploring Biosynthetic Gene Clusters (BGCs) from antiSMASH output files and other formats that contain feature and annotation data, such as GenBank files. It provides:
 
 - **Interactive track viewer** - Zoom, pan, and explore gene clusters
 - **Domain annotations** - Visualize protein domains and their functions
 - **Web components** - Easy integration into your own applications
-- **Fast data processing** - Optimized with Rust extensions
 
 ## Architecture
 
@@ -17,7 +16,7 @@ BGC Viewer consists of two main components:
 
 ### Backend (Python + Flask)
 
-The backend provides:
+The (optional) backend provides:
 - Data preprocessing and indexing
 - REST API for data access
 - Database management

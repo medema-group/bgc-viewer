@@ -26,7 +26,9 @@ The application will be available at http://localhost:5173
 
 ### Preprocess AntiSMASH Data
 
-First, preprocess your antiSMASH JSON files:
+First, preprocess your antiSMASH JSON files. If you are running the application
+locally, you can run the preprocessing through the web interface by clicking
+"Select folder to index". Alternatively, you can run the preprocessing from the command line:
 
 ```bash
 cd backend
@@ -49,19 +51,12 @@ python -m bgc_viewer.preprocessing preprocess \
 - **Zoom**: Use mouse wheel or pinch gesture
 - **Pan**: Click and drag
 - **Select**: Click on genes or domains
-- **Context menu**: Right-click for options
-
-### Keyboard Shortcuts
-
-- `+` / `-`: Zoom in/out
-- Arrow keys: Pan
-- `Home`: Reset view
-- `F`: Fit to screen
+- **Viewer menu**: Right-click the menu button on the top right for options
 
 ## Example: Visualizing a BGC
 
 ```javascript
-import { TrackViewer } from 'bgc-viewer';
+import { TrackViewer } from '@medemagroup/bgc-viewer-components';
 
 const viewer = new TrackViewer({
   container: '#viewer',
@@ -73,6 +68,6 @@ viewer.render();
 
 ## Next Steps
 
-- [Track Viewer Component](../components/track-viewer.md)
 - [Web Components Guide](../components/web-components.md)
+- [Track Viewer Component](../components/track-viewer.md)
 - [REST API Reference](../api/overview.md)
