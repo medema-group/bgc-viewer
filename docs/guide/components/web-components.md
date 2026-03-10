@@ -7,13 +7,13 @@ BGC Viewer provides web components that can be easily integrated into any web ap
 ### Via npm
 
 ```bash
-npm install bgc-viewer
+npm install @medemagroup/bgc-viewer-components
 ```
 
 ### Via CDN
 
 ```html
-<script type="module" src="https://unpkg.com/bgc-viewer@latest/dist/web-components.js"></script>
+<script type="module" src="https://unpkg.com/@medemagroup/bgc-viewer-components@latest/dist/web-components/bgc-viewer-components.es.js"></script>
 ```
 
 ## Available Components
@@ -51,7 +51,7 @@ Display detailed information about a gene.
 <html>
 <head>
   <title>BGC Viewer Example</title>
-  <script type="module" src="https://unpkg.com/bgc-viewer@latest/dist/web-components.js"></script>
+  <script type="module" src="https://unpkg.com/@medemagroup/bgc-viewer-components@latest/dist/web-components/bgc-viewer-components.es.js"></script>
 </head>
 <body>
   <h1>My BGC Visualization</h1>
@@ -76,7 +76,7 @@ Display detailed information about a gene.
 ### React
 
 ```jsx
-import 'bgc-viewer/web-components';
+import '@medemagroup/bgc-viewer-components';
 
 function BgcView() {
   const handleGeneClick = (event) => {
@@ -107,7 +107,7 @@ function BgcView() {
 </template>
 
 <script setup>
-import 'bgc-viewer/web-components';
+import '@medemagroup/bgc-viewer-components';
 
 const dataUrl = '/data/my-bgc.json';
 
@@ -121,7 +121,7 @@ const handleGeneClick = (event) => {
 
 ```typescript
 import { Component, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
-import 'bgc-viewer/web-components';
+import '@medemagroup/bgc-viewer-components';
 
 @Component({
   selector: 'app-bgc-view',

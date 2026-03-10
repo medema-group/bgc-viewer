@@ -1,5 +1,5 @@
 {
-  "name": "@kretep/bgc-viewer-components",
+  "name": "@medemagroup/bgc-viewer-components",
   "version": "0.2.0",
   "description": "Reusable web components for visualizing biosynthetic gene clusters",
   "main": "./dist/web-components/bgc-viewer-components.umd.js",

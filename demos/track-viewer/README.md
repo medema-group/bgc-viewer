@@ -1,6 +1,6 @@
 # TrackViewer Demo
 
-This demo shows the `TrackViewer` class from `@kretep/bgc-viewer-components` for creating custom genomic track visualizations.
+This demo shows the `TrackViewer` class from `@medemagroup/bgc-viewer-components` for creating custom genomic track visualizations.
 
 ## Features Demonstrated
 
@@ -29,7 +29,7 @@ This demo shows the `TrackViewer` class from `@kretep/bgc-viewer-components` for
 ## Usage Example
 
 ```javascript
-import { TrackViewer } from '@kretep/bgc-viewer-components';
+import { TrackViewer } from '@medemagroup/bgc-viewer-components';
 
 const viewer = new TrackViewer({
   container: '#viewer-container',

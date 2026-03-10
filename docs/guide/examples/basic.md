@@ -11,7 +11,7 @@ This example demonstrates basic usage of the BGC Viewer components.
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BGC Viewer - Basic Example</title>
-  <script type="module" src="https://unpkg.com/bgc-viewer@latest/dist/web-components.js"></script>
+  <script type="module" src="https://unpkg.com/@medemagroup/bgc-viewer-components@latest/dist/web-components/bgc-viewer-components.es.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -88,7 +88,7 @@ This example demonstrates basic usage of the BGC Viewer components.
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { TrackViewer } from 'bgc-viewer';
+import { TrackViewer } from '@medemagroup/bgc-viewer-components';
 
 const viewerRef = ref(null);
 const bgcData = ref(null);
@@ -171,7 +171,7 @@ const reset = () => {
 ## Programmatic Usage
 
 ```javascript
-import { TrackViewer } from 'bgc-viewer';
+import { TrackViewer } from '@medemagroup/bgc-viewer-components';
 
 // Create viewer instance
 const viewer = new TrackViewer({
