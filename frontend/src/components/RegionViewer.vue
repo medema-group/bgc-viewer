@@ -310,11 +310,15 @@ export default {
           allTrackData = {}
           availableTracks.value = []
           selectedTracks.value = []
+          selectedAnnotation.value = null
           return
         }
         
-        // Clear selection when rebuilding
-        selectedAnnotation.value = null
+        // Preserve selection during viewport changes (pan/zoom)
+        // Only clear if we're switching records (no existing tracks)
+        if (Object.keys(allTrackData).length === 0) {
+          selectedAnnotation.value = null
+        }
         
         // Build all tracks from features
         buildAllTracks()
@@ -487,9 +491,7 @@ export default {
         },
         onBackgroundClick: () => {
           // Clear selection when clicking background
-          selectedAnnotation.value = null
-          updateAnnotationHighlighting()
-          updateViewer()
+          clearSelectedElement()
         },
         onDomainChange: (domain) => {
           // Update domain ref for tracking (called continuously during pan/zoom)
@@ -1040,6 +1042,41 @@ export default {
       }
     }
     
+    // Update annotation opacities directly in the SVG
+    const updateAnnotationOpacitiesInSVG = () => {
+      if (!regionViewer) return
+      
+      const svg = regionViewer.svg
+      
+      // Update annotation opacities directly in the SVG
+      svg.selectAll('.element.annotation').each(function(d) {
+        const element = d3.select(this)
+        const annotationId = element.attr('id')
+        
+        // Find the annotation data to get its opacity
+        Object.values(allTrackData).forEach(track => {
+          const annotation = track.annotations.find(ann => ann.id === annotationId)
+          if (annotation && annotation.opacity !== undefined) {
+            element.style('opacity', annotation.opacity)
+          }
+        })
+      })
+      
+      // Update primitive opacities directly in the SVG
+      svg.selectAll('.element.primitive').each(function(d) {
+        const element = d3.select(this)
+        const primitiveId = element.attr('id')
+        
+        // Find the primitive data to get its opacity
+        Object.values(allTrackData).forEach(track => {
+          const primitive = track.primitives?.find(prim => prim.id === primitiveId)
+          if (primitive && primitive.opacity !== undefined) {
+            element.style('opacity', primitive.opacity)
+          }
+        })
+      })
+    }
+    
     // Handle annotation click for highlighting
     const handleAnnotationClick = (annotation, track) => {
       // Set selected annotation (don't toggle)
@@ -1063,41 +1100,15 @@ export default {
       
       // Update opacity directly on rendered elements instead of re-rendering everything
       // This avoids visual jumps from re-rendering
-      if (regionViewer) {
-        // Update annotation opacities directly in the SVG
-        const svg = regionViewer.svg
-        svg.selectAll('.element.annotation').each(function(d) {
-          const element = d3.select(this)
-          const annotationId = element.attr('id')
-          
-          // Find the annotation data to get its opacity
-          Object.values(allTrackData).forEach(track => {
-            const annotation = track.annotations.find(ann => ann.id === annotationId)
-            if (annotation && annotation.opacity !== undefined) {
-              element.style('opacity', annotation.opacity)
-            }
-          })
-        })
-        
-        // Update primitive opacities directly in the SVG
-        svg.selectAll('.element.primitive').each(function(d) {
-          const element = d3.select(this)
-          const primitiveId = element.attr('id')
-          
-          // Find the primitive data to get its opacity
-          Object.values(allTrackData).forEach(track => {
-            const primitive = track.primitives?.find(prim => prim.id === primitiveId)
-            if (primitive && primitive.opacity !== undefined) {
-              element.style('opacity', primitive.opacity)
-            }
-          })
-        })
-      }
+      updateAnnotationOpacitiesInSVG()
     }
     
     // Clear selected element
     const clearSelectedElement = () => {
       selectedAnnotation.value = null
+      updateAnnotationHighlighting()
+      // Update SVG elements directly to reset opacity
+      updateAnnotationOpacitiesInSVG()
     }
     
     // Determine if an annotation should be highlighted
@@ -1134,8 +1145,10 @@ export default {
       Object.values(allTrackData).forEach(track => {
         if (track.id !== 'CDS' && track.id !== 'PFAM_domain') return
         
-        // Update annotations
-        track.annotations.forEach(annotation => {
+        // Update both current annotations and original annotations (for filtered tracks)
+        const annotationsToUpdate = track._originalAnnotations || track.annotations
+        
+        annotationsToUpdate.forEach(annotation => {
           const shouldHighlight = shouldHighlightAnnotation(annotation)
           
           // Store the original opacity if not already stored
@@ -1150,6 +1163,23 @@ export default {
             annotation.opacity = annotation._originalOpacity * 0.5
           }
         })
+        
+        // If we updated _originalAnnotations, also update the current annotations
+        if (track._originalAnnotations && track.annotations !== track._originalAnnotations) {
+          track.annotations.forEach(annotation => {
+            const shouldHighlight = shouldHighlightAnnotation(annotation)
+            
+            if (annotation._originalOpacity === undefined) {
+              annotation._originalOpacity = annotation.opacity !== undefined ? annotation.opacity : 1
+            }
+            
+            if (shouldHighlight) {
+              annotation.opacity = annotation._originalOpacity
+            } else {
+              annotation.opacity = annotation._originalOpacity * 0.5
+            }
+          })
+        }
         
         // Also update the baseline primitive for CDS track
         if (track.id === 'CDS' && track.primitives) {
