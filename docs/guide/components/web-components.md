@@ -18,29 +18,85 @@ npm install @medemagroup/bgc-viewer-components
 
 ## Available Components
 
-### `<bgc-track-viewer>`
+### Custom Elements (Web Components)
 
-The main track viewer component.
+#### `<bgc-region-viewer-container>`
+
+Container component for region viewing with full navigation and controls.
 
 ```html
-<bgc-track-viewer
+<bgc-region-viewer-container
+  data-url="/api/data/NC_003888"
+  width="800"
+  height="400">
+</bgc-region-viewer-container>
+```
+
+#### `<bgc-region-viewer>`
+
+Core region viewer component for displaying biosynthetic gene clusters.
+
+```html
+<bgc-region-viewer
   data-url="/api/data/NC_003888"
   width="800"
   height="400"
   show-domains="true">
-</bgc-track-viewer>
+</bgc-region-viewer>
 ```
 
-### `<bgc-gene-card>`
+### Exported Classes
 
-Display detailed information about a gene.
+The package also exports JavaScript classes for programmatic use:
 
-```html
-<bgc-gene-card
-  gene-id="gene_001"
-  data-url="/api/gene/gene_001">
-</bgc-gene-card>
+#### `BGCViewerAPIProvider`
+
+Data provider class for fetching data from the BGC Viewer REST API.
+
+```javascript
+import { BGCViewerAPIProvider } from '@medemagroup/bgc-viewer-components';
+
+const provider = new BGCViewerAPIProvider('http://localhost:8000');
+const data = await provider.fetchRegion('NC_003888');
 ```
+
+#### `JSONFileProvider`
+
+Data provider class for loading data from JSON files.
+
+```javascript
+import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
+
+const provider = new JSONFileProvider();
+const data = await provider.loadFromFile('/data/bgc.json');
+```
+
+#### `TrackViewer`
+
+Low-level track viewer class for direct canvas-based rendering.
+
+```javascript
+import { TrackViewer } from '@medemagroup/bgc-viewer-components';
+
+const viewer = new TrackViewer({
+  container: '#viewer',
+  width: 800,
+  height: 400
+});
+viewer.render(data);
+```
+
+### TypeScript Types
+
+The following TypeScript types are exported for type-safe development:
+
+- `TrackViewerConfig` - Configuration options for TrackViewer
+- `TrackData` - Track data structure
+- `AnnotationData` - Annotation data structure
+- `AnnotationType` - Annotation type enum
+- `TrackViewerData` - Complete viewer data structure
+- `DrawingPrimitive` - Drawing primitive interface
+- `DrawingPrimitiveType` - Drawing primitive type enum
 
 ## Usage Examples
 
@@ -56,14 +112,14 @@ Display detailed information about a gene.
 <body>
   <h1>My BGC Visualization</h1>
   
-  <bgc-track-viewer
+  <bgc-region-viewer-container
     data-url="/data/my-bgc.json"
     width="1000"
     height="500">
-  </bgc-track-viewer>
+  </bgc-region-viewer-container>
 
   <script>
-    const viewer = document.querySelector('bgc-track-viewer');
+    const viewer = document.querySelector('bgc-region-viewer-container');
     
     viewer.addEventListener('gene-click', (event) => {
       console.log('Gene clicked:', event.detail);
@@ -84,7 +140,7 @@ function BgcView() {
   };
 
   return (
-    <bgc-track-viewer
+    <bgc-region-viewer
       data-url="/data/my-bgc.json"
       width="800"
       height="400"
@@ -98,7 +154,7 @@ function BgcView() {
 
 ```vue
 <template>
-  <bgc-track-viewer
+  <bgc-region-viewer
     :data-url="dataUrl"
     :width="800"
     :height="400"
@@ -126,12 +182,12 @@ import '@medemagroup/bgc-viewer-components';
 @Component({
   selector: 'app-bgc-view',
   template: `
-    <bgc-track-viewer
+    <bgc-region-viewer
       [attr.data-url]="dataUrl"
       [attr.width]="800"
       [attr.height]="400"
       (gene-click)="handleGeneClick($event)">
-    </bgc-track-viewer>
+    </bgc-region-viewer>
   `,
   schemas: [CUSTOM_ELEMENTS_SCHEMA]
 })
@@ -149,7 +205,7 @@ export class BgcViewComponent {
 Web components can be styled using CSS custom properties:
 
 ```css
-bgc-track-viewer {
+bgc-region-viewer {
   --gene-stroke: #333;
   --gene-fill: #4a90e2;
   --domain-stroke: #666;
@@ -175,7 +231,7 @@ All web components support attribute-based configuration:
 Access methods via the element reference:
 
 ```javascript
-const viewer = document.querySelector('bgc-track-viewer');
+const viewer = document.querySelector('bgc-region-viewer');
 
 // Zoom to region
 viewer.zoomTo({ start: 1000, end: 5000 });
