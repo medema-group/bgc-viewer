@@ -27,12 +27,14 @@
     </div>
 
     <div class="viewer-container">
-      <bgc-region-viewer-container
-        :dataProvider="dataProvider"
-        :recordData="recordData"
-        :initialRegionId="initialRegionId"
-        @region-changed="handleRegionChanged"
-      ></bgc-region-viewer-container>
+      <div ref="containerMount"></div>
+      <div v-if="!isReady" class="loading">
+        Initializing viewer...
+      </div>
+    </div>
+
+    <div v-if="errorMessage" class="error-message">
+      {{ errorMessage }}
     </div>
 
     <div class="info-panel">
@@ -48,14 +50,14 @@
       </ul>
       <p class="note">
         <strong>Note:</strong> This is a custom element registered as &lt;bgc-region-viewer-container&gt;. 
-        It works in any framework or plain HTML once registered globally.
+        Complex props like dataProvider must be set via JavaScript properties, not HTML attributes.
       </p>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted, nextTick } from 'vue'
 
 const props = defineProps({
   records: {
@@ -90,7 +92,11 @@ const props = defineProps({
 
 const emit = defineEmits(['update:recordIndex', 'update:regionIndex'])
 
+const containerMount = ref(null)
+const containerElement = ref(null)
 const selectedRegionIndex = ref(props.regionIndex)
+const errorMessage = ref('')
+const isReady = ref(false)
 
 const recordData = computed(() => {
   if (!props.currentRecord) return null
@@ -108,6 +114,54 @@ const initialRegionId = computed(() => {
   return region.id || `region_${props.regionIndex + 1}`
 })
 
+// Create and mount the web component programmatically
+onMounted(async () => {
+  await nextTick()
+  
+  if (!props.dataProvider) {
+    console.log('No dataProvider available')
+    return
+  }
+  
+  console.log('Creating web component with properties:', {
+    dataProvider: props.dataProvider,
+    recordData: recordData.value,
+    initialRegionId: initialRegionId.value
+  })
+  
+  // Create the element
+  const element = document.createElement('bgc-region-viewer-container')
+  element.style.display = 'block'
+  element.style.minHeight = '600px'
+  element.style.width = '100%'
+  
+  // Set properties BEFORE adding to DOM
+  element.dataProvider = props.dataProvider
+  element.recordId = recordData.value?.recordId || ''
+  element.recordData = recordData.value
+  element.initialRegionId = initialRegionId.value
+  
+  // Add event listeners
+  element.addEventListener('region-changed', handleRegionChanged)
+  element.addEventListener('error', handleError)
+  
+  // Now add to DOM
+  containerMount.value.appendChild(element)
+  containerElement.value = element
+  isReady.value = true
+})
+
+// Watch for changes and update the web component
+watch([() => props.dataProvider, recordData, initialRegionId], () => {
+  if (containerElement.value) {
+    console.log('Updating web component properties')
+    containerElement.value.dataProvider = props.dataProvider
+    containerElement.value.recordId = recordData.value?.recordId || ''
+    containerElement.value.recordData = recordData.value
+    containerElement.value.initialRegionId = initialRegionId.value
+  }
+})
+
 watch(() => props.regionIndex, (newIndex) => {
   selectedRegionIndex.value = newIndex
 })
@@ -119,6 +173,7 @@ function handleRecordChange(event) {
 }
 
 function handleRegionChanged(event) {
+  console.log('Region changed event:', event)
   // When region changes in the component, find the index
   const regionId = event.detail?.regionId
   if (regionId) {
@@ -130,11 +185,33 @@ function handleRegionChanged(event) {
     }
   }
 }
+
+function handleError(event) {
+  console.error('RegionViewerContainer error:', event)
+  console.error('Error detail:', event.detail)
+  const errorDetail = event.detail
+  if (Array.isArray(errorDetail)) {
+    errorMessage.value = errorDetail.join(', ')
+  } else if (errorDetail?.message) {
+    errorMessage.value = errorDetail.message
+  } else {
+    errorMessage.value = JSON.stringify(errorDetail)
+  }
+}
 </script>
 
 <style scoped>
 .region-info {
   color: #2c3e50;
   font-weight: 500;
+}
+
+.error-message {
+  background: #fee;
+  border: 1px solid #c00;
+  border-radius: 4px;
+  padding: 15px;
+  margin: 20px 0;
+  color: #c00;
 }
 </style>

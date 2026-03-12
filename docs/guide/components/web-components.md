@@ -22,28 +22,86 @@ npm install @medemagroup/bgc-viewer-components
 
 #### `<bgc-region-viewer-container>`
 
-Container component for region viewing with full navigation and controls.
+Container component with automatic data loading. This is the simplest way to display a BGC record.
+
+**Features:**
+- Automatic data fetching from a DataProvider
+- Built-in loading states and error handling
+- Only requires `dataProvider` and `recordId` props
+- Manages all data lifecycle (fetching regions, features, PFAM colors, etc.)
+
+**Best for:**
+- Simple integrations where you just want to display a record by ID
+- Quick demos and prototypes
+- When using standard data providers (JSONFileProvider or BGCViewerAPIProvider)
+
+**Usage:**
 
 ```html
-<bgc-region-viewer-container
-  data-url="/api/data/NC_003888"
-  width="800"
-  height="400">
+<bgc-region-viewer-container 
+  record-id="NC_003888.3"
+  width="1000"
+  height="500">
 </bgc-region-viewer-container>
+
+<script type="module">
+  import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
+
+  const provider = new JSONFileProvider();
+  await provider.loadFromFile('/data/bgc.json');
+
+  const container = document.querySelector('bgc-region-viewer-container');
+  // Complex objects must be set via JavaScript properties
+  container.dataProvider = provider;
+</script>
 ```
+
+> **Note:** Simple values (strings, numbers, booleans) can be set as HTML attributes. Complex objects like `dataProvider` must be set via JavaScript properties.
 
 #### `<bgc-region-viewer>`
 
-Core region viewer component for displaying biosynthetic gene clusters.
+Core visualization component for displaying biosynthetic gene clusters.
+
+**Features:**
+- Region selector dropdown for switching between BGC regions
+- Multi-select track dropdown for showing/hiding feature layers
+- Interactive feature details panel (click features to see info)
+- Full control over what data is displayed and when
+
+**Best for:**
+- When you have pre-loaded data or custom data sources
+- Complex applications with state management
+- Custom data loading logic or transformations
+- Fine-grained control over rendering and updates
+
+**Usage:**
 
 ```html
 <bgc-region-viewer
-  data-url="/api/data/NC_003888"
   width="800"
   height="400"
   show-domains="true">
 </bgc-region-viewer>
+
+<script type="module">
+  // RegionViewer requires pre-loaded data passed as props
+  const viewer = document.querySelector('bgc-region-viewer');
+  viewer.recordInfo = { recordId: 'NC_003888.3', filename: 'bgc.json' };
+  viewer.regions = [/* array of regions */];
+  viewer.features = [/* array of features */];
+  viewer.pfamColorMap = {/* domain colors */};
+</script>
 ```
+
+### Choosing Between Components
+
+| Aspect | RegionViewerContainer | RegionViewer |
+|--------|----------------------|--------------|
+| **Setup Complexity** | Simple (2 props) | More complex (many props) |
+| **Data Loading** | Automatic | Manual |
+| **Flexibility** | Limited | High |
+| **Use Case** | Quick display by ID | Custom data flows |
+| **Best For** | Demos, simple apps | Complex apps, custom logic |
 
 ### Exported Classes
 

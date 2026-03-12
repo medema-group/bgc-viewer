@@ -292,6 +292,11 @@ export default {
       
       // Load PFAM color map
       await loadColorMap()
+      
+      // Load record if recordId is provided
+      if (props.recordId) {
+        await loadRecord(props.recordId)
+      }
     })
 
     // Watch for recordId changes
