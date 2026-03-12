@@ -4,7 +4,16 @@ import path from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue({
+      template: {
+        compilerOptions: {
+          // Treat all tags starting with 'bgc-' as custom elements
+          isCustomElement: (tag) => tag.startsWith('bgc-')
+        }
+      }
+    })
+  ],
   server: {
     port: 5174,
     fs: {
