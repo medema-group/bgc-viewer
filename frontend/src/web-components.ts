@@ -1,23 +1,15 @@
 /**
  * Web Components build entry point
- * Exports RegionViewer and RegionViewerContainer as custom elements
+ * Exports RegionViewer and RegionViewerContainer as Vue components (no shadow DOM)
  * Also exports TrackViewer class for direct use
  */
 
-import { defineCustomElement } from 'vue'
 import RegionViewerContainerComponent from './components/RegionViewerContainer.vue'
 import RegionViewerComponent from './components/RegionViewer.vue'
 
-// Define the custom elements
-const RegionViewerContainer = defineCustomElement(RegionViewerContainerComponent)
-const RegionViewer = defineCustomElement(RegionViewerComponent)
-
-// Register the custom elements
-customElements.define('bgc-region-viewer-container', RegionViewerContainer)
-customElements.define('bgc-region-viewer', RegionViewer)
-
-// Export for manual registration if needed
-export { RegionViewerContainer, RegionViewer }
+// Export the regular Vue components (recommended for Vue apps - no shadow DOM)
+export { RegionViewerContainerComponent as RegionViewerContainer }
+export { RegionViewerComponent as RegionViewer }
 
 // Export data provider classes dynamically to avoid circular dependencies
 export { BGCViewerAPIProvider } from './services/dataProviders/BGCViewerAPIProvider'

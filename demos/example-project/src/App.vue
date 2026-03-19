@@ -68,9 +68,10 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { JSONFileProvider } from '../../../frontend/src/services/dataProviders/JSONFileProvider.ts'
-// Import web-components entry to register custom elements
-import '../../../frontend/src/web-components.ts'
+import { JSONFileProvider } from '../../../frontend/dist/web-components/bgc-viewer-components.es.js'
+// Import component styles
+import './style.css'
+import './style2.css'
 import TrackViewerTab from './components/TrackViewerTab.vue'
 import RegionViewerTab from './components/RegionViewerTab.vue'
 import RegionViewerContainerTab from './components/RegionViewerContainerTab.vue'

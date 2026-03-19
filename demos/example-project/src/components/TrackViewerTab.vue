@@ -61,7 +61,7 @@
 
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { TrackViewer } from '../../../../frontend/src/TrackViewer'
+import { TrackViewer } from '../../../../frontend/dist/web-components/bgc-viewer-components.es.js'
 import * as d3 from 'd3'
 
 // Make D3 globally available

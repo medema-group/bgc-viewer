@@ -29,13 +29,13 @@
     </div>
 
     <div class="viewer-container">
-      <bgc-region-viewer
+      <RegionViewer
         :recordInfo="recordInfo"
         :regions="regionsForComponent"
         :features="featuresForComponent"
         :regionBoundaries="regionBoundaries"
         :selectedRegionId="selectedRegionId"
-      ></bgc-region-viewer>
+      />
     </div>
 
     <div class="info-panel">
@@ -48,8 +48,8 @@
         <li><strong>regionBoundaries:</strong> {{ regionBoundaries ? `${regionBoundaries.start}-${regionBoundaries.end}` : 'none' }}</li>
       </ul>
       <p class="note">
-        <strong>Note:</strong> This is a custom element registered as &lt;bgc-region-viewer&gt;. 
-        It works in any framework or plain HTML once registered globally.
+        <strong>Note:</strong> This is a Vue component imported from the package. 
+        No shadow DOM is used, so styles are applied globally.
       </p>
     </div>
   </div>
@@ -57,6 +57,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { RegionViewer } from '../../../../frontend/dist/web-components/bgc-viewer-components.es.js'
 
 const props = defineProps({
   records: {

@@ -1,6 +1,6 @@
 <template>
   <div class="tab-content">
-    <h2>&lt;bgc-region-viewer-container&gt; (Web Component)</h2>
+    <h2>RegionViewerContainer (Vue Component)</h2>
     <p class="description">
       Full-featured container with navigation and controls. 
       This component works with a data provider to automatically load and display BGC data.
@@ -27,10 +27,14 @@
     </div>
 
     <div class="viewer-container">
-      <div ref="containerMount"></div>
-      <div v-if="!isReady" class="loading">
-        Initializing viewer...
-      </div>
+      <RegionViewerContainer
+        :dataProvider="dataProvider"
+        :recordId="recordData.recordId"
+        :recordData="recordData"
+        :initialRegionId="initialRegionId"
+        @region-changed="handleRegionChanged"
+        @error="handleError"
+      />
     </div>
 
     <div v-if="errorMessage" class="error-message">
@@ -49,15 +53,16 @@
         <li><strong>Feature Details:</strong> Click on features to see detailed information</li>
       </ul>
       <p class="note">
-        <strong>Note:</strong> This is a custom element registered as &lt;bgc-region-viewer-container&gt;. 
-        Complex props like dataProvider must be set via JavaScript properties, not HTML attributes.
+        <strong>Note:</strong> This is a Vue component imported from the package. 
+        No shadow DOM is used, so styles are applied globally.
       </p>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted, nextTick } from 'vue'
+import { computed, ref } from 'vue'
+import { RegionViewerContainer } from '../../../../frontend/dist/web-components/bgc-viewer-components.es.js'
 
 const props = defineProps({
   records: {
@@ -92,11 +97,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:recordIndex', 'update:regionIndex'])
 
-const containerMount = ref(null)
-const containerElement = ref(null)
-const selectedRegionIndex = ref(props.regionIndex)
 const errorMessage = ref('')
-const isReady = ref(false)
 
 const recordData = computed(() => {
   if (!props.currentRecord) return null
@@ -114,68 +115,15 @@ const initialRegionId = computed(() => {
   return region.id || `region_${props.regionIndex + 1}`
 })
 
-// Create and mount the web component programmatically
-onMounted(async () => {
-  await nextTick()
-  
-  if (!props.dataProvider) {
-    console.log('No dataProvider available')
-    return
-  }
-  
-  console.log('Creating web component with properties:', {
-    dataProvider: props.dataProvider,
-    recordData: recordData.value,
-    initialRegionId: initialRegionId.value
-  })
-  
-  // Create the element
-  const element = document.createElement('bgc-region-viewer-container')
-  element.style.display = 'block'
-  element.style.minHeight = '600px'
-  element.style.width = '100%'
-  
-  // Set properties BEFORE adding to DOM
-  element.dataProvider = props.dataProvider
-  element.recordId = recordData.value?.recordId || ''
-  element.recordData = recordData.value
-  element.initialRegionId = initialRegionId.value
-  
-  // Add event listeners
-  element.addEventListener('region-changed', handleRegionChanged)
-  element.addEventListener('error', handleError)
-  
-  // Now add to DOM
-  containerMount.value.appendChild(element)
-  containerElement.value = element
-  isReady.value = true
-})
-
-// Watch for changes and update the web component
-watch([() => props.dataProvider, recordData, initialRegionId], () => {
-  if (containerElement.value) {
-    console.log('Updating web component properties')
-    containerElement.value.dataProvider = props.dataProvider
-    containerElement.value.recordId = recordData.value?.recordId || ''
-    containerElement.value.recordData = recordData.value
-    containerElement.value.initialRegionId = initialRegionId.value
-  }
-})
-
-watch(() => props.regionIndex, (newIndex) => {
-  selectedRegionIndex.value = newIndex
-})
-
 function handleRecordChange(event) {
   const newIndex = Number(event.target.value)
   emit('update:recordIndex', newIndex)
   emit('update:regionIndex', 0) // Reset region when record changes
 }
 
-function handleRegionChanged(event) {
-  console.log('Region changed event:', event)
+function handleRegionChanged(regionId) {
+  console.log('Region changed:', regionId)
   // When region changes in the component, find the index
-  const regionId = event.detail?.regionId
   if (regionId) {
     const index = props.regions.findIndex(r => 
       (r.id || `region_${props.regions.indexOf(r) + 1}`) === regionId
@@ -186,16 +134,14 @@ function handleRegionChanged(event) {
   }
 }
 
-function handleError(event) {
-  console.error('RegionViewerContainer error:', event)
-  console.error('Error detail:', event.detail)
-  const errorDetail = event.detail
-  if (Array.isArray(errorDetail)) {
-    errorMessage.value = errorDetail.join(', ')
-  } else if (errorDetail?.message) {
-    errorMessage.value = errorDetail.message
+function handleError(error) {
+  console.error('RegionViewerContainer error:', error)
+  if (typeof error === 'string') {
+    errorMessage.value = error
+  } else if (error?.message) {
+    errorMessage.value = error.message
   } else {
-    errorMessage.value = JSON.stringify(errorDetail)
+    errorMessage.value = JSON.stringify(error)
   }
 }
 </script>
