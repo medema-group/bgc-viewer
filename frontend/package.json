@@ -52,6 +52,7 @@
     "prepublishOnly": "npm run build:web-components && npm test -- --run"
   },
   "peerDependencies": {
+    "vue": "^3.4.0",
     "d3": "^7.0.0"
   },
   "devDependencies": {
