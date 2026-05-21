@@ -170,15 +170,19 @@ The following TypeScript types are exported for type-safe development:
 <body>
   <h1>My BGC Visualization</h1>
   
-  <bgc-region-viewer-container
-    data-url="/data/my-bgc.json"
-    width="1000"
-    height="500">
+  <bgc-region-viewer-container id="viewer" width="1000" height="500">
   </bgc-region-viewer-container>
 
-  <script>
-    const viewer = document.querySelector('bgc-region-viewer-container');
-    
+  <script type="module">
+    import { JSONFileProvider } from 'https://unpkg.com/@medemagroup/bgc-viewer-components@latest/dist/web-components/bgc-viewer-components.es.js';
+
+    const provider = new JSONFileProvider();
+    await provider.loadFromFile('/data/my-bgc.json');
+
+    const viewer = document.getElementById('viewer');
+    viewer.dataProvider = provider;
+    viewer.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
+
     viewer.addEventListener('gene-click', (event) => {
       console.log('Gene clicked:', event.detail);
     });
@@ -190,16 +194,28 @@ The following TypeScript types are exported for type-safe development:
 ### React
 
 ```jsx
-import '@medemagroup/bgc-viewer-components';
+import { useEffect, useRef } from 'react';
+import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
 
 function BgcView() {
+  const viewerRef = useRef(null);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    const provider = new JSONFileProvider();
+    provider.loadFromFile('/data/my-bgc.json').then(() => {
+      viewer.dataProvider = provider;
+      viewer.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
+    });
+  }, []);
+
   const handleGeneClick = (event) => {
     console.log('Gene clicked:', event.detail);
   };
 
   return (
-    <bgc-region-viewer
-      data-url="/data/my-bgc.json"
+    <bgc-region-viewer-container
+      ref={viewerRef}
       width="800"
       height="400"
       onGene-click={handleGeneClick}
@@ -212,8 +228,8 @@ function BgcView() {
 
 ```vue
 <template>
-  <bgc-region-viewer
-    :data-url="dataUrl"
+  <bgc-region-viewer-container
+    ref="viewer"
     :width="800"
     :height="400"
     @gene-click="handleGeneClick"
@@ -221,9 +237,17 @@ function BgcView() {
 </template>
 
 <script setup>
-import '@medemagroup/bgc-viewer-components';
+import { ref, onMounted } from 'vue';
+import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
 
-const dataUrl = '/data/my-bgc.json';
+const viewer = ref(null);
+
+onMounted(async () => {
+  const provider = new JSONFileProvider();
+  await provider.loadFromFile('/data/my-bgc.json');
+  viewer.value.dataProvider = provider;
+  viewer.value.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
+});
 
 const handleGeneClick = (event) => {
   console.log('Gene clicked:', event.detail);
@@ -234,23 +258,31 @@ const handleGeneClick = (event) => {
 ### Angular
 
 ```typescript
-import { Component, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
-import '@medemagroup/bgc-viewer-components';
+import { Component, ViewChild, ElementRef, AfterViewInit, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
+import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
 
 @Component({
   selector: 'app-bgc-view',
   template: `
-    <bgc-region-viewer
-      [attr.data-url]="dataUrl"
+    <bgc-region-viewer-container
+      #viewer
       [attr.width]="800"
       [attr.height]="400"
       (gene-click)="handleGeneClick($event)">
-    </bgc-region-viewer>
+    </bgc-region-viewer-container>
   `,
   schemas: [CUSTOM_ELEMENTS_SCHEMA]
 })
-export class BgcViewComponent {
-  dataUrl = '/data/my-bgc.json';
+export class BgcViewComponent implements AfterViewInit {
+  @ViewChild('viewer') viewer!: ElementRef;
+
+  ngAfterViewInit() {
+    const provider = new JSONFileProvider();
+    provider.loadFromFile('/data/my-bgc.json').then(() => {
+      this.viewer.nativeElement.dataProvider = provider;
+      this.viewer.nativeElement.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
+    });
+  }
 
   handleGeneClick(event: CustomEvent) {
     console.log('Gene clicked:', event.detail);
@@ -281,8 +313,9 @@ bgc-region-viewer {
 All web components support attribute-based configuration:
 
 - Boolean attributes: `show-domains`, `show-labels`
-- String attributes: `data-url`, `color-scheme`
+- String attributes: `record-id`, `color-scheme`
 - Number attributes: `width`, `height`
+- JS-only properties: `dataProvider` (DataProvider instance)
 
 ### Methods
 
