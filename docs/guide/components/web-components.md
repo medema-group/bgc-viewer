@@ -319,34 +319,44 @@ All web components support attribute-based configuration:
 
 ### Methods
 
-Access methods via the element reference:
+`<bgc-region-viewer>` exposes two methods via its element reference:
 
 ```javascript
 const viewer = document.querySelector('bgc-region-viewer');
 
-// Zoom to region
-viewer.zoomTo({ start: 1000, end: 5000 });
+// Clear all loaded data and reset the viewer to an empty state
+viewer.clearViewer();
 
-// Reset view
-viewer.reset();
-
-// Export as SVG
-const svg = viewer.exportSVG();
+// Rebuild/re-render the viewer with the current data
+viewer.rebuildViewer();
 ```
+
+`<bgc-region-viewer-container>` does not expose any public methods.
 
 ### Events
 
-Listen to custom events:
+Both components dispatch custom events. Listen to them with `addEventListener`:
 
 ```javascript
-viewer.addEventListener('gene-click', (event) => {
-  console.log('Gene:', event.detail.gene);
+const viewer = document.querySelector('bgc-region-viewer-container');
+
+// Fired when the user selects a different region
+viewer.addEventListener('region-changed', (event) => {
+  console.log('Region:', event.detail);
 });
 
-viewer.addEventListener('zoom-change', (event) => {
-  console.log('Zoom level:', event.detail.zoom);
+// Fired when the user clicks an annotation/feature
+viewer.addEventListener('annotation-clicked', (event) => {
+  console.log('Annotation:', event.detail);
+});
+
+// Fired when an error occurs during data loading
+viewer.addEventListener('error', (event) => {
+  console.error('Error:', event.detail);
 });
 ```
+
+`<bgc-region-viewer>` additionally emits `annotation-hovered` when the user hovers over an annotation.
 
 ## See Also
 
