@@ -1,6 +1,6 @@
 <template>
   <div class="tab-content">
-    <h2>RegionViewerContainer (Vue Component)</h2>
+    <h2>&lt;bgc-region-viewer-container&gt; (Web Component)</h2>
     <p class="description">
       Full-featured container with navigation and controls. 
       This component works with a data provider to automatically load and display BGC data.
@@ -27,7 +27,7 @@
     </div>
 
     <div class="viewer-container">
-      <RegionViewerContainer
+      <bgc-region-viewer-container
         :dataProvider="dataProvider"
         :recordId="recordData.recordId"
         :recordData="recordData"
@@ -53,8 +53,8 @@
         <li><strong>Feature Details:</strong> Click on features to see detailed information</li>
       </ul>
       <p class="note">
-        <strong>Note:</strong> This is a Vue component imported from the package. 
-        No shadow DOM is used, so styles are applied globally.
+        <strong>Note:</strong> This is a custom element registered as <code>bgc-region-viewer-container</code>.
+        It uses shadow DOM, so internal styles are encapsulated.
       </p>
     </div>
   </div>
@@ -62,7 +62,6 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { RegionViewerContainer } from '../../../../frontend/dist/web-components/bgc-viewer-components.es.js'
 
 const props = defineProps({
   records: {

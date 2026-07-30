@@ -183,8 +183,8 @@ The following TypeScript types are exported for type-safe development:
     viewer.dataProvider = provider;
     viewer.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
 
-    viewer.addEventListener('gene-click', (event) => {
-      console.log('Gene clicked:', event.detail);
+    viewer.addEventListener('annotation-clicked', (event) => {
+      console.log('Annotation clicked:', event.detail);
     });
   </script>
 </body>
@@ -207,18 +207,20 @@ function BgcView() {
       viewer.dataProvider = provider;
       viewer.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
     });
-  }, []);
 
-  const handleGeneClick = (event) => {
-    console.log('Gene clicked:', event.detail);
-  };
+    // Custom events must be bound imperatively in React
+    const handleAnnotationClicked = (event) => {
+      console.log('Annotation clicked:', event.detail);
+    };
+    viewer.addEventListener('annotation-clicked', handleAnnotationClicked);
+    return () => viewer.removeEventListener('annotation-clicked', handleAnnotationClicked);
+  }, []);
 
   return (
     <bgc-region-viewer-container
       ref={viewerRef}
       width="800"
       height="400"
-      onGene-click={handleGeneClick}
     />
   );
 }
@@ -232,7 +234,7 @@ function BgcView() {
     ref="viewer"
     :width="800"
     :height="400"
-    @gene-click="handleGeneClick"
+    @annotation-clicked="handleAnnotationClicked"
   />
 </template>
 
@@ -249,8 +251,8 @@ onMounted(async () => {
   viewer.value.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
 });
 
-const handleGeneClick = (event) => {
-  console.log('Gene clicked:', event.detail);
+const handleAnnotationClicked = (event) => {
+  console.log('Annotation clicked:', event.detail);
 };
 </script>
 ```
@@ -268,7 +270,7 @@ import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
       #viewer
       [attr.width]="800"
       [attr.height]="400"
-      (gene-click)="handleGeneClick($event)">
+      (annotation-clicked)="handleAnnotationClicked($event)">
     </bgc-region-viewer-container>
   `,
   schemas: [CUSTOM_ELEMENTS_SCHEMA]
@@ -284,8 +286,8 @@ export class BgcViewComponent implements AfterViewInit {
     });
   }
 
-  handleGeneClick(event: CustomEvent) {
-    console.log('Gene clicked:', event.detail);
+  handleAnnotationClicked(event: CustomEvent) {
+    console.log('Annotation clicked:', event.detail);
   }
 }
 ```
@@ -310,12 +312,27 @@ bgc-region-viewer {
 
 ### Properties
 
-All web components support attribute-based configuration:
+Simple values (strings, numbers) can be set as HTML attributes using kebab-case. Complex objects and arrays must be set as JavaScript properties using camelCase.
 
-- Boolean attributes: `show-domains`, `show-labels`
-- String attributes: `record-id`, `color-scheme`
-- Number attributes: `width`, `height`
-- JS-only properties: `dataProvider` (DataProvider instance)
+**`<bgc-region-viewer-container>` properties:**
+
+| Property / Attribute | Type | Description |
+|---|---|---|
+| `record-id` / `recordId` | string | Record ID to load |
+| `initial-region-id` / `initialRegionId` | string | Region to pre-select on load (optional) |
+| `dataProvider` | JS property | DataProvider instance (required) |
+| `recordData` | JS property | Full record metadata `{ entryId, recordId, filename }` (optional) |
+
+**`<bgc-region-viewer>` properties:**
+
+| Property / Attribute | Type | Description |
+|---|---|---|
+| `selected-region-id` / `selectedRegionId` | string | Currently selected region (optional) |
+| `recordInfo` | JS property | Record metadata `{ recordId, filename, recordInfo: { description } }` |
+| `regions` | JS property | Array of region objects `[{ id, region_number, product }]` |
+| `features` | JS property | Array of genomic features `[{ type, location, qualifiers }]` |
+| `regionBoundaries` | JS property | Region boundaries `{ start, end }` (optional) |
+| `pfamColorMap` | JS property | PFAM domain color map `{ 'PF00001': '#FF0000', ... }` (optional) |
 
 ### Methods
 
