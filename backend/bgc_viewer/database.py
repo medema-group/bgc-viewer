@@ -6,6 +6,8 @@ Handles SQLite queries for the attributes database.
 import sqlite3
 from pathlib import Path
 
+from bgc_viewer.search_index import search_record_ids
+
 
 def get_database_info(db_file_path):
     """Get information about a database file including data_root and statistics.
@@ -102,46 +104,44 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
             JOIN files f ON r.file_id = f.id
         """
         
-        params = []
-        where_conditions = []
-        
-        # Add search filter if provided
-        if search:
-            # Split search into multiple terms by space and apply AND logic
-            search_terms = search.strip().split()
-            
-            for term in search_terms:
-                # Each term must match at least one field
-                search_condition = """(f.path LIKE ? OR r.record_id LIKE ? 
-                                   OR EXISTS (SELECT 1 FROM attributes a WHERE a.record_id = r.id AND a.attribute_value LIKE ?))"""
-                where_conditions.append(search_condition)
-                term_param = f"%{term}%"
-                params.extend([term_param, term_param, term_param])
-        
-        # Build WHERE clause
-        if where_conditions:
-            where_clause = " WHERE " + " AND ".join(where_conditions)
-            base_query += where_clause
-            count_query += where_clause
-        
-        # Get total count
-        cursor = conn.execute(count_query, params)
-        total = cursor.fetchone()[0]
-        
-        # Calculate pagination
-        total_pages = (total + per_page - 1) // per_page
         offset = (page - 1) * per_page
+
+        if search.strip():
+            record_ids, total = search_record_ids(db_path, search, per_page, offset)
+            total_pages = (total + per_page - 1) // per_page
+            if not record_ids:
+                conn.close()
+                return {
+                    "entries": [],
+                    "total": total,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": total_pages,
+                    "has_search": True,
+                    "search": search,
+                }
+
+            placeholders = ",".join("?" for _ in record_ids)
+            cursor = conn.execute(
+                base_query + f" WHERE r.id IN ({placeholders})", record_ids
+            )
+            rows_by_id = {row[2]: row for row in cursor.fetchall()}
+            rows = [rows_by_id[record_id] for record_id in record_ids]
+        else:
+            cursor = conn.execute(count_query)
+            total = cursor.fetchone()[0]
+            total_pages = (total + per_page - 1) // per_page
         
-        # Get paginated results
-        query = base_query + """
-            ORDER BY f.path, r.record_id
-            LIMIT ? OFFSET ?
-        """
-        
-        cursor = conn.execute(query, params + [per_page, offset])
+            query = base_query + """
+                ORDER BY f.path, r.record_id
+                LIMIT ? OFFSET ?
+            """
+            cursor = conn.execute(query, [per_page, offset])
+            rows = cursor.fetchall()
+
         entries = []
-        
-        for row in cursor.fetchall():
+
+        for row in rows:
             filename, record_id, internal_id = row
             
             entries.append({

@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime
 
+from bgc_viewer.search_index import create_search_index, make_search_document
+
 # Try to import Rust extension for fast scanning, fall back to Python if not available
 try:
     import bgc_scanner
@@ -288,6 +290,8 @@ def preprocess_antismash_files(
         files_to_process = []
         for pattern in ["*.json", "*.json.gz", "*.json.bz2"]:
             files_to_process.extend(input_path.rglob(pattern))
+
+    search_writer = create_search_index(db_path).writer()
     
     total_records = 0
     total_attributes = 0
@@ -457,6 +461,15 @@ def preprocess_antismash_files(
                                 attributes
                             )
                             total_attributes += len(attributes)
+
+                        search_writer.add_document(
+                            make_search_document(
+                                record_internal_id,
+                                record_id,
+                                str(relative_path),
+                                record,
+                            )
+                        )
                         
                         file_records += 1
                         total_records += 1
@@ -470,6 +483,7 @@ def preprocess_antismash_files(
                         )
                     
                     conn.commit()
+                    search_writer.commit()
                 
                 files_processed += 1
                 
