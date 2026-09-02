@@ -62,12 +62,11 @@ def make_search_document(
     record_id: str,
     filename: str,
     record: dict[str, typing.Any],
+    attributes: dict[str, list[str]] | None = None,
 ):
     """Create one compact Tantivy document for an antiSMASH record."""
-    attributes: dict[str, list[str]] = {}
-    for attribute_path, attribute_value in iter_search_values(record):
-        attribute_name = attribute_path.rsplit(".", 1)[-1]
-        attributes.setdefault(attribute_name, []).append(attribute_value)
+    if attributes is None:
+        attributes = collect_search_attributes(record)
 
     document = tantivy.Document(
         record_internal_id=record_internal_id,
@@ -81,6 +80,17 @@ def make_search_document(
     )
     document.add_json("attributes", attributes)
     return document
+
+
+def collect_search_attributes(
+    record: dict[str, typing.Any],
+) -> dict[str, list[str]]:
+    """Group searchable values by their antiSMASH leaf field name."""
+    attributes: dict[str, list[str]] = {}
+    for attribute_path, attribute_value in iter_search_values(record):
+        attribute_name = attribute_path.rsplit(".", 1)[-1]
+        attributes.setdefault(attribute_name, []).append(attribute_value)
+    return attributes
 
 
 def search_record_ids(

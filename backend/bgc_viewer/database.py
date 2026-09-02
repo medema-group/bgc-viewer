@@ -89,6 +89,16 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
     
     try:
         conn = sqlite3.connect(db_path)
+
+        try:
+            search_fields = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM search_fields ORDER BY name COLLATE NOCASE"
+                )
+            ]
+        except sqlite3.OperationalError:
+            search_fields = ["filename", "record_id"]
         
         # Build query to get records with file paths
         base_query = """
@@ -119,6 +129,7 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
                     "total_pages": total_pages,
                     "has_search": True,
                     "search": search,
+                    "search_fields": search_fields,
                 }
 
             placeholders = ",".join("?" for _ in record_ids)
@@ -160,7 +171,8 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
             "per_page": per_page,
             "total_pages": total_pages,
             "has_search": bool(search),
-            "search": search
+            "search": search,
+            "search_fields": search_fields,
         }
         
     except Exception as e:

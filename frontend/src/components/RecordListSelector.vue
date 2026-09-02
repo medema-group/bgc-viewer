@@ -55,6 +55,12 @@
                 <code>{{ example.query }}</code>
               </button>
             </div>
+            <details class="search-fields-disclosure">
+              <summary>Available fields ({{ searchFields.length }})</summary>
+              <div class="search-fields-list">
+                <code v-for="field in searchFields" :key="field">{{ field }}</code>
+              </div>
+            </details>
           </div>
         </div>
         
@@ -182,6 +188,7 @@ export default {
     const searchQuery = ref('')
     const searchTimeout = ref(null)
     const searchHelpPopover = ref(null)
+    const searchFields = ref([])
     const searchExamples = [
       { label: 'Specific attribute', query: 'db_xref:PF00067.25' },
       { label: 'Exact phrase', query: 'organism:"Streptomyces coelicolor"' },
@@ -218,6 +225,7 @@ export default {
         total.value = response.data.total
         totalPages.value = response.data.total_pages
         currentPage.value = response.data.page
+        searchFields.value = response.data.search_fields || []
         hasDatabase.value = true
         
       } catch (err) {
@@ -308,6 +316,7 @@ export default {
       selectedEntryId.value = ''
       loadingRecordId.value = ''
       searchQuery.value = ''
+      searchFields.value = []
       hasDatabase.value = false
     }
     
@@ -347,6 +356,7 @@ export default {
       searchQuery,
       searchHelpPopover,
       searchExamples,
+      searchFields,
       loadEntries,
       goToPage,
       selectRecord,
@@ -560,6 +570,40 @@ export default {
   overflow-wrap: anywhere;
   font-size: 12px;
   color: #174f78;
+}
+
+.search-fields-disclosure {
+  border-top: 1px solid #ddd;
+  font-size: 12px;
+}
+
+.search-fields-disclosure summary {
+  padding: 10px 14px;
+  color: #444;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.search-fields-disclosure summary:hover,
+.search-fields-disclosure summary:focus-visible {
+  background: #f5f7f8;
+}
+
+.search-fields-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 160px;
+  padding: 0 12px 12px;
+  overflow-y: auto;
+}
+
+.search-fields-list code {
+  padding: 2px 5px;
+  border: 1px solid #d8dde1;
+  border-radius: 3px;
+  color: #174f78;
+  background: #f7f9fa;
 }
 
 .pagination-controls {

@@ -24,6 +24,9 @@ class TestDatabaseSearch:
         # Should have entries for both records
         assert results["total"] >= 2
         assert len(results["entries"]) >= 2
+        assert "organism" in results["search_fields"]
+        assert "product" in results["search_fields"]
+        assert "record_id" in results["search_fields"]
     
     def test_search_by_organism(self, processed_data_dir):
         """Test searching by organism name."""

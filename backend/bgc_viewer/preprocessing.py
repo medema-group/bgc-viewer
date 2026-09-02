@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime
 
-from bgc_viewer.search_index import create_search_index, make_search_document
+from bgc_viewer.search_index import (
+    collect_search_attributes,
+    create_search_index,
+    make_search_document,
+)
 
 # Try to import Rust extension for fast scanning, fall back to Python if not available
 try:
@@ -96,6 +100,12 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
             attribute_value TEXT NOT NULL,
             UNIQUE(record_id, attribute_name, attribute_value),
             FOREIGN KEY (record_id) REFERENCES records (id) ON DELETE CASCADE
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS search_fields (
+            name TEXT PRIMARY KEY
         )
     """)
     
@@ -296,6 +306,7 @@ def preprocess_antismash_files(
     total_records = 0
     total_attributes = 0
     files_processed = 0
+    searchable_fields = {"filename", "record_id"}
     
     try:
         for json_file in files_to_process:
@@ -462,12 +473,15 @@ def preprocess_antismash_files(
                             )
                             total_attributes += len(attributes)
 
+                        search_attributes = collect_search_attributes(record)
+                        searchable_fields.update(search_attributes)
                         search_writer.add_document(
                             make_search_document(
                                 record_internal_id,
                                 record_id,
                                 str(relative_path),
                                 record,
+                                search_attributes,
                             )
                         )
                         
@@ -490,6 +504,12 @@ def preprocess_antismash_files(
             except Exception as e:
                 # Log error but continue with other files
                 print(f"Error processing {json_file.name}: {e}")
+
+        conn.executemany(
+            "INSERT OR IGNORE INTO search_fields (name) VALUES (?)",
+            ((field,) for field in sorted(searchable_fields)),
+        )
+        conn.commit()
     
     finally:
         # Final progress callback
