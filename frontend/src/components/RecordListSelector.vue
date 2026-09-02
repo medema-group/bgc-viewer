@@ -19,6 +19,43 @@
             class="search-input"
           />
           <button v-if="searchQuery" @click="clearSearch" class="clear-search">×</button>
+          <button
+            type="button"
+            class="search-help-button"
+            popovertarget="record-search-help"
+            aria-label="Show advanced search examples"
+            title="Advanced search examples"
+          >?</button>
+          <div
+            id="record-search-help"
+            ref="searchHelpPopover"
+            popover="auto"
+            class="search-help-popover"
+          >
+            <div class="search-help-header">
+              <strong>Search examples</strong>
+              <button
+                type="button"
+                class="search-help-close"
+                popovertarget="record-search-help"
+                popovertargetaction="hide"
+                aria-label="Close search examples"
+                title="Close"
+              >×</button>
+            </div>
+            <div class="search-examples">
+              <button
+                v-for="example in searchExamples"
+                :key="example.query"
+                type="button"
+                class="search-example"
+                @click="applySearchExample(example.query)"
+              >
+                <span>{{ example.label }}</span>
+                <code>{{ example.query }}</code>
+              </button>
+            </div>
+          </div>
         </div>
         
         <div class="pagination-controls" v-if="!loading || entriesData.length > 0">
@@ -144,6 +181,17 @@ export default {
     // Search
     const searchQuery = ref('')
     const searchTimeout = ref(null)
+    const searchHelpPopover = ref(null)
+    const searchExamples = [
+      { label: 'Specific attribute', query: 'db_xref:PF00067.25' },
+      { label: 'Exact phrase', query: 'organism:"Streptomyces coelicolor"' },
+      { label: 'Both conditions', query: 'db_xref:PF00067.25 AND organism:Streptomyces' },
+      { label: 'Either value', query: 'db_xref:(PF00067.25 OR PF00501.29)' },
+      { label: 'Exclude value', query: 'db_xref:PF00067.25 NOT gene_kind:pseudogene' },
+      { label: 'Prefix', query: 'db_xref:PF00067*' },
+      { label: 'Record ID', query: 'record_id:NC_003888.3' },
+      { label: 'Filename', query: 'filename:NC_003888.3.json' }
+    ]
     
     const loadEntries = async (page = 1, search = '') => {
       loading.value = true
@@ -227,6 +275,13 @@ export default {
       currentPage.value = 1
       loadEntries(1, '')
     }
+
+    const applySearchExample = (query) => {
+      searchQuery.value = query
+      currentPage.value = 1
+      searchHelpPopover.value?.hidePopover?.()
+      loadEntries(1, query)
+    }
     
     const setDatabasePath = async (databasePath) => {
       if (!databasePath) return
@@ -290,11 +345,14 @@ export default {
       total,
       totalPages,
       searchQuery,
+      searchHelpPopover,
+      searchExamples,
       loadEntries,
       goToPage,
       selectRecord,
       debouncedSearch,
       clearSearch,
+      applySearchExample,
       refreshEntries,
       clearRecords
     }
@@ -366,6 +424,7 @@ export default {
   position: relative;
   display: flex;
   align-items: center;
+  gap: 2px;
   flex: 1;
   max-width: 100%;
 }
@@ -386,7 +445,7 @@ export default {
 
 .clear-search {
   position: absolute;
-  right: 8px;
+  right: 26px;
   background: none;
   border: none;
   font-size: 16px;
@@ -402,6 +461,105 @@ export default {
 
 .clear-search:hover {
   color: #333;
+}
+
+.search-help-button,
+.search-help-close {
+  border: 1px solid #bbb;
+  background: white;
+  color: #444;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.search-help-button {
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.search-help-button:hover,
+.search-help-button:focus-visible {
+  color: #1976d2;
+}
+
+.search-help-popover {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 48px));
+  margin: 0;
+  padding: 0;
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  background: white;
+  color: #222;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  overflow: auto;
+}
+
+.search-help-popover::backdrop {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.search-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #ddd;
+  font-size: 14px;
+}
+
+.search-help-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.search-examples {
+  display: grid;
+  padding: 6px;
+}
+
+.search-example {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #333;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-example:hover,
+.search-example:focus-visible {
+  background: #eef5fb;
+  outline: none;
+}
+
+.search-example span {
+  font-size: 12px;
+  color: #666;
+}
+
+.search-example code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: #174f78;
 }
 
 .pagination-controls {
@@ -574,6 +732,11 @@ export default {
   
   .search-container {
     max-width: none;
+  }
+
+  .search-example {
+    grid-template-columns: 1fr;
+    gap: 3px;
   }
   
   .pagination-controls {

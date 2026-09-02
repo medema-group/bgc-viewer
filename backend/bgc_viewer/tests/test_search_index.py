@@ -38,6 +38,16 @@ def test_record_level_search_uses_deep_attribute_values(temp_dir):
     assert record_ids == [7]
     assert total == 1
 
+    record_ids, total = search_record_ids(db_path, "db_xref:PF00067.25", 10)
+
+    assert record_ids == [7]
+    assert total == 1
+
+    record_ids, total = search_record_ids(db_path, "organism:PF00067.25", 10)
+
+    assert record_ids == []
+    assert total == 0
+
     record_ids, total = search_record_ids(db_path, "sequence data", 10)
 
     assert record_ids == []

@@ -1,16 +1,14 @@
 """Record-level full-text search for antiSMASH 8 results."""
 
 import collections.abc
-import json
 import pathlib
 import shutil
 import typing
 
 import tantivy
 
-
 SEARCH_INDEX_SUFFIX = ".tantivy"
-SEARCH_FIELDS = ["record_id", "filename", "attribute_names", "attribute_values"]
+SEARCH_FIELDS = ["record_id", "filename", "attribute_values", "attributes"]
 SKIPPED_FIELDS = {"letter_annotations", "seq", "translation"}
 MAX_SEARCH_VALUE_LENGTH = 100
 
@@ -28,8 +26,8 @@ def build_search_schema():
     )
     builder.add_text_field("record_id", stored=True)
     builder.add_text_field("filename", stored=True)
-    builder.add_text_field("attribute_names")
     builder.add_text_field("attribute_values")
+    builder.add_json_field("attributes")
     return builder.build()
 
 
@@ -66,19 +64,23 @@ def make_search_document(
     record: dict[str, typing.Any],
 ):
     """Create one compact Tantivy document for an antiSMASH record."""
-    attribute_names = []
-    attribute_values = []
-    for attribute_name, attribute_value in iter_search_values(record):
-        attribute_names.append(attribute_name)
-        attribute_values.append(attribute_value)
+    attributes: dict[str, list[str]] = {}
+    for attribute_path, attribute_value in iter_search_values(record):
+        attribute_name = attribute_path.rsplit(".", 1)[-1]
+        attributes.setdefault(attribute_name, []).append(attribute_value)
 
-    return tantivy.Document(
+    document = tantivy.Document(
         record_internal_id=record_internal_id,
         record_id=record_id,
         filename=filename,
-        attribute_names=attribute_names,
-        attribute_values=attribute_values,
+        attribute_values=[
+            value
+            for attribute_values in attributes.values()
+            for value in attribute_values
+        ],
     )
+    document.add_json("attributes", attributes)
+    return document
 
 
 def search_record_ids(
@@ -90,8 +92,7 @@ def search_record_ids(
         raise FileNotFoundError(f"Search index not found: {index_path}")
 
     index = tantivy.Index.open(str(index_path))
-    literal_terms = [json.dumps(term) for term in search.strip().split()]
-    query = index.parse_query(" AND ".join(literal_terms), SEARCH_FIELDS)
+    query = index.parse_query(search, SEARCH_FIELDS, conjunction_by_default=True)
     result: typing.Any = index.searcher().search(query, limit=limit, offset=offset)
     searcher = index.searcher()
     record_ids = [
