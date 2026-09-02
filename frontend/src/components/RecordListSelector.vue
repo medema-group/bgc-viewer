@@ -56,6 +56,7 @@
               </button>
             </div>
             <details class="search-fields-disclosure">
+              <!-- TODO searchfieds includes SC_RS02875 and 34 those should not be there -->
               <summary>Available fields ({{ searchFields.length }})</summary>
               <div class="search-fields-list">
                 <code v-for="field in searchFields" :key="field">{{ field }}</code>
