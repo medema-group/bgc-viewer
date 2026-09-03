@@ -32,7 +32,7 @@ interface ParsedLocation {
 export class JSONFileProvider extends DataProvider {
   private records: any[]
   private pfamColorMap: PfamColorMap
-  private fileMetadata: Record<string, string>
+  private fileMetadata: Record<string, string | string[]>
 
   constructor(options: JSONFileProviderOptions = {}) {
     super()
