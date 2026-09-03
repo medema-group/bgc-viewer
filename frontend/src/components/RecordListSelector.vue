@@ -169,7 +169,14 @@ export default {
     
     const loadEntries = async (page = 1, search = '') => {
       // Always use the provider (which is set by default or when switching sources)
-      await searchRecords(search, page)
+      try {
+        await searchRecords(search, page)
+      } catch (err) {
+        // Handle case where no database is available (404/400 from backend)
+        if (err.response?.status === 404 || err.response?.status === 400) {
+          hasDatabase.value = false
+        }
+      }
     }
     
     const goToPage = (page) => {
@@ -198,26 +205,25 @@ export default {
     const searchRecords = async (query, page = null) => {
       // Handle multiple providers or single provider
       const providers = dataProviders.value.length > 0 ? dataProviders.value : (dataProvider.value ? [dataProvider.value] : [])
-      
+
       if (providers.length === 0) {
         return
       }
-      
+
       loading.value = true
       error.value = ''
-      hasDatabase.value = true // Set this early so loading spinner shows with entries-section
-      
+
       try {
         const currentPageNum = page !== null ? page : currentPage.value
-        
+
         // Query all providers and combine results
         const allResults = []
-        
+
         for (const provider of providers) {
           const result = await provider.searchRecords(query, 1, 10000) // Get all results from each provider
           allResults.push(...result.records)
         }
-        
+
         // Map all results to unified format
         allDirectRecords.value = allResults.map(record => ({
           entry_id: record.entryId,
@@ -230,7 +236,7 @@ export default {
           feature_count: record.featureCount || 0,
           region_count: record.regionCount || 0
         }))
-        
+
         // Apply client-side pagination
         const start = (currentPageNum - 1) * perPage.value
         const end = start + perPage.value
@@ -238,14 +244,25 @@ export default {
         total.value = allDirectRecords.value.length
         totalPages.value = Math.ceil(allDirectRecords.value.length / perPage.value)
         currentPage.value = currentPageNum
-        
+
         hasDatabase.value = true
       } catch (err) {
         console.error('Search error:', err)
-        error.value = 'Failed to search records'
-        entriesData.value = []
-        total.value = 0
-        totalPages.value = 0
+        // Check if this is a "no database" error (404/400 from backend)
+        if (err.response?.status === 404 || err.response?.status === 400) {
+          hasDatabase.value = false
+          error.value = ''
+          entriesData.value = []
+          total.value = 0
+          totalPages.value = 0
+        } else {
+          error.value = 'Failed to search records'
+          entriesData.value = []
+          total.value = 0
+          totalPages.value = 0
+        }
+        // Re-throw to allow loadEntries to catch and handle
+        throw err
       } finally {
         loading.value = false
       }
@@ -356,15 +373,13 @@ export default {
         dataProvider.value = new BGCViewerAPIProvider()
         isDirectMode.value = false
       }
-      
+
       if (newPath) {
         await setDatabasePath(newPath)
-        // Reload entries after setting the database path
-        await loadEntries(1, '')
-      } else {
-        // Clear records if path is cleared
-        clearRecords()
       }
+
+      // Always attempt to load entries (handles both explicit path and PUBLIC_MODE with empty path)
+      await loadEntries(1, '')
     }, { immediate: true })
     
     onMounted(() => {
