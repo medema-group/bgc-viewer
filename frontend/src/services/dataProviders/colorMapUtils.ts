@@ -31,6 +31,10 @@ export function parsePfamColorMapCSV(csvText: string): PfamColorMap {
 export async function fetchPfamColorMap(url: string = '/domain-colors.csv'): Promise<PfamColorMap> {
   try {
     const response = await fetch(url)
+    if (!response.ok) {
+      console.warn(`Failed to load PFAM color mapping from ${url}: ${response.status} ${response.statusText}`)
+      return {}
+    }
     const csvText = await response.text()
     return parsePfamColorMapCSV(csvText)
   } catch (err) {
