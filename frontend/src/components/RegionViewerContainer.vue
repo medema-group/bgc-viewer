@@ -203,8 +203,10 @@ export default {
         
         // Load features based on whether there are regions
         if (regions.value && regions.value.length > 0) {
-          // If there are regions, select the first one and load its features
-          selectedRegionId.value = regions.value[0].id
+          const initialId = props.initialRegionId && regions.value.some(r => r.id === props.initialRegionId)
+            ? props.initialRegionId
+            : regions.value[0].id
+          selectedRegionId.value = initialId
           await loadRegionFeatures(recordInfo.value.recordId, selectedRegionId.value)
         } else {
           // No regions - load all features for the record
@@ -292,6 +294,11 @@ export default {
       
       // Load PFAM color map
       await loadColorMap()
+      
+      // Load record if recordId is provided
+      if (props.recordId) {
+        await loadRecord(props.recordId)
+      }
     })
 
     // Watch for recordId changes

@@ -28,10 +28,11 @@ export default defineConfig({
     },
     rollupOptions: {
       // Externalize dependencies that shouldn't be bundled
-      external: ['d3'],
+      external: ['vue', 'd3'],
       output: {
         // Provide global variables to use in the UMD build
         globals: {
+          vue: 'Vue',
           d3: 'd3'
         }
       }

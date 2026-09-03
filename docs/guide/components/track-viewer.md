@@ -20,7 +20,7 @@ The Track Viewer provides a zoomable, pannable interface for exploring gene clus
 </template>
 
 <script setup>
-import { TrackViewer } from 'bgc-viewer';
+import { TrackViewer } from '@medemagroup/bgc-viewer-components';
 import { ref } from 'vue';
 
 const bgcData = ref(null);
@@ -40,7 +40,7 @@ const handleGeneClick = (gene) => {
 
 ```html
 <script type="module">
-  import 'bgc-viewer/web-components';
+  import '@medemagroup/bgc-viewer-components';
 </script>
 
 <bgc-track-viewer
