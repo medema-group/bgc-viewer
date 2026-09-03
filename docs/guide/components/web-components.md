@@ -7,40 +7,154 @@ BGC Viewer provides web components that can be easily integrated into any web ap
 ### Via npm
 
 ```bash
-npm install bgc-viewer
+npm install @medemagroup/bgc-viewer-components
 ```
 
 ### Via CDN
 
 ```html
-<script type="module" src="https://unpkg.com/bgc-viewer@latest/dist/web-components.js"></script>
+<script type="module" src="https://unpkg.com/@medemagroup/bgc-viewer-components@latest/dist/web-components/bgc-viewer-components.es.js"></script>
 ```
 
 ## Available Components
 
-### `<bgc-track-viewer>`
+### Custom Elements (Web Components)
 
-The main track viewer component.
+#### `<bgc-region-viewer-container>`
+
+Container component with automatic data loading. This is the simplest way to display a BGC record.
+
+**Features:**
+- Automatic data fetching from a DataProvider
+- Built-in loading states and error handling
+- Only requires `dataProvider` and `recordId` props
+- Manages all data lifecycle (fetching regions, features, PFAM colors, etc.)
+
+**Best for:**
+- Simple integrations where you just want to display a record by ID
+- Quick demos and prototypes
+- When using standard data providers (JSONFileProvider or BGCViewerAPIProvider)
+
+**Usage:**
 
 ```html
-<bgc-track-viewer
-  data-url="/api/data/NC_003888"
+<bgc-region-viewer-container 
+  record-id="NC_003888.3"
+  width="1000"
+  height="500">
+</bgc-region-viewer-container>
+
+<script type="module">
+  import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
+
+  const provider = new JSONFileProvider();
+  await provider.loadFromFile('/data/bgc.json');
+
+  const container = document.querySelector('bgc-region-viewer-container');
+  // Complex objects must be set via JavaScript properties
+  container.dataProvider = provider;
+</script>
+```
+
+> **Note:** Simple values (strings, numbers, booleans) can be set as HTML attributes. Complex objects like `dataProvider` must be set via JavaScript properties.
+
+#### `<bgc-region-viewer>`
+
+Core visualization component for displaying biosynthetic gene clusters.
+
+**Features:**
+- Region selector dropdown for switching between BGC regions
+- Multi-select track dropdown for showing/hiding feature layers
+- Interactive feature details panel (click features to see info)
+- Full control over what data is displayed and when
+
+**Best for:**
+- When you have pre-loaded data or custom data sources
+- Complex applications with state management
+- Custom data loading logic or transformations
+- Fine-grained control over rendering and updates
+
+**Usage:**
+
+```html
+<bgc-region-viewer
   width="800"
   height="400"
   show-domains="true">
-</bgc-track-viewer>
+</bgc-region-viewer>
+
+<script type="module">
+  // RegionViewer requires pre-loaded data passed as props
+  const viewer = document.querySelector('bgc-region-viewer');
+  viewer.recordInfo = { recordId: 'NC_003888.3', filename: 'bgc.json' };
+  viewer.regions = [/* array of regions */];
+  viewer.features = [/* array of features */];
+  viewer.pfamColorMap = {/* domain colors */};
+</script>
 ```
 
-### `<bgc-gene-card>`
+### Choosing Between Components
 
-Display detailed information about a gene.
+| Aspect | RegionViewerContainer | RegionViewer |
+|--------|----------------------|--------------|
+| **Setup Complexity** | Simple (2 props) | More complex (many props) |
+| **Data Loading** | Automatic | Manual |
+| **Flexibility** | Limited | High |
+| **Use Case** | Quick display by ID | Custom data flows |
+| **Best For** | Demos, simple apps | Complex apps, custom logic |
 
-```html
-<bgc-gene-card
-  gene-id="gene_001"
-  data-url="/api/gene/gene_001">
-</bgc-gene-card>
+### Exported Classes
+
+The package also exports JavaScript classes for programmatic use:
+
+#### `BGCViewerAPIProvider`
+
+Data provider class for fetching data from the BGC Viewer REST API.
+
+```javascript
+import { BGCViewerAPIProvider } from '@medemagroup/bgc-viewer-components';
+
+const provider = new BGCViewerAPIProvider('http://localhost:8000');
+const data = await provider.fetchRegion('NC_003888');
 ```
+
+#### `JSONFileProvider`
+
+Data provider class for loading data from JSON files.
+
+```javascript
+import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
+
+const provider = new JSONFileProvider();
+const data = await provider.loadFromFile('/data/bgc.json');
+```
+
+#### `TrackViewer`
+
+Low-level track viewer class for direct canvas-based rendering.
+
+```javascript
+import { TrackViewer } from '@medemagroup/bgc-viewer-components';
+
+const viewer = new TrackViewer({
+  container: '#viewer',
+  width: 800,
+  height: 400
+});
+viewer.render(data);
+```
+
+### TypeScript Types
+
+The following TypeScript types are exported for type-safe development:
+
+- `TrackViewerConfig` - Configuration options for TrackViewer
+- `TrackData` - Track data structure
+- `AnnotationData` - Annotation data structure
+- `AnnotationType` - Annotation type enum
+- `TrackViewerData` - Complete viewer data structure
+- `DrawingPrimitive` - Drawing primitive interface
+- `DrawingPrimitiveType` - Drawing primitive type enum
 
 ## Usage Examples
 
@@ -51,22 +165,26 @@ Display detailed information about a gene.
 <html>
 <head>
   <title>BGC Viewer Example</title>
-  <script type="module" src="https://unpkg.com/bgc-viewer@latest/dist/web-components.js"></script>
+  <script type="module" src="https://unpkg.com/@medemagroup/bgc-viewer-components@latest/dist/web-components/bgc-viewer-components.es.js"></script>
 </head>
 <body>
   <h1>My BGC Visualization</h1>
   
-  <bgc-track-viewer
-    data-url="/data/my-bgc.json"
-    width="1000"
-    height="500">
-  </bgc-track-viewer>
+  <bgc-region-viewer-container id="viewer" width="1000" height="500">
+  </bgc-region-viewer-container>
 
-  <script>
-    const viewer = document.querySelector('bgc-track-viewer');
-    
-    viewer.addEventListener('gene-click', (event) => {
-      console.log('Gene clicked:', event.detail);
+  <script type="module">
+    import { JSONFileProvider } from 'https://unpkg.com/@medemagroup/bgc-viewer-components@latest/dist/web-components/bgc-viewer-components.es.js';
+
+    const provider = new JSONFileProvider();
+    await provider.loadFromFile('/data/my-bgc.json');
+
+    const viewer = document.getElementById('viewer');
+    viewer.dataProvider = provider;
+    viewer.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
+
+    viewer.addEventListener('annotation-clicked', (event) => {
+      console.log('Annotation clicked:', event.detail);
     });
   </script>
 </body>
@@ -76,19 +194,33 @@ Display detailed information about a gene.
 ### React
 
 ```jsx
-import 'bgc-viewer/web-components';
+import { useEffect, useRef } from 'react';
+import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
 
 function BgcView() {
-  const handleGeneClick = (event) => {
-    console.log('Gene clicked:', event.detail);
-  };
+  const viewerRef = useRef(null);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    const provider = new JSONFileProvider();
+    provider.loadFromFile('/data/my-bgc.json').then(() => {
+      viewer.dataProvider = provider;
+      viewer.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
+    });
+
+    // Custom events must be bound imperatively in React
+    const handleAnnotationClicked = (event) => {
+      console.log('Annotation clicked:', event.detail);
+    };
+    viewer.addEventListener('annotation-clicked', handleAnnotationClicked);
+    return () => viewer.removeEventListener('annotation-clicked', handleAnnotationClicked);
+  }, []);
 
   return (
-    <bgc-track-viewer
-      data-url="/data/my-bgc.json"
+    <bgc-region-viewer-container
+      ref={viewerRef}
       width="800"
       height="400"
-      onGene-click={handleGeneClick}
     />
   );
 }
@@ -98,21 +230,29 @@ function BgcView() {
 
 ```vue
 <template>
-  <bgc-track-viewer
-    :data-url="dataUrl"
+  <bgc-region-viewer-container
+    ref="viewer"
     :width="800"
     :height="400"
-    @gene-click="handleGeneClick"
+    @annotation-clicked="handleAnnotationClicked"
   />
 </template>
 
 <script setup>
-import 'bgc-viewer/web-components';
+import { ref, onMounted } from 'vue';
+import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
 
-const dataUrl = '/data/my-bgc.json';
+const viewer = ref(null);
 
-const handleGeneClick = (event) => {
-  console.log('Gene clicked:', event.detail);
+onMounted(async () => {
+  const provider = new JSONFileProvider();
+  await provider.loadFromFile('/data/my-bgc.json');
+  viewer.value.dataProvider = provider;
+  viewer.value.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
+});
+
+const handleAnnotationClicked = (event) => {
+  console.log('Annotation clicked:', event.detail);
 };
 </script>
 ```
@@ -120,26 +260,34 @@ const handleGeneClick = (event) => {
 ### Angular
 
 ```typescript
-import { Component, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
-import 'bgc-viewer/web-components';
+import { Component, ViewChild, ElementRef, AfterViewInit, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
+import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
 
 @Component({
   selector: 'app-bgc-view',
   template: `
-    <bgc-track-viewer
-      [attr.data-url]="dataUrl"
+    <bgc-region-viewer-container
+      #viewer
       [attr.width]="800"
       [attr.height]="400"
-      (gene-click)="handleGeneClick($event)">
-    </bgc-track-viewer>
+      (annotation-clicked)="handleAnnotationClicked($event)">
+    </bgc-region-viewer-container>
   `,
   schemas: [CUSTOM_ELEMENTS_SCHEMA]
 })
-export class BgcViewComponent {
-  dataUrl = '/data/my-bgc.json';
+export class BgcViewComponent implements AfterViewInit {
+  @ViewChild('viewer') viewer!: ElementRef;
 
-  handleGeneClick(event: CustomEvent) {
-    console.log('Gene clicked:', event.detail);
+  ngAfterViewInit() {
+    const provider = new JSONFileProvider();
+    provider.loadFromFile('/data/my-bgc.json').then(() => {
+      this.viewer.nativeElement.dataProvider = provider;
+      this.viewer.nativeElement.setAttribute('record-id', 'NC_003888.3'); // record ID from your JSON file
+    });
+  }
+
+  handleAnnotationClicked(event: CustomEvent) {
+    console.log('Annotation clicked:', event.detail);
   }
 }
 ```
@@ -149,7 +297,7 @@ export class BgcViewComponent {
 Web components can be styled using CSS custom properties:
 
 ```css
-bgc-track-viewer {
+bgc-region-viewer {
   --gene-stroke: #333;
   --gene-fill: #4a90e2;
   --domain-stroke: #666;
@@ -164,42 +312,68 @@ bgc-track-viewer {
 
 ### Properties
 
-All web components support attribute-based configuration:
+Simple values (strings, numbers) can be set as HTML attributes using kebab-case. Complex objects and arrays must be set as JavaScript properties using camelCase.
 
-- Boolean attributes: `show-domains`, `show-labels`
-- String attributes: `data-url`, `color-scheme`
-- Number attributes: `width`, `height`
+**`<bgc-region-viewer-container>` properties:**
+
+| Property / Attribute | Type | Description |
+|---|---|---|
+| `record-id` / `recordId` | string | Record ID to load |
+| `initial-region-id` / `initialRegionId` | string | Region to pre-select on load (optional) |
+| `dataProvider` | JS property | DataProvider instance (required) |
+| `recordData` | JS property | Full record metadata `{ entryId, recordId, filename }` (optional) |
+
+**`<bgc-region-viewer>` properties:**
+
+| Property / Attribute | Type | Description |
+|---|---|---|
+| `selected-region-id` / `selectedRegionId` | string | Currently selected region (optional) |
+| `recordInfo` | JS property | Record metadata `{ recordId, filename, recordInfo: { description } }` |
+| `regions` | JS property | Array of region objects `[{ id, region_number, product }]` |
+| `features` | JS property | Array of genomic features `[{ type, location, qualifiers }]` |
+| `regionBoundaries` | JS property | Region boundaries `{ start, end }` (optional) |
+| `pfamColorMap` | JS property | PFAM domain color map `{ 'PF00001': '#FF0000', ... }` (optional) |
 
 ### Methods
 
-Access methods via the element reference:
+`<bgc-region-viewer>` exposes two methods via its element reference:
 
 ```javascript
-const viewer = document.querySelector('bgc-track-viewer');
+const viewer = document.querySelector('bgc-region-viewer');
 
-// Zoom to region
-viewer.zoomTo({ start: 1000, end: 5000 });
+// Clear all loaded data and reset the viewer to an empty state
+viewer.clearViewer();
 
-// Reset view
-viewer.reset();
-
-// Export as SVG
-const svg = viewer.exportSVG();
+// Rebuild/re-render the viewer with the current data
+viewer.rebuildViewer();
 ```
+
+`<bgc-region-viewer-container>` does not expose any public methods.
 
 ### Events
 
-Listen to custom events:
+Both components dispatch custom events. Listen to them with `addEventListener`:
 
 ```javascript
-viewer.addEventListener('gene-click', (event) => {
-  console.log('Gene:', event.detail.gene);
+const viewer = document.querySelector('bgc-region-viewer-container');
+
+// Fired when the user selects a different region
+viewer.addEventListener('region-changed', (event) => {
+  console.log('Region:', event.detail);
 });
 
-viewer.addEventListener('zoom-change', (event) => {
-  console.log('Zoom level:', event.detail.zoom);
+// Fired when the user clicks an annotation/feature
+viewer.addEventListener('annotation-clicked', (event) => {
+  console.log('Annotation:', event.detail);
+});
+
+// Fired when an error occurs during data loading
+viewer.addEventListener('error', (event) => {
+  console.error('Error:', event.detail);
 });
 ```
+
+`<bgc-region-viewer>` additionally emits `annotation-hovered` when the user hovers over an annotation.
 
 ## See Also
 

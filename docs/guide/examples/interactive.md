@@ -150,7 +150,7 @@ Here's the code for the interactive demo above:
 
 <script setup>
 import { ref, computed } from 'vue';
-import { TrackViewer } from 'bgc-viewer';
+import { TrackViewer } from '@medemagroup/bgc-viewer-components';
 
 const showDomains = ref(true);
 const showLabels = ref(true);

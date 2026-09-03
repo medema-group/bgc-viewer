@@ -889,7 +889,12 @@ export default {
     
     // Close dropdown when clicking outside
     const handleClickOutside = (event) => {
-      if (!event.target.closest('.multi-select-dropdown')) {
+      // Use composedPath() to check across shadow DOM boundaries
+      const path = event.composedPath()
+      const clickedInside = path.some(el => 
+        el.classList && el.classList.contains('multi-select-dropdown')
+      )
+      if (!clickedInside) {
         dropdownOpen.value = false
       }
     }

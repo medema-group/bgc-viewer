@@ -1,6 +1,6 @@
 {
-  "name": "@kretep/bgc-viewer-components",
-  "version": "0.2.0",
+  "name": "@medemagroup/bgc-viewer-components",
+  "version": "0.3.0",
   "description": "Reusable web components for visualizing biosynthetic gene clusters",
   "main": "./dist/web-components/bgc-viewer-components.umd.js",
   "module": "./dist/web-components/bgc-viewer-components.es.js",
@@ -52,6 +52,7 @@
     "prepublishOnly": "npm run build:web-components && npm test -- --run"
   },
   "peerDependencies": {
+    "vue": "^3.4.0",
     "d3": "^7.0.0"
   },
   "devDependencies": {

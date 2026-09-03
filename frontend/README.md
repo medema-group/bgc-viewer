@@ -7,7 +7,7 @@ For more details about the project structure and the stand-alone BGC Viewer, hav
 ## Installation
 
 ```bash
-npm install @kretep/bgc-viewer-components d3
+npm install @medemagroup/bgc-viewer-components d3
 ```
 
 **Note:** D3.js v7+ is a peer dependency and must be installed separately.
@@ -20,7 +20,7 @@ npm install @kretep/bgc-viewer-components d3
 <!DOCTYPE html>
 <html>
 <head>
-  <link rel="stylesheet" href="node_modules/@kretep/bgc-viewer-components/dist/web-components/style.css">
+  <link rel="stylesheet" href="node_modules/@medemagroup/bgc-viewer-components/dist/web-components/style.css">
 </head>
 <body>
   <bgc-region-viewer-container id="viewer"></bgc-region-viewer-container>
@@ -28,7 +28,7 @@ npm install @kretep/bgc-viewer-components d3
   <script src="https://d3js.org/d3.v7.min.js"></script>
   
   <script type="module">
-    import { JSONFileProvider } from '@kretep/bgc-viewer-components';
+    import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
     
     // Load your antiSMASH JSON data
     const response = await fetch('path/to/antismash-output.json');
@@ -49,8 +49,8 @@ npm install @kretep/bgc-viewer-components d3
 ### Using with a Bundler (Webpack, Vite, etc.)
 
 ```javascript
-import '@kretep/bgc-viewer-components';
-import '@kretep/bgc-viewer-components/style.css';
+import '@medemagroup/bgc-viewer-components';
+import '@medemagroup/bgc-viewer-components/style.css';
 
 // The web components are now registered and ready to use
 ```
@@ -79,7 +79,7 @@ The main container component that handles data loading and region selection.
 Load data directly from antiSMASH JSON output files:
 
 ```javascript
-import { JSONFileProvider } from '@kretep/bgc-viewer-components';
+import { JSONFileProvider } from '@medemagroup/bgc-viewer-components';
 
 const response = await fetch('data.json');
 const jsonData = await response.json();
@@ -91,7 +91,7 @@ const provider = new JSONFileProvider(jsonData);
 Connect to a BGC Viewer backend API:
 
 ```javascript
-import { BGCViewerAPIProvider } from '@kretep/bgc-viewer-components';
+import { BGCViewerAPIProvider } from '@medemagroup/bgc-viewer-components';
 
 const provider = new BGCViewerAPIProvider({
   baseURL: 'http://localhost:5000'
@@ -105,7 +105,7 @@ The package also exports a standalone `TrackViewer` class for creating custom ge
 ### Basic Usage
 
 ```javascript
-import { TrackViewer } from '@kretep/bgc-viewer-components';
+import { TrackViewer } from '@medemagroup/bgc-viewer-components';
 
 const viewer = new TrackViewer({
   container: '#viewer-container',
