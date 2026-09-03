@@ -346,17 +346,17 @@ export default {
     watch(dataSource, async (newSource) => {
       // Save to localStorage
       localStorage.setItem('bgc-viewer-data-source', newSource)
-      
+
       // Clear current data when switching sources
       currentRecordId.value = ''
       currentRecordData.value = null
       initialRegionId.value = ''
-      
+
       // Reset data provider based on source
       if (newSource === 'api') {
         const apiProvider = new BGCViewerAPIProvider()
         dataProvider.value = apiProvider
-        
+
         // Set API provider in RecordListSelector
         if (recordListSelectorRef.value) {
           await recordListSelectorRef.value.setRecordsFromProvider(apiProvider, false)
@@ -368,7 +368,7 @@ export default {
         }
         dataProvider.value = null
       }
-    })
+    }, { immediate: true })
     
     // Draggable divider functions
     const startDragging = (e) => {
