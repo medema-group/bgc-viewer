@@ -13,7 +13,7 @@
 </template>
 
 <script>
-import { ref } from 'vue'
+import { computed } from 'vue'
 
 export default {
   name: 'DataSourceSelector',
@@ -25,13 +25,15 @@ export default {
   },
   emits: ['update:modelValue'],
   setup(props, { emit }) {
-    const selectedSource = ref(props.modelValue)
-    
+    const selectedSource = computed({
+      get: () => props.modelValue,
+      set: (value) => emit('update:modelValue', value)
+    })
+
     const handleSourceChange = (event) => {
-      selectedSource.value = event.target.value
       emit('update:modelValue', event.target.value)
     }
-    
+
     return {
       selectedSource,
       handleSourceChange
