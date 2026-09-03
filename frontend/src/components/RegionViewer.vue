@@ -771,14 +771,11 @@ export default {
           // Check if annotation overlaps with visible range (including padding)
           return ann.end >= (viewStart - padding) && ann.start <= (viewEnd + padding)
         })
-        
-        console.log(`Track ${trackId}: Showing ${visibleAnnotations.length} of ${track._originalAnnotations.length} annotations in viewport [${Math.round(viewStart)}, ${Math.round(viewEnd)}]`)
-        
+
         // If still too many in viewport, show placeholder
         if (visibleAnnotations.length > ANNOTATION_THRESHOLD) {
           const minPos = Math.min(...visibleAnnotations.flatMap(ann => [ann.start, ann.end]))
           const maxPos = Math.max(...visibleAnnotations.flatMap(ann => [ann.start, ann.end]))
-          ANNOTATION_THRESHOLD
           track.annotations = [{
             id: `${trackId}-placeholder`,
             trackId: trackId,
