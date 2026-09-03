@@ -28,6 +28,7 @@
 
     <div class="viewer-container">
       <bgc-region-viewer-container
+        ref="viewerEl"
         :dataProvider="dataProvider"
         :recordId="recordData.recordId"
         :recordData="recordData"
@@ -61,7 +62,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 
 const props = defineProps({
   records: {
@@ -96,7 +97,16 @@ const props = defineProps({
 
 const emit = defineEmits(['update:recordIndex', 'update:regionIndex'])
 
+const viewerEl = ref(null)
 const errorMessage = ref('')
+
+onBeforeUnmount(() => {
+  const el = viewerEl.value
+  if (!el) return
+  el.removeEventListener('region-changed', handleRegionChanged)
+  el.removeEventListener('error', handleError)
+  el.remove()
+})
 
 const recordData = computed(() => {
   if (!props.currentRecord) return null
@@ -124,8 +134,8 @@ function handleRegionChanged(regionId) {
   console.log('Region changed:', regionId)
   // When region changes in the component, find the index
   if (regionId) {
-    const index = props.regions.findIndex(r => 
-      (r.id || `region_${props.regions.indexOf(r) + 1}`) === regionId
+    const index = props.regions.findIndex((r, i) => 
+      (r.id || `region_${i + 1}`) === regionId
     )
     if (index !== -1 && index !== props.regionIndex) {
       emit('update:regionIndex', index)
