@@ -143,26 +143,39 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         """
         
         cursor = conn.execute(query, params + [per_page, offset])
+        rows = cursor.fetchall()
+
+        # Extract all internal_ids for bulk query
+        internal_ids = [row[2] for row in rows]
         entries = []
-        
-        for row in cursor.fetchall():
+
+        # Fetch all products for these records in one query
+        products_map = {}
+        if internal_ids:
+            placeholders = ','.join('?' * len(internal_ids))
+            products_query = f"""
+                SELECT DISTINCT record_id, attribute_value FROM attributes
+                WHERE record_id IN ({placeholders})
+                AND attribute_name = 'regions_product'
+            """
+            for rid, val in conn.execute(products_query, internal_ids).fetchall():
+                products_map.setdefault(rid, []).append(val)
+
+        # Fetch all cluster_types for these records in one query
+        cluster_types_map = {}
+        if internal_ids:
+            placeholders = ','.join('?' * len(internal_ids))
+            cluster_types_query = f"""
+                SELECT DISTINCT record_id, attribute_value FROM attributes
+                WHERE record_id IN ({placeholders})
+                AND attribute_name IN ('regions_product_category', 'regions_product')
+            """
+            for rid, val in conn.execute(cluster_types_query, internal_ids).fetchall():
+                cluster_types_map.setdefault(rid, []).append(val)
+
+        # Build entries using the bulk-fetched data
+        for row in rows:
             filename, record_id, internal_id, description, organism, feature_count, region_count = row
-            
-            # Get products and cluster_types for this record
-            products_cursor = conn.execute("""
-                SELECT DISTINCT attribute_value FROM attributes 
-                WHERE record_id = ? AND attribute_name = 'regions_product'
-                LIMIT 5
-            """, (internal_id,))
-            products = [row[0] for row in products_cursor.fetchall()]
-            
-            cluster_types_cursor = conn.execute("""
-                SELECT DISTINCT attribute_value FROM attributes 
-                WHERE record_id = ? AND attribute_name IN ('regions_product_category', 'regions_product')
-                LIMIT 5
-            """, (internal_id,))
-            cluster_types = [row[0] for row in cluster_types_cursor.fetchall()]
-            
             entries.append({
                 "filename": filename,
                 "record_id": record_id,
@@ -172,8 +185,8 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
                 "organism": organism or "",
                 "feature_count": feature_count or 0,
                 "region_count": region_count or 0,
-                "products": products,
-                "cluster_types": cluster_types
+                "products": products_map.get(internal_id, [])[:5],
+                "cluster_types": cluster_types_map.get(internal_id, [])[:5]
             })
         
         conn.close()
