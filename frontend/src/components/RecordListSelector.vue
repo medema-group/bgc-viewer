@@ -2,7 +2,14 @@
   <section class="record-list-selector-section">
     <h2>Record selection</h2>
     
-    <div v-if="!hasDatabase" class="no-database-message">
+    <!-- Loading State - Show when loading and no database yet -->
+    <div v-if="loading && !hasDatabase" class="loading-container">
+      <LoadingSpinner />
+      <p>Loading records...</p>
+    </div>
+    
+    <!-- No Database Message - Show when not loading and no database -->
+    <div v-else-if="!hasDatabase" class="no-database-message">
       <p>No processed database found. Please select a folder and run preprocessing first.</p>
     </div>
     
@@ -49,6 +56,12 @@
         {{ error }}
       </div>
       
+      <!-- Loading State -->
+      <div v-else-if="loading && entriesData.length === 0" class="loading-container">
+        <LoadingSpinner />
+        <p>Loading records...</p>
+      </div>
+      
       <!-- Records List -->
       <div v-else-if="entriesData.length === 0 && !loading" class="no-records">
         <p v-if="searchQuery">No records found matching "{{ searchQuery }}"</p>
@@ -76,6 +89,8 @@
                 <span class="detail-item" v-if="record.organism">{{ record.organism }}</span>
                 <span class="detail-separator" v-if="record.organism">•</span>
                 <span class="detail-item" v-if="record.description">{{ record.description }}</span>
+                <span class="detail-separator">•</span>
+                <span class="detail-item">{{ record.region_count }} regions</span>
                 <span class="detail-separator" v-if="record.description">•</span>
                 <span class="detail-item">{{ record.feature_count }} features</span>
                 <span class="detail-separator" v-if="record.products && record.products.length > 0">•</span>
@@ -107,6 +122,7 @@
 <script>
 import { ref, computed, onMounted, watch, toRefs } from 'vue'
 import axios from 'axios'
+import { BGCViewerAPIProvider } from '../services/dataProviders/BGCViewerAPIProvider'
 import LoadingSpinner from './LoadingSpinner.vue'
 
 export default {
@@ -135,6 +151,12 @@ export default {
     const loadingRecordId = ref('')
     const hasDatabase = ref(false)
     
+    // Direct records mode (for uploaded JSON files)
+    const isDirectMode = ref(false)
+    const allDirectRecords = ref([])
+    const dataProvider = ref(null) // Store reference to data provider for searching
+    const dataProviders = ref([]) // Store all providers (one per file)
+    
     // Pagination
     const currentPage = ref(1)
     const perPage = ref(20)
@@ -146,52 +168,21 @@ export default {
     const searchTimeout = ref(null)
     
     const loadEntries = async (page = 1, search = '') => {
-      loading.value = true
-      error.value = ''
-      
+      // Always use the provider (which is set by default or when switching sources)
       try {
-        const params = {
-          page,
-          per_page: perPage.value
-        }
-        
-        if (search.trim()) {
-          params.search = search.trim()
-        }
-        
-        const response = await axios.get('/api/database-entries', { params })
-        
-        // Map backend response to use entry_id consistently
-        // Backend returns 'id' but we use 'entry_id' in frontend for clarity
-        entriesData.value = response.data.entries.map(entry => ({
-          ...entry,
-          entry_id: entry.id  // Map id to entry_id for consistency
-        }))
-        total.value = response.data.total
-        totalPages.value = response.data.total_pages
-        currentPage.value = response.data.page
-        hasDatabase.value = true
-        
+        await searchRecords(search, page)
       } catch (err) {
-        if (err.response?.status === 404) {
+        // Handle case where no database is available (404/400 from backend)
+        if (err.response?.status === 404 || err.response?.status === 400) {
           hasDatabase.value = false
-          entriesData.value = []
-          total.value = 0
-          totalPages.value = 0
-        } else {
-          error.value = err.response?.data?.error || 'Failed to load entries'
-          entriesData.value = []
-          total.value = 0
-          totalPages.value = 0
         }
-      } finally {
-        loading.value = false
       }
     }
     
     const goToPage = (page) => {
       if (page >= 1 && page <= totalPages.value) {
-        loadEntries(page, searchQuery.value)
+        currentPage.value = page
+        searchRecords(searchQuery.value, page)
       }
     }
     
@@ -211,6 +202,72 @@ export default {
       })
     }
     
+    const searchRecords = async (query, page = null) => {
+      // Handle multiple providers or single provider
+      const providers = dataProviders.value.length > 0 ? dataProviders.value : (dataProvider.value ? [dataProvider.value] : [])
+
+      if (providers.length === 0) {
+        return
+      }
+
+      loading.value = true
+      error.value = ''
+
+      try {
+        const currentPageNum = page !== null ? page : currentPage.value
+
+        // Query all providers and combine results
+        const allResults = []
+
+        for (const provider of providers) {
+          const result = await provider.searchRecords(query, 1, 10000) // Get all results from each provider
+          allResults.push(...result.records)
+        }
+
+        // Map all results to unified format
+        allDirectRecords.value = allResults.map(record => ({
+          entry_id: record.entryId,
+          record_id: record.recordId,
+          filename: record.filename || 'uploaded',
+          description: record.recordInfo?.description || '',
+          organism: record.organism,
+          products: record.products,
+          cluster_types: record.clusterTypes || [],
+          feature_count: record.featureCount || 0,
+          region_count: record.regionCount || 0
+        }))
+
+        // Apply client-side pagination
+        const start = (currentPageNum - 1) * perPage.value
+        const end = start + perPage.value
+        entriesData.value = allDirectRecords.value.slice(start, end)
+        total.value = allDirectRecords.value.length
+        totalPages.value = Math.ceil(allDirectRecords.value.length / perPage.value)
+        currentPage.value = currentPageNum
+
+        hasDatabase.value = true
+      } catch (err) {
+        console.error('Search error:', err)
+        // Check if this is a "no database" error (404/400 from backend)
+        if (err.response?.status === 404 || err.response?.status === 400) {
+          hasDatabase.value = false
+          error.value = ''
+          entriesData.value = []
+          total.value = 0
+          totalPages.value = 0
+        } else {
+          error.value = 'Failed to search records'
+          entriesData.value = []
+          total.value = 0
+          totalPages.value = 0
+        }
+        // Re-throw to allow loadEntries to catch and handle
+        throw err
+      } finally {
+        loading.value = false
+      }
+    }
+    
     const debouncedSearch = () => {
       if (searchTimeout.value) {
         clearTimeout(searchTimeout.value)
@@ -218,14 +275,14 @@ export default {
       
       searchTimeout.value = setTimeout(() => {
         currentPage.value = 1
-        loadEntries(1, searchQuery.value)
+        searchRecords(searchQuery.value, 1)
       }, 300)
     }
     
     const clearSearch = () => {
       searchQuery.value = ''
       currentPage.value = 1
-      loadEntries(1, '')
+      searchRecords('', 1)
     }
     
     const setDatabasePath = async (databasePath) => {
@@ -242,11 +299,15 @@ export default {
     }
     
     const refreshEntries = async () => {
-      await loadEntries(currentPage.value, searchQuery.value)
+      await searchRecords(searchQuery.value, currentPage.value)
     }
     
     const clearRecords = () => {
       entriesData.value = []
+      allDirectRecords.value = []
+      isDirectMode.value = false
+      dataProvider.value = null
+      dataProviders.value = []
       total.value = 0
       totalPages.value = 0
       currentPage.value = 1
@@ -256,26 +317,73 @@ export default {
       hasDatabase.value = false
     }
     
-    // Watch for index path changes - this is the primary path to the database file
+    const setRecordsFromProviders = async (providers) => {
+      // Set loading state immediately
+      loading.value = true
+      hasDatabase.value = true
+      
+      // Store all providers
+      dataProviders.value = providers
+      isDirectMode.value = true
+      
+      // Clear single provider reference
+      dataProvider.value = null
+      
+      // Reset search and pagination
+      currentPage.value = 1
+      searchQuery.value = ''
+      
+      // Load initial records
+      await searchRecords('', 1)
+      
+      loading.value = false
+    }
+    
+    const setRecordsFromProvider = async (provider, isDirect = true) => {
+      // Set loading state immediately
+      loading.value = true
+      hasDatabase.value = true
+      
+      // Set data provider (can be JSONFileProvider or BGCViewerAPIProvider)
+      isDirectMode.value = isDirect
+      dataProvider.value = provider
+      dataProviders.value = [] // Clear multiple providers
+      
+      // Reset search and pagination
+      currentPage.value = 1
+      searchQuery.value = ''
+      
+      // Load initial records
+      await searchRecords('', 1)
+      
+      loading.value = false
+    }
+    
+    const setLoadingState = () => {
+      // Signal that files are being loaded/parsed
+      loading.value = true
+      hasDatabase.value = true
+      entriesData.value = []
+    }
+    
+    // Watch for index path changes - tell backend which database to use
     watch(indexPath, async (newPath, oldPath) => {
+      // Ensure provider exists
+      if (!dataProvider.value) {
+        dataProvider.value = new BGCViewerAPIProvider()
+        isDirectMode.value = false
+      }
+
       if (newPath) {
         await setDatabasePath(newPath)
-        // Reload entries after setting the database path
-        await loadEntries(1, '')
-      } else {
-        // Clear records if path is cleared
-        clearRecords()
       }
+
+      // Always attempt to load entries (handles both explicit path and PUBLIC_MODE with empty path)
+      await loadEntries(1, '')
     }, { immediate: true })
     
-    onMounted(async () => {
-      // Only use indexPath - it should always point to a database file
-      if (indexPath.value) {
-        await setDatabasePath(indexPath.value)
-        await loadEntries()
-      } else {
-        await loadEntries()
-      }
+    onMounted(() => {
+      // Provider is created by the watch if needed
     })
     
     return {
@@ -296,7 +404,10 @@ export default {
       debouncedSearch,
       clearSearch,
       refreshEntries,
-      clearRecords
+      clearRecords,
+      setRecordsFromProvider,
+      setRecordsFromProviders,
+      setLoadingState
     }
   }
 }
@@ -309,6 +420,7 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0; /* Critical for nested flexbox scrolling */
 }
 
 .record-list-selector-section h2 {
@@ -327,11 +439,14 @@ export default {
   font-size: 13px;
 }
 
-.loading {
+.loading-container {
   text-align: center;
   padding: 30px 15px;
   color: #666;
-  font-style: italic;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   font-size: 13px;
 }
 
@@ -350,6 +465,7 @@ export default {
   flex-direction: column;
   overflow: hidden;
   flex: 1;
+  min-height: 0; /* Critical for nested flexbox scrolling */
 }
 
 .controls-bar {
@@ -453,6 +569,7 @@ export default {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-height: 0; /* Critical for nested flexbox scrolling */
 }
 
 .records-list {
@@ -462,6 +579,7 @@ export default {
   overflow-y: auto;
   transition: opacity 0.2s ease, background-color 0.2s ease;
   flex: 1;
+  min-height: 100px; /* Smaller minimum to allow pagination to always show */
 }
 
 .records-list.refreshing {
@@ -563,6 +681,7 @@ export default {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid #eee;
+  flex-shrink: 0; /* Prevent pagination info from being compressed */
 }
 
 /* Responsive design */

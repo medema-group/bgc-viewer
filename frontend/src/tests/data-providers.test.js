@@ -65,7 +65,7 @@ describe('JSONFileProvider', () => {
       const regionsData = await provider.getRegions('test-record-1')
       expect(regionsData).toHaveProperty('regions')
       expect(regionsData.regions).toHaveLength(1)
-      expect(regionsData.regions[0].region_number).toBe('1') // String from qualifiers array
+      expect(regionsData.regions[0].region_number).toBe(1) // Number per Region interface
       expect(regionsData.regions[0].product).toContain('NRPS')
     })
 

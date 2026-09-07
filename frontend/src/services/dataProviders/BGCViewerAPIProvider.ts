@@ -10,6 +10,7 @@ import {
   TTACodonsResponse,
   ResistanceFeaturesResponse
 } from './types'
+import { fetchPfamColorMap } from './colorMapUtils'
 
 export interface BGCViewerAPIProviderOptions {
   baseURL?: string
@@ -46,6 +47,7 @@ export class BGCViewerAPIProvider extends DataProvider {
     })
     
     return {
+      entryId: entryId,
       recordId: response.data.record_id,
       filename: response.data.filename,
       fileMetadata: response.data.file_metadata,
@@ -65,11 +67,66 @@ export class BGCViewerAPIProvider extends DataProvider {
   }
 
   /**
+   * Search records by query string
+   * For API provider, this delegates to the backend search endpoint
+   * @param query - Search query string
+   * @param page - Page number (default: 1)
+   * @param perPage - Records per page (default: 20)
+   */
+  async searchRecords(query: string, page: number = 1, perPage: number = 20): Promise<{
+    records: RecordInfo[]
+    total: number
+    totalPages: number
+    currentPage: number
+  }> {
+    const params: any = {
+      page,
+      per_page: perPage
+    }
+    
+    if (query.trim()) {
+      params.search = query.trim()
+    }
+    
+    const response = await this.axiosInstance.get<{
+      entries: any[]
+      total: number
+      total_pages: number
+      page: number
+    }>('/api/database-entries', { params })
+    
+    // Map to RecordInfo format
+    const records = response.data.entries.map(entry => ({
+      recordId: entry.record_id,
+      filename: entry.filename,
+      recordInfo: {
+        description: entry.description
+      },
+      // Include additional fields for display
+      entryId: entry.id,  // Full entry ID in format "filename:recordId"
+      organism: entry.organism,
+      products: entry.products,
+      clusterTypes: entry.cluster_types,
+      featureCount: entry.feature_count,
+      regionCount: entry.region_count
+    } as any))
+    
+    return {
+      records,
+      total: response.data.total,
+      totalPages: response.data.total_pages,
+      currentPage: response.data.page
+    }
+  }
+
+  /**
    * Get regions for a specific record
    */
   async getRegions(recordId: string): Promise<RegionsResponse> {
+    // Extract actual record ID from entryId format (filename:recordId)
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<RegionsResponse>(
-      `/api/records/${recordId}/regions`
+      `/api/records/${actualRecordId}/regions`
     )
     return response.data
   }
@@ -78,8 +135,10 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get all features for a record (no region filtering)
    */
   async getRecordFeatures(recordId: string): Promise<FeaturesResponse> {
+    // Extract actual record ID from entryId format (filename:recordId)
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<FeaturesResponse>(
-      `/api/records/${recordId}/features`
+      `/api/records/${actualRecordId}/features`
     )
     return response.data
   }
@@ -88,8 +147,10 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get features for a specific region within a record
    */
   async getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse> {
+    // Extract actual record ID from entryId format (filename:recordId)
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<FeaturesResponse>(
-      `/api/records/${recordId}/regions/${regionId}/features`
+      `/api/records/${actualRecordId}/regions/${regionId}/features`
     )
     return response.data
   }
@@ -98,31 +159,18 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get PFAM domain color mapping
    */
   async getPfamColorMap(): Promise<PfamColorMap> {
-    const response = await this.axiosInstance.get<string>('/domain-colors.csv')
-    const csvText = response.data
-    const lines = csvText.split('\n')
-    
-    const colorMap: PfamColorMap = {}
-    // Skip header line and process each color mapping
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim()
-      if (line) {
-        const [id, color] = line.split(',')
-        if (id && color) {
-          colorMap[id] = color
-        }
-      }
-    }
-    
-    return colorMap
+    // Color map is a static frontend asset, not an API endpoint
+    // Fetch from frontend origin regardless of API baseURL
+    return fetchPfamColorMap()
   }
 
   /**
    * Get MiBIG entries for a specific locus_tag
    */
   async getMiBIGEntries(recordId: string, locusTag: string, region: string = '1'): Promise<MiBIGEntriesResponse> {
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<MiBIGEntriesResponse>(
-      `/api/records/${recordId}/mibig-entries/${locusTag}`,
+      `/api/records/${actualRecordId}/mibig-entries/${locusTag}`,
       { params: { region } }
     )
     return response.data
@@ -132,8 +180,9 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get TFBS finder binding site hits for a specific region
    */
   async getTFBSHits(recordId: string, region: string = '1'): Promise<TFBSHitsResponse> {
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<TFBSHitsResponse>(
-      `/api/records/${recordId}/tfbs-hits`,
+      `/api/records/${actualRecordId}/tfbs-hits`,
       { params: { region } }
     )
     return response.data
@@ -143,8 +192,9 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get TTA codon positions for a record
    */
   async getTTACodons(recordId: string): Promise<TTACodonsResponse> {
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<TTACodonsResponse>(
-      `/api/records/${recordId}/tta-codons`
+      `/api/records/${actualRecordId}/tta-codons`
     )
     return response.data
   }
@@ -153,8 +203,9 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get resistance features for a record
    */
   async getResistanceFeatures(recordId: string): Promise<ResistanceFeaturesResponse> {
+    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<ResistanceFeaturesResponse>(
-      `/api/records/${recordId}/resistance`
+      `/api/records/${actualRecordId}/resistance`
     )
     return response.data
   }

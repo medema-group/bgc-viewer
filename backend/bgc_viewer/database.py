@@ -88,12 +88,16 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
     try:
         conn = sqlite3.connect(db_path)
         
-        # Build query to get records with file paths
+        # Build query to get records with file paths and commonly used attributes
         base_query = """
             SELECT 
                 f.path as filename, 
                 r.record_id,
-                r.id as internal_id
+                r.id as internal_id,
+                (SELECT attribute_value FROM attributes WHERE record_id = r.id AND attribute_name = 'description' LIMIT 1) as description,
+                (SELECT attribute_value FROM attributes WHERE record_id = r.id AND attribute_name = 'organism' LIMIT 1) as organism,
+                r.feature_count,
+                r.region_count
             FROM records r
             JOIN files f ON r.file_id = f.id
         """
@@ -139,16 +143,50 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
         """
         
         cursor = conn.execute(query, params + [per_page, offset])
+        rows = cursor.fetchall()
+
+        # Extract all internal_ids for bulk query
+        internal_ids = [row[2] for row in rows]
         entries = []
-        
-        for row in cursor.fetchall():
-            filename, record_id, internal_id = row
-            
+
+        # Fetch all products for these records in one query
+        products_map = {}
+        if internal_ids:
+            placeholders = ','.join('?' * len(internal_ids))
+            products_query = f"""
+                SELECT DISTINCT record_id, attribute_value FROM attributes
+                WHERE record_id IN ({placeholders})
+                AND attribute_name = 'regions_product'
+            """
+            for rid, val in conn.execute(products_query, internal_ids).fetchall():
+                products_map.setdefault(rid, []).append(val)
+
+        # Fetch all cluster_types for these records in one query
+        cluster_types_map = {}
+        if internal_ids:
+            placeholders = ','.join('?' * len(internal_ids))
+            cluster_types_query = f"""
+                SELECT DISTINCT record_id, attribute_value FROM attributes
+                WHERE record_id IN ({placeholders})
+                AND attribute_name IN ('regions_product_category', 'regions_product')
+            """
+            for rid, val in conn.execute(cluster_types_query, internal_ids).fetchall():
+                cluster_types_map.setdefault(rid, []).append(val)
+
+        # Build entries using the bulk-fetched data
+        for row in rows:
+            filename, record_id, internal_id, description, organism, feature_count, region_count = row
             entries.append({
                 "filename": filename,
                 "record_id": record_id,
                 "id": f"{filename}:{record_id}",  # Unique identifier for frontend
-                "internal_id": internal_id  # Internal database ID
+                "internal_id": internal_id,  # Internal database ID
+                "description": description or "",
+                "organism": organism or "",
+                "feature_count": feature_count or 0,
+                "region_count": region_count or 0,
+                "products": products_map.get(internal_id, [])[:5],
+                "cluster_types": cluster_types_map.get(internal_id, [])[:5]
             })
         
         conn.close()

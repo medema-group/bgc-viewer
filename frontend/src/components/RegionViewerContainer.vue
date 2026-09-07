@@ -150,10 +150,8 @@ export default {
           throw new Error('No data provider available')
         }
 
-        // For BGCViewerAPIProvider, we need the full entryId (filename:recordId)
-        // For JSONFileProvider, just the recordId is fine
-        // Use recordData.entryId if available, otherwise fall back to recordId
-        const entryId = props.recordData?.entryId || recordId
+        // Use the entryId which is always in format "filename:recordId"
+        const entryId = props.recordData?.entryId
         
         // Get record info with description
         const entryInfo = await provider.value.loadEntry(entryId)
@@ -165,14 +163,15 @@ export default {
         }
         
         recordInfo.value = {
-          recordId: entryInfo.recordId,
+          entryId: entryInfo.entryId,  // Full unique ID in format "filename:recordId"
+          recordId: entryInfo.recordId,  // Just the record ID part
           filename: entryInfo.filename,
           fileMetadata: entryInfo.fileMetadata,
           recordInfo: entryInfo.recordInfo
         }
         
-        // Get regions
-        const regionsData = await provider.value.getRegions(recordInfo.value.recordId)
+        // Get regions (use entryId for unique identification)
+        const regionsData = await provider.value.getRegions(recordInfo.value.entryId)
         
         // Check again after async operation
         if (requestId !== currentLoadingRequestId.value) {
@@ -184,7 +183,7 @@ export default {
         regionBoundaries.value = regionsData.boundaries || null
         
         // Load TTA codons (not region-specific)
-        await loadTTACodons(recordInfo.value.recordId)
+        await loadTTACodons(recordInfo.value.entryId)
         
         // Check again after async operation
         if (requestId !== currentLoadingRequestId.value) {
@@ -193,7 +192,7 @@ export default {
         }
         
         // Load resistance features (not region-specific)
-        await loadResistanceFeatures(recordInfo.value.recordId)
+        await loadResistanceFeatures(recordInfo.value.entryId)
         
         // Check again after async operation
         if (requestId !== currentLoadingRequestId.value) {
@@ -207,10 +206,10 @@ export default {
             ? props.initialRegionId
             : regions.value[0].id
           selectedRegionId.value = initialId
-          await loadRegionFeatures(recordInfo.value.recordId, selectedRegionId.value)
+          await loadRegionFeatures(recordInfo.value.entryId, selectedRegionId.value)
         } else {
           // No regions - load all features for the record
-          await loadAllFeatures(recordInfo.value.recordId)
+          await loadAllFeatures(recordInfo.value.entryId)
         }
         
         // Final check before marking as loaded
@@ -266,10 +265,10 @@ export default {
       
       if (!regionId) {
         // Load all features
-        await loadAllFeatures(recordInfo.value.recordId)
+        await loadAllFeatures(recordInfo.value.entryId)
       } else {
         // Load region-specific features
-        await loadRegionFeatures(recordInfo.value.recordId, regionId)
+        await loadRegionFeatures(recordInfo.value.entryId, regionId)
       }
       
       emit('region-changed', regionId)
@@ -325,7 +324,7 @@ export default {
       if (newRegionId && regions.value.length > 0) {
         selectedRegionId.value = newRegionId
         if (recordInfo.value) {
-          loadRegionFeatures(recordInfo.value.recordId, newRegionId)
+          loadRegionFeatures(recordInfo.value.entryId, newRegionId)
         }
       }
     })

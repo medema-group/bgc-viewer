@@ -82,6 +82,8 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
             record_id TEXT NOT NULL,
             byte_start INTEGER NOT NULL,
             byte_end INTEGER NOT NULL,
+            feature_count INTEGER DEFAULT 0,
+            region_count INTEGER DEFAULT 0,
             FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
         )
     """)
@@ -192,10 +194,24 @@ def extract_record_metadata(record: Dict[str, Any], record_id: str, byte_start: 
     Returns:
         Dictionary with record metadata
     """
+    # Count features
+    feature_count = len(record.get('features', []))
+    
+    # Count regions (features with type='region' or from regions array)
+    region_count = 0
+    if 'regions' in record and isinstance(record['regions'], list):
+        region_count = len(record['regions'])
+    else:
+        # Count region-type features
+        features = record.get('features', [])
+        region_count = sum(1 for f in features if f.get('type') == 'region')
+    
     metadata: Dict[str, Any] = {
         'record_id': record_id,
         'byte_start': byte_start,
-        'byte_end': byte_end
+        'byte_end': byte_end,
+        'feature_count': feature_count,
+        'region_count': region_count
     }
     
     return metadata
@@ -436,10 +452,11 @@ def preprocess_antismash_files(
                         # Insert record
                         cursor = conn.execute(
                             """INSERT INTO records 
-                               (file_id, record_id, byte_start, byte_end)
-                               VALUES (?, ?, ?, ?)""",
+                               (file_id, record_id, byte_start, byte_end, feature_count, region_count)
+                               VALUES (?, ?, ?, ?, ?, ?)""",
                             (file_id, metadata['record_id'], 
-                             metadata['byte_start'], metadata['byte_end'])
+                             metadata['byte_start'], metadata['byte_end'],
+                             metadata['feature_count'], metadata['region_count'])
                         )
                         record_internal_id = cursor.lastrowid
                         

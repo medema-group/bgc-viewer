@@ -6,7 +6,8 @@
  */
 
 export interface RecordInfo {
-  recordId: string
+  entryId?: string  // Full unique ID (e.g., "filename:recordId") for API calls
+  recordId: string  // Display name / short ID
   filename: string
   fileMetadata?: Record<string, string>  // version, input_file, etc.
   recordInfo: {
@@ -130,6 +131,21 @@ export abstract class DataProvider {
    * Get a list of available records
    */
   abstract getRecords(): Promise<RecordInfo[]>
+
+  /**
+   * Search records by query string
+   * Implementations should search through record content and return matching records
+   * @param query - Search query string (space-separated terms use AND logic)
+   * @param page - Page number (optional, default: 1)
+   * @param perPage - Records per page (optional, default: 20)
+   * @returns Object containing records array and pagination info
+   */
+  abstract searchRecords(query: string, page?: number, perPage?: number): Promise<{
+    records: RecordInfo[]
+    total: number
+    totalPages: number
+    currentPage: number
+  }>
 
   /**
    * Get regions for a specific record
