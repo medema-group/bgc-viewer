@@ -30,15 +30,19 @@ export function parsePfamColorMapCSV(csvText: string): PfamColorMap {
  */
 export async function fetchPfamColorMap(url: string = '/domain-colors.csv'): Promise<PfamColorMap> {
   try {
-    const response = await fetch(url)
+    // Resolve URL relative to the application's base path
+    const baseUrl = import.meta.env.BASE_URL || '/'
+    const fullUrl = new URL(url.replace(/^\//, ''), baseUrl).href
+
+    const response = await fetch(fullUrl)
     if (!response.ok) {
-      console.warn(`Failed to load PFAM color mapping from ${url}: ${response.status} ${response.statusText}`)
+      console.warn(`Failed to load PFAM color mapping from ${fullUrl}: ${response.status} ${response.statusText}`)
       return {}
     }
     const csvText = await response.text()
     return parsePfamColorMapCSV(csvText)
   } catch (err) {
-    console.warn(`Failed to load PFAM color mapping from ${url}:`, err)
+    console.warn(`Failed to load PFAM color mapping:`, err)
     return {}
   }
 }

@@ -71,6 +71,9 @@ npm run dev
 
 # Build
 npm run build
+
+# Test
+npm run test
 ```
 
 ### Backend (Python package) development
@@ -107,6 +110,9 @@ BGCV_PORT=5005                   # Server port (default: 5005)
 BGCV_DEBUG_MODE=False            # Enable dev/debug mode (default: False)
 BGCV_ALLOWED_ORIGINS=https://yourdomain.com # Allowed CORS origins, relevant when running a public instance
 HTTPS_ENABLED=false              # Set to 'true' in production with HTTPS
+
+# Frontend build configuration
+PUBLIC_PATH=/                    # Base path for frontend deployment (default: /). Use '/bgc-viewer/' for subpath deployment.
 
 # Public mode
 # In public mode, there won't be an option to access the file system; the database path will be fixed.

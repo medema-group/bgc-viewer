@@ -159,6 +159,8 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get PFAM domain color mapping
    */
   async getPfamColorMap(): Promise<PfamColorMap> {
+    // Color map is a static frontend asset, not an API endpoint
+    // Fetch from frontend origin regardless of API baseURL
     return fetchPfamColorMap()
   }
 
