@@ -36,30 +36,43 @@ failing field or structure in the error. Keep the search-document schema
 independent of optional antiSMASH fields so documents remain stable when
 qualifiers are absent or additional qualifiers appear.
 
+Every indexing entry point receives a source directory and an explicit list of
+paths relative to that directory. Resolve both the root and selected paths,
+reject paths outside the root, and normalize document identity paths to POSIX
+form. Do not scan for additional JSON files implicitly.
+
 ## Search Document
 
-Use a stable document key derived from:
+Use a fixed identity envelope with a dynamic `fields` mapping validated against
+the search-field manifest. Derive the stable document key from:
 
-- Source file path
+- Source-root-relative JSON path
 - Record ID
 - Region number
 - Protocluster number
 
-Store the SQLite parent `records.id` so backend results can later be hydrated without relying on source paths alone.
+The relative path is retained for navigation and identity. The public
+`output_file` field contains only the JSON basename; `input_file` contains the
+top-level antiSMASH input filename, or an empty string when absent.
 
-Suggested fields:
+Initial public fields:
 
 | Public field | Document values | Search behavior |
 | --- | --- | --- |
-| `pfam` | PFAM accessions | Exact, case-normalized, multi-valued |
-| `pfam_name` | PFAM names and descriptions | Full text, multi-valued |
+| `pfam` | Normalized `PFAM_domain.qualifiers.db_xref` values | Exact, case-sensitive, multi-valued |
+| `pfam_name` | `PFAM_domain.qualifiers.description` values | Full text, multi-valued |
 | `organism` | Organism name | Full text |
-| `gene` | Gene names and locus tags | Exact, case-normalized, multi-valued |
-| `product` | Protocluster product | Full text, single-valued |
-| `category` | Protocluster product category | Full text, single-valued |
-| `record` | Parent record ID | Exact, case-normalized |
-| `region` | Parent region number or ID | Exact |
-| `protocluster` | Protocluster number or ID | Exact |
+| `gene` | `gene` feature gene names | Exact, case-sensitive, multi-valued |
+| `locus` | `gene` feature locus tags | Exact, case-sensitive, multi-valued |
+| `product` | Protocluster product | Exact, case-sensitive, single-valued |
+| `category` | Protocluster product category | Exact, case-sensitive, single-valued |
+| `record` | Parent record ID | Exact, case-sensitive |
+| `region` | Parent region number | Numeric |
+| `protocluster` | Protocluster number | Numeric |
+| `start` | Protocluster start coordinate | Numeric |
+| `end` | Protocluster end coordinate | Numeric |
+| `output_file` | Selected JSON basename | Exact, case-sensitive |
+| `input_file` | antiSMASH input filename | Exact, case-sensitive |
 
 In antiSMASH, each `Protocluster` has one `product` string and one
 `product_category` string. Candidate clusters and regions aggregate values from
@@ -67,29 +80,182 @@ multiple contained protoclusters, so their serialized `product` and category
 metadata can be multi-valued. Do not copy those aggregate lists into an
 individual protocluster search document.
 
-Also store these non-search or display fields:
+Also store these identity or display values:
 
 - Stable document key
-- SQLite parent record ID
-- Source path
-- Input filename
+- Source-root-relative JSON path
+- JSON basename
+- antiSMASH input filename
 - Record ID
 - Region number
 - Protocluster number
+- Original serialized protocluster location
+- Numeric start and end coordinates
+- Organism
+- Product
+- Category
+- Declared antiSMASH version
 
-Normalize versioned PFAM accessions during extraction. For example, store `PF00512.28` as `PF00512` in the `pfam` field.
+Search results return these stored summary values directly, without hydrating
+display data from SQLite or reopening source JSON. PFAMs, PFAM names, genes, and
+locus tags are indexed but are not returned in ordinary hits. Matched field
+names and highlighting are deferred.
 
-Unqualified terms should search all public fields, including exact identifier fields. Results should be ordered by Tantivy relevance score with the stable document key as a deterministic tie-breaker.
+For every `db_xref` value on an overlapping `PFAM_domain`, remove a trailing
+PFAM version when it has the standard accession form; for example, index
+`PF00512.28` as `PF00512`. Index all `db_xref` values rather than filtering the
+array to a PFAM-only regular expression. Treat accession and description as one
+annotation: when the accession is absent or unusable, omit both the accession
+and `pfam_name` for that feature and emit a warning. Retain original accession
+text only for diagnostics, not as another searchable field.
+
+The manifest independently controls whether each field participates in
+unqualified search. Initially include all text and exact fields, including both
+filename fields, but exclude numeric navigation and coordinate fields. Give
+`organism` and `pfam_name` a `0.5` boost only when expanding an unqualified term;
+all exact fields use `1.0`, and explicitly fielded full-text queries use `1.0`.
+Results are ordered by Tantivy relevance score with the stable document key as a
+deterministic tie-breaker. Native prefix syntax is available on every exact
+field.
+
+Detect duplicate biological documents while streaming, using:
+
+```text
+input_file + record ID + region number + protocluster number
+```
+
+Use an empty string for a missing `input_file`. Any collision is a user input
+error and fails the complete build; there is no duplicate override. The error
+includes the identity, both relative source paths, and both declared antiSMASH
+versions.
+
+## Extension Architecture
+
+Adding a search field or supporting a changed antiSMASH layout must have one
+documented path and must not require changes to query parsing, Flask, or Vue.
+
+### Search-field registry
+
+Keep a versioned, machine-readable search schema manifest as the source of truth
+for public fields. Each field definition contains:
+
+- Public field name and optional aliases
+- Value type (`text`, `keyword`, or numeric)
+- Cardinality (`single` or `multi`)
+- Analyzer (`full_text`, case-sensitive exact, or another registered analyzer)
+- Whether the field is stored in search hits
+- Whether unqualified queries search the field
+- Its boost in an unqualified query
+- Whether the field is required or optional in a canonical document
+
+Python validates extracted documents against this manifest before sending them
+to Rust. Python loads the packaged manifest and passes it to the PyO3 writer;
+do not compile or maintain a second copy in Rust. The writer uses that manifest
+to build the Tantivy schema, and the reader uses the resolved schema stored with
+the index to configure fields, aliases, and default fields. Adding a field that
+uses an existing analyzer must not require Rust changes. Only a genuinely new
+analysis strategy should require a new Rust tokenizer/analyzer implementation.
+
+Define a stable internal `ProtoclusterSearchDocument` contract independently of
+the antiSMASH JSON layout. Source adapters populate this contract; Tantivy only
+sees validated canonical documents. Bump the search schema version whenever a
+field definition changes in a way that requires rebuilding an existing index.
+
+### antiSMASH source adapters
+
+Put antiSMASH-specific navigation and qualifier names behind a small adapter
+interface with operations equivalent to:
+
+1. Validate the required top-level and record structures.
+2. Iterate records, regions, and protoclusters.
+3. Read locations and protocluster identity/product/category.
+4. Collect overlapping feature values for registered search fields.
+5. Emit canonical `ProtoclusterSearchDocument` values.
+
+Register adapters by antiSMASH major version. Initially provide an
+`Antismash8Adapter`. Selection first tries an adapter registered for the
+declared major version and otherwise tries the v8 adapter as a compatibility
+fallback. If antiSMASH 9 keeps a compatible layout, the fallback continues to
+work. If its layout changes, add an `Antismash9Adapter` that translates the new
+layout into the same canonical document contract and reuse shared location,
+normalization, and overlap helpers.
+
+Adapter validation errors must include the source file, declared antiSMASH
+version, adapter attempted, and missing or incompatible JSON path. Never spread
+version checks through the indexer or field extractors.
+
+### Contributor recipes
+
+Add a short contributor guide with these checklists.
+
+To add a field such as `go`:
+
+1. Add one entry to the search-field manifest, choosing cardinality, analyzer,
+	storage, aliases, and default-search behavior.
+2. Add extraction for that canonical field to each source adapter that can
+	provide it. Missing optional data produces an empty value, not a failed file.
+3. Add a minimal fixture containing two protoclusters that differ only in the
+	new field.
+4. Add exact/full-text, Boolean, unqualified-search, and missing-value tests as
+	appropriate for the field definition.
+5. Add the field and examples to the generated or checked documentation.
+6. Bump the search schema version and rebuild test indexes.
+
+To support a changed antiSMASH major version:
+
+1. Add a small representative JSON fixture produced by that antiSMASH version.
+2. Run the existing adapter contract suite against the v8 compatibility path.
+3. If it passes, register the version as verified without duplicating adapter
+	code. If it fails, implement a version adapter that emits the unchanged
+	canonical document contract.
+4. Run the shared adapter contract tests, which assert identical canonical
+	documents for semantically equivalent fixtures across versions.
+5. Document real source-layout differences and update the compatibility matrix.
+
+The contributor guide should name the concrete manifest, adapter, fixture, and
+test paths once they are created. A CI test must ensure every registered field
+has valid schema options, is understood by the native writer, and appears in
+the field documentation.
+
+Use this proposed layout so ownership is easy to discover:
+
+```text
+backend/bgc_viewer/search/
+	schema.json                 # public fields, aliases, analyzers, cardinality
+	document.py                 # canonical document validation and normalization
+	index.py                    # thin Python wrapper around the PyO3 writer/reader
+	adapters/
+		base.py                   # adapter protocol and shared errors
+		registry.py               # version selection and v8 compatibility fallback
+		antismash8.py             # current JSON layout
+backend/bgc_viewer/tests/search/fixtures/
+	antismash8/
+	antismash9/
+docs/guide/development/search-index.md
+```
+
+When a real antiSMASH 9 layout requires different navigation, add
+`adapters/antismash9.py`; do not add `if version == 9` branches throughout
+`preprocessing.py`.
 
 ## Query Language
 
-Support:
+Treat Tantivy's native `QueryParser` language as the public query contract. Pin
+the Tantivy dependency in each release and regression-test the project queries
+when upgrading it. Preserve its normal defaults and syntax, including:
 
 - `AND`, `OR`, and `NOT`
 - Parentheses and normal Boolean precedence
 - Field-qualified terms
 - Quoted phrases for analyzed text
 - Unqualified terms across default fields
+- Prefix, fuzzy, range, and boost syntax supported by the normal parser
+
+Whitespace uses Tantivy's native implicit `OR`. Double quotes create ordered,
+adjacent phrase searches on the full-text fields `pfam_name` and `organism`,
+which must index positions. Exact fields treat quoted values as exact terms.
+Negative-only queries are rejected as Tantivy does. Leave regex queries disabled
+and impose no additional application-level query complexity limits.
 
 Examples:
 
@@ -101,7 +267,10 @@ organism:Amycolatopsis
 organism:Amycolatopsis NOT pfam:PF00513
 ```
 
-Invalid syntax must produce a structured parse error with the best available character position. It must not silently become an empty result or literal query.
+Invalid syntax must produce a structured parse error with the best available
+character position. It must not silently become an empty result or literal
+query. Unknown fields likewise produce a structured error listing available
+fields.
 
 ## Stage 1: Python Indexer and Searcher
 
@@ -109,17 +278,36 @@ The first stage must be usable without Flask or Vue. Its purpose is to experimen
 
 ### 1. Extract protocluster documents
 
-Add a Python extraction helper in `backend/bgc_viewer/preprocessing.py` that consumes one already-parsed antiSMASH record and emits compact protocluster documents.
+Add a Python extraction package used by `backend/bgc_viewer/preprocessing.py`.
+Keep canonical document validation, shared location/overlap helpers, and
+version-specific antiSMASH adapters separate so a new source layout does not
+fork the indexing pipeline. Each adapter consumes already-parsed antiSMASH
+records and emits compact canonical protocluster documents.
 
 For each protocluster:
 
-1. Find its containing parent region.
-2. Collect genes and PFAM domains whose genomic intervals overlap it.
+1. Find all containing parent regions, select the smallest, and emit a warning
+	whenever more than one is eligible. Break equal-size ties by numeric region
+	number and then serialized location.
+2. Collect values only from directly overlapping `type="gene"` and
+	`type="PFAM_domain"` features. Do not inspect CDS features in Stage 1.
 3. Use half-open interval overlap semantics.
-4. Deduplicate values in multi-valued fields.
-5. Remove PFAM version suffixes.
-6. Exclude sequences, translations, and other large payloads.
-7. Skip malformed features defensively and report extraction counts or errors.
+4. Support fuzzy bounds and circular/compound locations by comparing all
+	normalized interval parts.
+5. Trim strings, remove empty values, preserve case, and deduplicate values in
+	multi-valued fields.
+6. Remove PFAM version suffixes.
+7. Exclude sequences, translations, and other large payloads.
+8. Copy an overlapping feature into every matching protocluster document.
+9. Skip malformed optional features with structured warnings. Each warning has
+	a code, source path, record ID, JSON path or feature index, and message.
+
+Require a usable record ID, protocluster location and number, product, category,
+and parent region. Failure of required structure fails the complete build and
+preserves the previous outputs. A valid file with no protoclusters succeeds with
+zero documents and a warning. Stop and fail the complete build after 100
+occurrences of one warning code in one source file; Python and CLI callers may
+configure this threshold.
 
 Add fixtures covering:
 
@@ -130,10 +318,15 @@ Add fixtures covering:
 - Versioned PFAM accessions
 - Missing qualifiers
 - Boundary-touching intervals
+- Fuzzy and circular/compound locations
+- Multiple containing regions and deterministic tie-breaking
+- Strict duplicate biological identity detection
+- Warning threshold behavior
 - The demo antiSMASH 8.0.2 format
 - At least one additional antiSMASH 8.x fixture when available
 - Successful v8-compatible extraction from structurally compatible 7.x and 9.x fixtures
 - A clear compatibility error for a non-v8 file with an incompatible required structure
+- Shared adapter contract tests that produce equivalent canonical documents across versions
 
 ### 2. Add Tantivy to the Rust extension
 
@@ -144,9 +337,14 @@ Update:
 
 Keep the existing `scan_records()` binding and add the search functionality to the same `bgc_scanner` extension.
 
+Build the Tantivy schema from the shared search-field manifest instead of
+hard-coding each biological field in Rust. Persist the resolved manifest and
+its schema version in the index so a reader can validate compatibility when it
+opens the index.
+
 Register separate analyzers:
 
-- Raw whole-value tokenization plus lowercase normalization for exact identifiers
+- Raw whole-value tokenization without lowercase normalization for exact identifiers
 - Unicode word tokenization plus lowercase normalization for human-readable text
 
 Exact and analyzed fields must live in the same Tantivy document so one nested Boolean query can combine both types.
@@ -173,20 +371,29 @@ Expose a reusable reader that can:
 7. Release the Python GIL while executing the search.
 
 Use public field aliases rather than exposing internal Tantivy schema names.
+Expose `extract_documents(files, source_root)` as a public iterator for tests and
+interactive inspection, but do not write canonical documents to JSONL or another
+side artifact. Expose separate `build_index(documents, index_path)`,
+`open_index(index_path)`, and `search(query, offset, limit)` operations. An empty
+direct Python query raises a structured `EmptyQueryError`.
+
+Do not add a custom index metadata inspection API. The generated Tantivy index
+must remain inspectable with tools such as `tantivy-cli` or `pytantivy`.
 
 ### 4. Add a Python development CLI
 
 Add a small script or module CLI under the backend package with commands equivalent to:
 
 ```text
-build-index SOURCE_DIRECTORY INDEX_DIRECTORY
+build-index SOURCE_DIRECTORY --file RELATIVE_JSON [--file RELATIVE_JSON ...]
 search INDEX_DIRECTORY QUERY
 ```
 
 The search command should print:
 
 - Score
-- Source path
+- Source-root-relative JSON path
+- JSON basename and antiSMASH input filename
 - Record ID
 - Region number
 - Protocluster number
@@ -203,7 +410,7 @@ Add Rust and Python tests for:
 - PFAM version normalization
 - Optimistic cross-version extraction and structural compatibility validation
 - Exact versus analyzed matching
-- Case normalization
+- Case-sensitive exact matching
 - Boolean precedence
 - Parentheses and nesting
 - Negation
@@ -213,6 +420,8 @@ Add Rust and Python tests for:
 - Pagination and total counts
 - Commit, close, and reopen
 - Malformed query errors
+- Empty-query and unknown-field errors
+- Direct inspection of the generated index with standard Tantivy tooling
 
 Stage 1 is complete when a user can build, close, reopen, and query an index entirely from Python.
 
@@ -226,17 +435,26 @@ Stage 2 begins only after the Python search API and query behavior are stable.
 
 Extend `preprocess_antismash_files()` to:
 
-1. Create a Tantivy writer beside the requested SQLite database.
+1. Create a temporary Tantivy writer for the fixed sibling path
+	`tantivy.index/`. Each output directory supports one SQLite/Tantivy pair,
+	while the SQLite filename remains user-selected.
 2. Stream extracted protocluster documents while processing records.
-3. Commit SQLite and Tantivy.
-4. Atomically publish the derived search index only after successful processing.
-5. Remove temporary index data after failure without removing a previously valid index.
+3. Commit and validate temporary SQLite and Tantivy outputs.
+4. After the existing overwrite confirmation, publish Tantivy first and SQLite
+	second.
+5. Remove temporary outputs after failure and preserve any previous valid pair.
+6. Delete replaced outputs after successful publication; keep no automatic
+	backup.
 
 Store the following in SQLite metadata:
 
 - Search schema version
 - Search index version
 - Search index location
+
+Do not use build UUIDs or cross-artifact mismatch detection. There is an accepted
+small crash window between publishing the two paths; rebuilding is the recovery
+procedure. If the first build fails, leave neither database nor index behind.
 
 The supported update model is build once and query many. Incremental indexing and live writes are deferred.
 
@@ -247,7 +465,8 @@ Keep `/api/database-entries` and `get_database_entries()` for existing record br
 Add a dedicated endpoint:
 
 ```text
-GET /api/search?q=QUERY&page=1&per_page=20
+POST /api/search
+{"query": "QUERY", "page": 1, "per_page": 20}
 ```
 
 A dedicated endpoint avoids conflating record-level browsing with protocluster-level search results.
@@ -264,11 +483,15 @@ The response should contain:
 - Protocluster number
 - Display metadata
 
-### 3. Hydrate results from SQLite
+Use a default page size of 20 and a maximum of 100. Every successful response
+contains exact `total` and `total_pages` values.
 
-Use the stored parent `records.id` to fetch additional record metadata from SQLite in one bulk query.
+### 3. Return self-contained results
 
-Preserve Tantivy result order after hydration. Do not reorder by filename or database row ID.
+Read result-list metadata directly from stored Tantivy fields. Do not hydrate
+search summaries from SQLite or source JSON. Preserve Tantivy result order and
+use the stored relative source path and record identity when the user opens a
+hit.
 
 ### 4. Manage reader lifecycle
 
@@ -283,7 +506,30 @@ Report distinct errors for:
 
 SQLite record browsing must continue to work when the derived Tantivy index is unavailable.
 
-Return HTTP 400 for invalid syntax with a stable JSON payload containing an error code, message, and input position.
+Return HTTP 400 for invalid syntax with a stable envelope:
+
+```json
+{
+	"error": {
+		"code": "unknown_field",
+		"message": "Unknown field: go",
+		"position": 0,
+		"details": {"available_fields": ["pfam", "organism"]}
+	}
+}
+```
+
+`position` and `details` are omitted when unavailable. Empty frontend/backend
+queries use existing SQLite record browsing and are not sent to Tantivy.
+
+Add `GET /api/search/schema` for public field metadata, generated runnable
+examples, and a generic link to Tantivy query syntax. Return 404 until a database
+with a search index is selected, 404 when the index is missing, and 409 when its
+schema is incompatible. Do not expose the Tantivy library version in this
+user-facing response. During indexing, collect the first non-empty value for each
+example field in deterministic selected-file, record, and feature order. Omit an
+example if its required values are unavailable. These data-derived examples are
+allowed in local and public deployments.
 
 ### 5. Test Stage 2
 
@@ -291,12 +537,13 @@ Add backend tests for:
 
 - Index publication and failure cleanup
 - Reader reopening and cache invalidation
-- Query URL encoding
+- JSON search-request parsing
 - Ranked pagination
-- SQLite hydration order
+- Self-contained result metadata and stable ranking order
 - Invalid-query responses
 - Missing and stale indexes
 - Existing record browsing without a search index
+- Schema endpoint availability and data-derived examples
 
 Stage 2 is complete when protocluster searches work through Flask without frontend changes.
 
@@ -315,13 +562,13 @@ Call `/api/search` for advanced backend searches and map the response into a pro
 
 Each result must carry:
 
-- Parent entry ID
+- Source-root-relative JSON path
 - Record ID
-- Filename
+- JSON basename and antiSMASH input filename
 - Region number
 - Protocluster number
 - Organism
-- Products and categories
+- Product and category
 - Score
 
 ### 2. Display protocluster results
@@ -332,6 +579,12 @@ Update `frontend/src/components/RecordListSelector.vue` to:
 - Show enough organism, product, category, region, and cluster context to distinguish them
 - Display structured query errors beside the search input
 - Keep the previous valid result set visible when a new query has a syntax error
+- Submit advanced searches only on Enter or an explicit Search action
+- Return immediately to the existing SQLite record list and clear any
+	protocluster target when the query is cleared
+- Provide a help popup generated from `/api/search/schema`, containing the
+	available fields, copyable examples, brief operator/phrase guidance, and a
+	Tantivy syntax link that opens in a new tab
 
 ### 3. Navigate to the hit
 
@@ -380,12 +633,18 @@ Document:
 - Query error responses
 - Backend-only availability of advanced syntax
 - Search index rebuild requirements
+- Case-sensitive exact fields and case-insensitive analyzed fields
+- Native Tantivy syntax, including implicit `OR` and disabled regex queries
 - Representative query examples
+- A generated field reference sourced from the search-field manifest
+- A compatibility matrix listing tested antiSMASH versions and selected adapters
+- Contributor recipes for adding fields and antiSMASH version adapters
 
 Relevant documentation locations include:
 
 - `docs/guide/api/database.md`
 - `docs/guide/development/database-schema.md`
+- `CONTRIBUTING.md` or a focused search-index contributor guide linked from it
 
 ## Final Decisions
 
@@ -398,7 +657,34 @@ Relevant documentation locations include:
 	required structures validate; the version number alone is not a rejection
 	criterion.
 - PFAM versions are normalized away for exact searches.
-- Unqualified terms search both analyzed human-readable fields and exact identifier fields.
+- Exact fields preserve case; full-text fields lowercase through analysis.
+- The public locus-tag field is named `locus`.
+- `region`, `protocluster`, `start`, and `end` are numeric fields; the original
+	protocluster location is stored for display.
+- Unqualified terms search configured analyzed and exact fields but exclude
+	numeric navigation and coordinate fields.
+- Tantivy's native parser is the query-language contract: whitespace means `OR`,
+	negative-only queries are rejected, and regex remains disabled.
 - Results use relevance scoring with a deterministic tie-breaker.
+- Full-text fields have boost `0.5` only in unqualified queries.
 - Stage 1 has no Flask or frontend dependency.
+- Search fields are declared in one versioned manifest shared by Python and
+	Rust; source-specific adapters emit a stable canonical document contract.
+- antiSMASH version differences are isolated in adapters and verified by one
+	shared contract test suite.
+- Selected input paths are explicit and source-root-relative; no implicit JSON
+	discovery occurs.
+- Only overlapping `gene` and `PFAM_domain` features contribute initial
+	annotation fields; CDS extraction is deferred.
+- Both regular and sideloaded protoclusters are indexed, but origin and tool
+	fields are deferred.
+- Duplicate biological identities fail the entire build with no override.
+- Optional malformed features produce structured warnings; 100 occurrences of
+	the same warning code in one file fail the complete build by default.
+- Canonical documents stream directly into Tantivy and are not materialized on
+	disk.
+- Each output directory has one fixed sibling `tantivy.index/`; publication
+	replaces Tantivy first and SQLite second without UUID mismatch detection.
+- Search uses `POST /api/search`, returns compact self-contained summaries, and
+	does not report matched field names.
 - Incremental indexing, live writes, and advanced search for browser-local providers are out of scope for the initial implementation.
