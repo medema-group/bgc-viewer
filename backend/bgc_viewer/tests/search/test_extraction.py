@@ -10,6 +10,7 @@ from bgc_viewer.search import (
     ProtoclusterSearchDocument,
     SearchFields,
     SourceFile,
+    extract,
     extract_documents,
 )
 
@@ -100,10 +101,46 @@ def test_extracts_canonical_protocluster_document(tmp_path):
         )
     ]
 
-    documents = extract_documents(
-        [Path("nested/sample.json")], tmp_path
-    )
+    documents = extract_documents([Path("nested/sample.json")], tmp_path)
     assert list(documents) == expected
+
+
+def test_extracts_from_data_without_reading_a_file():
+    source = {
+        "version": "8.0.2",
+        "input_file": "sample.gbk",
+        "records": [
+            {
+                "id": "record-1",
+                "features": [
+                    {
+                        "type": "region",
+                        "location": "[0:500](+)",
+                        "qualifiers": {"region_number": ["1"]},
+                    },
+                    {
+                        "type": "protocluster",
+                        "location": "[100:400](+)",
+                        "qualifiers": {
+                            "protocluster_number": ["1"],
+                            "product": ["NRPS"],
+                            "product_category": ["NRPS"],
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+
+    [document] = extract(source, "memory/sample.json")
+
+    assert document.source == SourceFile(
+        antismash_version="8.0.2",
+        source_path="memory/sample.json",
+        output_file="sample.json",
+        input_file="sample.gbk",
+    )
+    assert document.search_fields.record_id == "record-1"
 
 
 def test_selects_smallest_parent_region_and_warns_for_multiple_matches(
@@ -146,9 +183,7 @@ def test_selects_smallest_parent_region_and_warns_for_multiple_matches(
     (tmp_path / "sample.json").write_text(json.dumps(source))
 
     with pytest.warns(ExtractionWarning) as caught:
-        document = next(
-            extract_documents([Path("sample.json")], tmp_path)
-        )
+        document = next(extract_documents([Path("sample.json")], tmp_path))
 
     warning = caught[0].message
     assert isinstance(warning, ExtractionWarning)
@@ -192,9 +227,7 @@ def test_skips_malformed_optional_features_with_structured_warning(tmp_path):
     (tmp_path / "sample.json").write_text(json.dumps(source))
 
     with pytest.warns(ExtractionWarning) as caught:
-        document = next(
-            extract_documents([Path("sample.json")], tmp_path)
-        )
+        document = next(extract_documents([Path("sample.json")], tmp_path))
 
     warning = caught[0].message
     assert isinstance(warning, ExtractionWarning)
@@ -256,9 +289,7 @@ def test_warns_and_yields_nothing_when_file_has_no_protoclusters(tmp_path):
     (tmp_path / "sample.json").write_text(json.dumps(source))
 
     with pytest.warns(ExtractionWarning) as caught:
-        documents = list(
-            extract_documents([Path("sample.json")], tmp_path)
-        )
+        documents = list(extract_documents([Path("sample.json")], tmp_path))
 
     warning = caught[0].message
     assert isinstance(warning, ExtractionWarning)
@@ -299,11 +330,7 @@ def test_rejects_duplicate_biological_identity_across_source_files(tmp_path):
     (tmp_path / "second.json").write_text(json.dumps(source("9.0.0")))
 
     with pytest.raises(ExtractionError) as caught:
-        list(
-            extract_documents(
-                [Path("first.json"), Path("second.json")], tmp_path
-            )
-        )
+        list(extract_documents([Path("first.json"), Path("second.json")], tmp_path))
 
     message = str(caught.value)
     assert "same.gbk:record-1:1:1" in message

@@ -5,7 +5,12 @@ from .document import (
     SearchFields,
     SourceFile,
 )
-from .extraction import ExtractionError, ExtractionWarning, extract_documents
+from .extraction import (
+    ExtractionError,
+    ExtractionWarning,
+    extract,
+    extract_documents,
+)
 
 __all__ = [
     "ExtractionError",
@@ -15,5 +20,6 @@ __all__ = [
     "ProtoclusterSearchDocument",
     "SearchFields",
     "SourceFile",
+    "extract",
     "extract_documents",
 ]
