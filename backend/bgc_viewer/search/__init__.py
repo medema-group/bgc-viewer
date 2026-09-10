@@ -14,6 +14,7 @@ from .extraction import (
     extract,
     extract_documents,
 )
+from .index import build_index, build_schema
 
 __all__ = [
     "ExtractionError",
@@ -26,6 +27,8 @@ __all__ = [
     "SearchFieldDefinition",
     "SearchFields",
     "SourceFile",
+    "build_index",
+    "build_schema",
     "extract",
     "extract_documents",
 ]
