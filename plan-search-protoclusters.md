@@ -2,7 +2,7 @@
 
 ## Goal
 
-Keep SQLite as the authoritative catalog for files, records, byte offsets, and metadata. Add Tantivy as a rebuildable embedded search index through the existing PyO3 extension.
+Keep SQLite as the authoritative catalog for files, records, byte offsets, and metadata. Add Tantivy as a rebuildable embedded search index through the official `tantivy` Python package, pinned to an exact version.
 
 Implement the feature in three independently testable stages:
 
@@ -44,7 +44,7 @@ form. Do not scan for additional JSON files implicitly.
 ## Search Document
 
 Use a fixed identity envelope with a dynamic `fields` mapping validated against
-the search-field manifest. Derive the stable document key from:
+the field registry in `document.py`. Derive the stable document key from:
 
 - Source-root-relative JSON path
 - Record ID
@@ -109,14 +109,15 @@ annotation: when the accession is absent or unusable, omit both the accession
 and `pfam_name` for that feature and emit a warning. Retain original accession
 text only for diagnostics, not as another searchable field.
 
-The manifest independently controls whether each field participates in
-unqualified search. Initially include all text and exact fields, including both
-filename fields, but exclude numeric navigation and coordinate fields. Give
-`organism` and `pfam_name` a `0.5` boost only when expanding an unqualified term;
-all exact fields use `1.0`, and explicitly fielded full-text queries use `1.0`.
-Results are ordered by Tantivy relevance score with the stable document key as a
-deterministic tie-breaker. Native prefix syntax is available on every exact
-field.
+The field registry controls whether each field participates in unqualified
+search and assigns each field a single static query-time boost, applied
+uniformly to fielded and unqualified clauses. Initially include all text and exact fields,
+including both filename fields, but exclude numeric navigation and coordinate
+fields. Exact fields use boost `2.0`; the full-text fields `organism` and
+`pfam_name` use `1.0`. Results are ordered by Tantivy relevance score; equal
+scores resolve in Tantivy document-insertion order, which is deterministic
+because documents are always indexed in selected-file, record, and protocluster
+order. Native prefix syntax is available on every exact field.
 
 Detect duplicate biological documents while streaming, using:
 
@@ -136,8 +137,10 @@ documented path and must not require changes to query parsing, Flask, or Vue.
 
 ### Search-field registry
 
-Keep a versioned, machine-readable search schema manifest as the source of truth
-for public fields. Each field definition contains:
+Define the versioned search-field registry in
+`backend/bgc_viewer/search/document.py` as the source of truth for public
+fields. Use typed, immutable Python field definitions rather than a separate
+JSON manifest. Each field definition contains:
 
 - Public field name and optional aliases
 - Value type (`text`, `keyword`, or numeric)
@@ -145,21 +148,21 @@ for public fields. Each field definition contains:
 - Analyzer (`full_text`, case-sensitive exact, or another registered analyzer)
 - Whether the field is stored in search hits
 - Whether unqualified queries search the field
-- Its boost in an unqualified query
+- Its static query-time boost
 - Whether the field is required or optional in a canonical document
 
-Python validates extracted documents against this manifest before sending them
-to Rust. Python loads the packaged manifest and passes it to the PyO3 writer;
-do not compile or maintain a second copy in Rust. The writer uses that manifest
-to build the Tantivy schema, and the reader uses the resolved schema stored with
-the index to configure fields, aliases, and default fields. Adding a field that
-uses an existing analyzer must not require Rust changes. Only a genuinely new
-analysis strategy should require a new Rust tokenizer/analyzer implementation.
+`document.py` owns the registry end to end: it validates extracted documents,
+and `index.py` consumes it to build the Tantivy schema and configure fields,
+aliases, default fields, and boosts. Do not serialize or copy the registry into
+the index, SQLite, Rust, or another source file. Adding a field that uses an
+existing analyzer requires only registry and adapter changes; only a genuinely
+new analysis strategy requires registering a new analyzer.
 
 Define a stable internal `ProtoclusterSearchDocument` contract independently of
 the antiSMASH JSON layout. Source adapters populate this contract; Tantivy only
-sees validated canonical documents. Bump the search schema version whenever a
-field definition changes in a way that requires rebuilding an existing index.
+sees validated canonical documents. Keep `SEARCH_SCHEMA_VERSION` beside the
+registry in `document.py`, and bump it whenever a field definition changes in a
+way that requires rebuilding an existing index.
 
 ### antiSMASH source adapters
 
@@ -190,8 +193,8 @@ Add a short contributor guide with these checklists.
 
 To add a field such as `go`:
 
-1. Add one entry to the search-field manifest, choosing cardinality, analyzer,
-	storage, aliases, and default-search behavior.
+1. Add one typed field definition to the registry in `document.py`, choosing
+	cardinality, analyzer, storage, aliases, and default-search behavior.
 2. Add extraction for that canonical field to each source adapter that can
 	provide it. Missing optional data produces an empty value, not a failed file.
 3. Add a minimal fixture containing two protoclusters that differ only in the
@@ -212,18 +215,17 @@ To support a changed antiSMASH major version:
 	documents for semantically equivalent fixtures across versions.
 5. Document real source-layout differences and update the compatibility matrix.
 
-The contributor guide should name the concrete manifest, adapter, fixture, and
+The contributor guide should name the concrete registry, adapter, fixture, and
 test paths once they are created. A CI test must ensure every registered field
-has valid schema options, is understood by the native writer, and appears in
-the field documentation.
+has valid schema options, is accepted by the `tantivy` schema builder, and
+appears in the field documentation.
 
 Use this proposed layout so ownership is easy to discover:
 
 ```text
 backend/bgc_viewer/search/
-	schema.json                 # public fields, aliases, analyzers, cardinality
-	document.py                 # canonical document validation and normalization
-	index.py                    # thin Python wrapper around the PyO3 writer/reader
+	document.py                 # field registry, schema version, canonical document validation
+	index.py                    # index build, open, and search via tantivy
 	adapters/
 		base.py                   # adapter protocol and shared errors
 		registry.py               # version selection and v8 compatibility fallback
@@ -241,8 +243,9 @@ When a real antiSMASH 9 layout requires different navigation, add
 ## Query Language
 
 Treat Tantivy's native `QueryParser` language as the public query contract. Pin
-the Tantivy dependency in each release and regression-test the project queries
-when upgrading it. Preserve its normal defaults and syntax, including:
+the `tantivy` Python package to an exact version in the backend dependencies and
+regression-test the project queries when upgrading it. Preserve its normal
+defaults and syntax, including:
 
 - `AND`, `OR`, and `NOT`
 - Parentheses and normal Boolean precedence
@@ -304,10 +307,11 @@ For each protocluster:
 
 Require a usable record ID, protocluster location and number, product, category,
 and parent region. Failure of required structure fails the complete build and
-preserves the previous outputs. A valid file with no protoclusters succeeds with
-zero documents and a warning. Stop and fail the complete build after 100
-occurrences of one warning code in one source file; Python and CLI callers may
-configure this threshold.
+leaves no outputs (the previous pair was already deleted at rebuild start;
+rerunning preprocessing is the recovery procedure). A valid file with no
+protoclusters succeeds with zero documents and a warning. Stop and fail the
+complete build after 100 occurrences of one warning code in one source file;
+Python and CLI callers may configure this threshold.
 
 Add fixtures covering:
 
@@ -328,54 +332,52 @@ Add fixtures covering:
 - A clear compatibility error for a non-v8 file with an incompatible required structure
 - Shared adapter contract tests that produce equivalent canonical documents across versions
 
-### 2. Add Tantivy to the Rust extension
+### 2. Build the index with the `tantivy` Python package
 
-Update:
+Add the official [`tantivy`](https://pypi.org/project/tantivy/) package,
+exact-pinned as `tantivy==0.26.0`, as a hard dependency of the backend. The
+existing `bgc_scanner` PyO3 extension is
+unchanged and keeps only `scan_records()`; no search functionality is added to
+Rust. If measured build or query performance later proves inadequate, move hot
+paths into the extension without changing the canonical document contract.
 
-- `backend/rust_extensions/Cargo.toml`
-- `backend/rust_extensions/src/lib.rs`
+Build the Tantivy schema from the field registry in `document.py`; never
+hard-code biological fields in `index.py` or elsewhere. Persist only the search
+schema version as index metadata so a reader can validate compatibility when it
+opens the index; do not persist a copy of the registry.
 
-Keep the existing `scan_records()` binding and add the search functionality to the same `bgc_scanner` extension.
+Use Tantivy's built-in analyzers:
 
-Build the Tantivy schema from the shared search-field manifest instead of
-hard-coding each biological field in Rust. Persist the resolved manifest and
-its schema version in the index so a reader can validate compatibility when it
-opens the index.
-
-Register separate analyzers:
-
-- Raw whole-value tokenization without lowercase normalization for exact identifiers
-- Unicode word tokenization plus lowercase normalization for human-readable text
+- `raw` whole-value tokenization without lowercase normalization for exact identifiers
+- The default Unicode word tokenizer with lowercase normalization for human-readable text, indexing positions for phrase queries
 
 Exact and analyzed fields must live in the same Tantivy document so one nested Boolean query can combine both types.
 
-### 3. Expose a Python API through PyO3
+### 3. Expose a Python API over `tantivy`
 
-Expose a stateful writer that can:
+Implement `build_index(documents, index_path)`, `open_index(index_path)`, and
+`search(query, offset, limit)` in `backend/bgc_viewer/search/index.py`:
 
-1. Create an index in a temporary directory.
-2. Accept one compact document at a time.
-3. Commit the index.
-4. Atomically publish the completed index directory.
-
-Streaming one document at a time prevents Python from retaining a converted copy of the full source corpus.
-
-Expose a reusable reader that can:
-
-1. Open an existing index.
-2. Parse the public query language.
-3. Search with offset and limit.
-4. Return the total hit count.
-5. Return stored identities, display fields, and scores.
-6. Return structured query parse errors.
-7. Release the Python GIL while executing the search.
+- `build_index` creates the index at its final path, streams one compact
+	document at a time into the writer so Python never retains a converted copy
+	of the full corpus, inserts documents in deterministic selected-file,
+	record, and protocluster order, and commits.
+- `open_index` builds the expected schema from the current registry, checks
+	index compatibility (`Index.is_compatible`) and the persisted schema version,
+	then loads fields, aliases, default fields, and boosts from the registry.
+- `search` validates before parsing: an empty query raises a structured
+	`EmptyQueryError`, and field names are checked against the registry and its
+	aliases so unknown fields raise a structured `UnknownFieldError` carrying
+	the offending position and the available fields. Remaining parser failures
+	surface as a structured syntax error with the parser message; the character
+	position is omitted when unavailable. Queries execute with offset/limit
+	pagination, return the total hit count, and return stored identities,
+	display fields, and scores.
 
 Use public field aliases rather than exposing internal Tantivy schema names.
 Expose `extract_documents(files, source_root)` as a public iterator for tests and
 interactive inspection, but do not write canonical documents to JSONL or another
-side artifact. Expose separate `build_index(documents, index_path)`,
-`open_index(index_path)`, and `search(query, offset, limit)` operations. An empty
-direct Python query raises a structured `EmptyQueryError`.
+side artifact.
 
 Do not add a custom index metadata inspection API. The generated Tantivy index
 must remain inspectable with tools such as `tantivy-cli` or `pytantivy`.
@@ -403,7 +405,7 @@ This CLI is the primary manual experimentation surface for Stage 1.
 
 ### 5. Test Stage 1
 
-Add Rust and Python tests for:
+Add Python tests for:
 
 - Document extraction and interval overlap
 - Multi-valued exact fields
@@ -416,7 +418,7 @@ Add Rust and Python tests for:
 - Negation
 - Phrase searches
 - Unqualified searches
-- Ranking and stable tie-breaking
+- Ranking and deterministic equal-score ordering
 - Pagination and total counts
 - Commit, close, and reopen
 - Malformed query errors
@@ -425,7 +427,7 @@ Add Rust and Python tests for:
 
 Stage 1 is complete when a user can build, close, reopen, and query an index entirely from Python.
 
-Record index size, build throughput, and cold and warm query latency on representative data before moving to Stage 2.
+Record index size, build throughput, and cold and warm query latency on representative data before moving to Stage 2. These measurements are also the go/no-go evidence for any later move of hot paths into the Rust extension.
 
 ## Stage 2: Backend API
 
@@ -435,26 +437,25 @@ Stage 2 begins only after the Python search API and query behavior are stable.
 
 Extend `preprocess_antismash_files()` to:
 
-1. Create a temporary Tantivy writer for the fixed sibling path
-	`tantivy.index/`. Each output directory supports one SQLite/Tantivy pair,
-	while the SQLite filename remains user-selected.
-2. Stream extracted protocluster documents while processing records.
-3. Commit and validate temporary SQLite and Tantivy outputs.
-4. After the existing overwrite confirmation, publish Tantivy first and SQLite
-	second.
-5. Remove temporary outputs after failure and preserve any previous valid pair.
-6. Delete replaced outputs after successful publication; keep no automatic
-	backup.
+1. Set the server's in-memory rebuilding flag and create a `.building` sentinel
+	file in the output directory before touching any existing outputs.
+2. Delete the previous SQLite database and the fixed sibling `tantivy.index/`
+	in place, then build the new pair at their final paths. Each output
+	directory supports one SQLite/Tantivy pair, while the SQLite filename
+	remains user-selected. There is no temporary directory and no publication
+	step.
+3. Stream extracted protocluster documents into the Tantivy writer while
+	processing records, then commit and validate both outputs.
+4. On any failure, remove both partial outputs, clear the flag, and remove the
+	sentinel. The previous pair is not preserved; rerunning preprocessing from
+	the source JSON is the recovery procedure.
+5. On success or failure in the server context, clear the record-data LRU
+	cache entries for the rebuilt database path so no pre-rebuild data is
+	served.
 
-Store the following in SQLite metadata:
-
-- Search schema version
-- Search index version
-- Search index location
-
-Do not use build UUIDs or cross-artifact mismatch detection. There is an accepted
-small crash window between publishing the two paths; rebuilding is the recovery
-procedure. If the first build fails, leave neither database nor index behind.
+Store only the search schema version in SQLite metadata. The index location is
+the fixed sibling path, and no build UUIDs, index versions, or cross-artifact
+mismatch detection are used.
 
 The supported update model is build once and query many. Incremental indexing and live writes are deferred.
 
@@ -493,18 +494,27 @@ search summaries from SQLite or source JSON. Preserve Tantivy result order and
 use the stored relative source path and record identity when the user opens a
 hit.
 
-### 4. Manage reader lifecycle
+### 4. Manage reader lifecycle and rebuild signaling
 
-Cache and reuse a Tantivy reader for the currently selected database. Invalidate and reopen it when preprocessing publishes a new index.
+Do not cache Tantivy readers. Each search request opens the index, creates a
+searcher held in Flask's `g` for the request duration, and discards it at
+request end. At the expected corpus sizes the per-request open cost is
+negligible, and readers automatically pick up a completed in-place rebuild
+without explicit invalidation.
 
 Report distinct errors for:
 
 - Invalid query syntax
+- Index currently rebuilding (retryable)
 - Missing index
 - Corrupt index
 - Incompatible schema version
 
-SQLite record browsing must continue to work when the derived Tantivy index is unavailable.
+A request arriving during a rebuild is detected through the in-memory flag or
+the `.building` sentinel and returns HTTP 409 with code `index_rebuilding`; the
+sentinel lets a restarted server distinguish an interrupted build from a valid
+pair. SQLite record browsing must continue to work when the derived Tantivy
+index is unavailable or being rebuilt.
 
 Return HTTP 400 for invalid syntax with a stable envelope:
 
@@ -522,10 +532,12 @@ Return HTTP 400 for invalid syntax with a stable envelope:
 `position` and `details` are omitted when unavailable. Empty frontend/backend
 queries use existing SQLite record browsing and are not sent to Tantivy.
 
-Add `GET /api/search/schema` for public field metadata, generated runnable
-examples, and a generic link to Tantivy query syntax. Return 404 until a database
-with a search index is selected, 404 when the index is missing, and 409 when its
-schema is incompatible. Do not expose the Tantivy library version in this
+Add `GET /api/search/schema` for public field metadata derived from the registry
+in `document.py`, generated runnable examples, and a generic link to Tantivy
+query syntax. Return 404 until a database with a search index is selected, 404
+when the index is missing, and 409 when the index is rebuilding or its schema is
+incompatible. Do not expose the Tantivy
+library version in this
 user-facing response. During indexing, collect the first non-empty value for each
 example field in deterministic selected-file, record, and feature order. Omit an
 example if its required values are unavailable. These data-derived examples are
@@ -535,13 +547,14 @@ allowed in local and public deployments.
 
 Add backend tests for:
 
-- Index publication and failure cleanup
-- Reader reopening and cache invalidation
+- In-place rebuild deletion, failure cleanup, and sentinel handling
+- Record-data LRU cache invalidation after rebuild
+- Reader open-per-request behavior across an in-place rebuild
 - JSON search-request parsing
 - Ranked pagination
 - Self-contained result metadata and stable ranking order
 - Invalid-query responses
-- Missing and stale indexes
+- Rebuilding, missing, corrupt, and incompatible-index responses
 - Existing record browsing without a search index
 - Schema endpoint availability and data-derived examples
 
@@ -585,6 +598,11 @@ Update `frontend/src/components/RecordListSelector.vue` to:
 - Provide a help popup generated from `/api/search/schema`, containing the
 	available fields, copyable examples, brief operator/phrase guidance, and a
 	Tantivy syntax link that opens in a new tab
+- Show a modal, non-cancellable blocking popup for the full duration of a
+	preprocessing run, driven by the existing preprocessing-status polling, and
+	refresh the record list and re-select the database when it completes
+- Map a `409 index_rebuilding` response (for example after a page refresh
+	mid-rebuild) to the same blocking popup and resume status polling
 
 ### 3. Navigate to the hit
 
@@ -616,6 +634,7 @@ Add frontend tests for:
 - Record-to-region-to-protocluster target propagation
 - Focus after asynchronous region loading
 - Clearing stale focus after an ordinary record selection
+- Blocking popup during a rebuild, including the `index_rebuilding` mapping
 
 Stage 3 is complete when selecting a search hit opens its parent record, selects its parent region, and focuses the correct protocluster.
 
@@ -636,7 +655,7 @@ Document:
 - Case-sensitive exact fields and case-insensitive analyzed fields
 - Native Tantivy syntax, including implicit `OR` and disabled regex queries
 - Representative query examples
-- A generated field reference sourced from the search-field manifest
+- A generated field reference sourced from the registry in `document.py`
 - A compatibility matrix listing tested antiSMASH versions and selected adapters
 - Contributor recipes for adding fields and antiSMASH version adapters
 
@@ -665,11 +684,18 @@ Relevant documentation locations include:
 	numeric navigation and coordinate fields.
 - Tantivy's native parser is the query-language contract: whitespace means `OR`,
 	negative-only queries are rejected, and regex remains disabled.
-- Results use relevance scoring with a deterministic tie-breaker.
-- Full-text fields have boost `0.5` only in unqualified queries.
+- Results use relevance scoring; equal scores resolve in deterministic Tantivy
+	insertion order, guaranteed by the deterministic build order.
+- Exact fields use a static query-time boost of `2.0` and full-text fields `1.0`,
+	applied uniformly to fielded and unqualified clauses.
 - Stage 1 has no Flask or frontend dependency.
-- Search fields are declared in one versioned manifest shared by Python and
-	Rust; source-specific adapters emit a stable canonical document contract.
+- Search fields and `SEARCH_SCHEMA_VERSION` are declared in one typed registry
+	in `document.py`; indexing and search run in Python through the exact-pinned
+	official [`tantivy`](https://pypi.org/project/tantivy/) package. The Rust
+	extension keeps only `scan_records()`. If measurements
+	later justify it, hot paths move into Rust without changing the canonical
+	document contract. Source-specific adapters emit a stable canonical document
+	contract.
 - antiSMASH version differences are isolated in adapters and verified by one
 	shared contract test suite.
 - Selected input paths are explicit and source-root-relative; no implicit JSON
@@ -683,8 +709,14 @@ Relevant documentation locations include:
 	the same warning code in one file fail the complete build by default.
 - Canonical documents stream directly into Tantivy and are not materialized on
 	disk.
-- Each output directory has one fixed sibling `tantivy.index/`; publication
-	replaces Tantivy first and SQLite second without UUID mismatch detection.
+- Each output directory has one fixed sibling `tantivy.index/`; a rebuild
+	deletes the previous database and index in place before building, guarded by
+	an in-memory flag and a `.building` sentinel. A failed build leaves neither
+	artifact, and rerunning preprocessing is the recovery procedure. No
+	cross-artifact pairing metadata is stored beyond the search schema version.
 - Search uses `POST /api/search`, returns compact self-contained summaries, and
 	does not report matched field names.
+- The backend opens a fresh Tantivy reader per search request instead of caching
+	readers, and the frontend shows a modal blocking popup for the duration of a
+	rebuild.
 - Incremental indexing, live writes, and advanced search for browser-local providers are out of scope for the initial implementation.
