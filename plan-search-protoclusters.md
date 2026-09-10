@@ -334,6 +334,15 @@ Add fixtures covering:
 - A clear compatibility error for a non-v8 file with an incompatible required structure
 - Shared adapter contract tests that produce equivalent canonical documents across versions
 
+#### Remaining gaps
+
+- [ ] Integrate `extract_documents()` with `backend/bgc_viewer/preprocessing.py`.
+- [ ] Add compatible antiSMASH 7.x and additional 8.x fixtures, then run the
+	same adapter contract assertions against equivalent 7.x, 8.x, and 9.x data.
+- [ ] Emit and test a structured warning when a PFAM feature has no usable
+	accession, omitting both its accession and description from the document.
+- [ ] Add an explicit test proving CDS features do not contribute search fields.
+
 ### 2. Build the index with the `tantivy` Python package
 
 Add the official [`tantivy`](https://pypi.org/project/tantivy/) package,
