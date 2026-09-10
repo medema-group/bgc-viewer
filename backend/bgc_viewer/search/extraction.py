@@ -208,7 +208,12 @@ def _select_parent_region(
 
 
 def _annotation_values(
-    protocluster: _Feature, annotations: list[_Feature]
+    protocluster: _Feature,
+    annotations: list[_Feature],
+    source_path: str,
+    record_id: str,
+    warning_counts: dict[str, int],
+    warning_threshold: int,
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     genes: list[str] = []
     loci: list[str] = []
@@ -222,9 +227,24 @@ def _annotation_values(
             loci.extend(_values(annotation.qualifiers, "locus_tag"))
         else:
             accessions = _values(annotation.qualifiers, "db_xref")
-            if accessions:
-                pfams.extend(_normalize_pfam(value) for value in accessions)
-                pfam_names.extend(_values(annotation.qualifiers, "description"))
+            if not accessions:
+                _emit_warning(
+                    ExtractionWarning(
+                        code="missing_pfam_accession",
+                        source_path=source_path,
+                        record_id=record_id,
+                        json_path=annotation.json_path,
+                        message=(
+                            "Skipping PFAM annotation without a usable "
+                            "accession and its description"
+                        ),
+                    ),
+                    warning_counts,
+                    warning_threshold,
+                )
+                continue
+            pfams.extend(_normalize_pfam(value) for value in accessions)
+            pfam_names.extend(_values(annotation.qualifiers, "description"))
     return (
         tuple(dict.fromkeys(genes)),
         tuple(dict.fromkeys(loci)),
@@ -241,6 +261,8 @@ def _document(
     record_id: str,
     record_path: str,
     source: SourceFile,
+    warning_counts: dict[str, int],
+    warning_threshold: int,
 ) -> ProtoclusterSearchDocument:
     category = _values(protocluster.qualifiers, "product_category") or _values(
         protocluster.qualifiers, "category"
@@ -251,7 +273,14 @@ def _document(
     protocluster_number = _number(
         protocluster.qualifiers, "protocluster_number", record_path
     )
-    genes, loci, pfams, pfam_names = _annotation_values(protocluster, annotations)
+    genes, loci, pfams, pfam_names = _annotation_values(
+        protocluster,
+        annotations,
+        source.source_path,
+        record_id,
+        warning_counts,
+        warning_threshold,
+    )
     return ProtoclusterSearchDocument(
         source=source,
         search_fields=SearchFields(
@@ -356,6 +385,8 @@ def _extract_v8(
                 record_id,
                 record_path,
                 source,
+                warning_counts,
+                warning_threshold,
             )
             _check_identity(document, identities)
             yield document

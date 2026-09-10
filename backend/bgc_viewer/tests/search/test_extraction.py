@@ -416,3 +416,172 @@ def test_location_parses_antismash_fuzzy_and_compound_syntax():
 
     with pytest.raises(ValueError, match="Invalid antiSMASH location"):
         Location.parse("prefix [1:2](+) suffix")
+
+
+def test_warns_when_pfam_annotation_has_no_usable_accession(tmp_path):
+    source = {
+        "version": "8.0.2",
+        "records": [
+            {
+                "id": "record-1",
+                "features": [
+                    {
+                        "type": "region",
+                        "location": "[0:1000](+)",
+                        "qualifiers": {"region_number": ["1"]},
+                    },
+                    {
+                        "type": "protocluster",
+                        "location": "[100:900](+)",
+                        "qualifiers": {
+                            "protocluster_number": ["1"],
+                            "product": ["NRPS"],
+                            "product_category": ["NRPS"],
+                        },
+                    },
+                    {
+                        "type": "PFAM_domain",
+                        "location": "[200:300](+)",
+                        "qualifiers": {
+                            "db_xref": ["PF00512.28"],
+                            "description": ["His Kinase"],
+                        },
+                    },
+                    {
+                        "type": "PFAM_domain",
+                        "location": "[400:500](+)",
+                        "qualifiers": {
+                            "db_xref": [""],
+                            "description": ["Orphan description"],
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+    (tmp_path / "sample.json").write_text(json.dumps(source))
+
+    with pytest.warns(ExtractionWarning) as caught:
+        document = next(extract_documents([Path("sample.json")], tmp_path))
+
+    warning = caught[0].message
+    assert isinstance(warning, ExtractionWarning)
+    assert document.search_fields.pfam == ("PF00512",)
+    assert document.search_fields.pfam_name == ("His Kinase",)
+    assert "Orphan description" not in document.search_fields.pfam_name
+    assert warning.code == "missing_pfam_accession"
+    assert warning.source_path == "sample.json"
+    assert warning.record_id == "record-1"
+    assert warning.json_path == "records[0].features[3]"
+
+
+def test_pfam_missing_accession_is_subject_to_warning_threshold(tmp_path):
+    source = {
+        "version": "8.0.2",
+        "records": [
+            {
+                "id": "record-1",
+                "features": [
+                    {
+                        "type": "region",
+                        "location": "[0:1000](+)",
+                        "qualifiers": {"region_number": ["1"]},
+                    },
+                    {
+                        "type": "protocluster",
+                        "location": "[100:900](+)",
+                        "qualifiers": {
+                            "protocluster_number": ["1"],
+                            "product": ["NRPS"],
+                            "product_category": ["NRPS"],
+                        },
+                    },
+                    {
+                        "type": "PFAM_domain",
+                        "location": "[200:300](+)",
+                        "qualifiers": {"description": ["No accession"]},
+                    },
+                ],
+            }
+        ],
+    }
+    (tmp_path / "sample.json").write_text(json.dumps(source))
+
+    with (
+        pytest.warns(ExtractionWarning, match="usable accession"),
+        pytest.raises(
+            ExtractionError,
+            match="warning threshold.*missing_pfam_accession",
+        ),
+    ):
+        list(
+            extract_documents(
+                [Path("sample.json")],
+                tmp_path,
+                warning_threshold=1,
+            )
+        )
+
+
+def test_cds_features_do_not_contribute_search_fields(tmp_path):
+    source = {
+        "version": "8.0.2",
+        "records": [
+            {
+                "id": "record-1",
+                "features": [
+                    {
+                        "type": "region",
+                        "location": "[0:1000](+)",
+                        "qualifiers": {"region_number": ["1"]},
+                    },
+                    {
+                        "type": "protocluster",
+                        "location": "[100:900](+)",
+                        "qualifiers": {
+                            "protocluster_number": ["1"],
+                            "product": ["NRPS"],
+                            "product_category": ["NRPS"],
+                        },
+                    },
+                    {
+                        "type": "gene",
+                        "location": "[200:400](+)",
+                        "qualifiers": {"gene": ["real_gene"], "locus_tag": ["REAL_1"]},
+                    },
+                    {
+                        "type": "PFAM_domain",
+                        "location": "[250:350](+)",
+                        "qualifiers": {
+                            "db_xref": ["PF00512.1"],
+                            "description": ["Real Pfam"],
+                        },
+                    },
+                    {
+                        "type": "CDS",
+                        "location": "[200:400](+)",
+                        "qualifiers": {
+                            "gene": ["cds_gene"],
+                            "locus_tag": ["CDS_IGNORABLE"],
+                            "db_xref": ["PF99999.1"],
+                            "description": ["CDS decoy"],
+                            "translation": ["MAQ"],
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+    (tmp_path / "sample.json").write_text(json.dumps(source))
+
+    document = next(extract_documents([Path("sample.json")], tmp_path))
+    fields = document.search_fields
+
+    assert fields.gene == ("real_gene",)
+    assert fields.locus == ("REAL_1",)
+    assert fields.pfam == ("PF00512",)
+    assert fields.pfam_name == ("Real Pfam",)
+    assert "cds_gene" not in fields.gene
+    assert "CDS_IGNORABLE" not in fields.locus
+    assert "PF99999" not in fields.pfam
+    assert "CDS decoy" not in fields.pfam_name
