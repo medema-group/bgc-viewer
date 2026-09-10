@@ -1,6 +1,7 @@
+"""Canonical search documents and antiSMASH location parsing."""
+
 import re
 from dataclasses import dataclass, field
-
 
 _SIMPLE_LOCATION_PATTERN = r"\[[<>]?\d+:[<>]?\d+\](?:\([+\-?]\))?"
 _LOCATION_PATTERN = re.compile(
@@ -17,6 +18,22 @@ class LocationPart:
 
 @dataclass(frozen=True)
 class Location:
+    """A parsed antiSMASH feature location.
+
+    ``parse`` accepts a simple ``[start:end](strand)`` location such as
+    ``[200:700](+)``. Either bound may be fuzzy, as in
+    ``[<900:>1000](-)``, and the strand suffix may be omitted. The strand
+    may be ``+``, ``-``, or ``?``.
+
+    Compound locations contain two or more comma-separated simple locations
+    under an operator, for example
+    ``join{[<900:1000](+), [0:>200](+)}``.
+
+    Parsing validates the complete serialized value, then captures the numeric
+    bounds from each simple location as ``LocationPart`` instances. Fuzzy
+    markers and compound operators remain available in ``serialized`` while
+    ``parts``, ``start``, and ``end`` support interval comparisons.
+    """
     serialized: str
     parts: tuple[LocationPart, ...] = field(init=False)
 
@@ -33,6 +50,7 @@ class Location:
 
     @classmethod
     def parse(cls, serialized: str) -> "Location":
+        """Parse an antiSMASH location such as ``[200:700](+)``."""
         return cls(serialized)
 
     @property

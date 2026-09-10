@@ -3,6 +3,7 @@ import re
 import warnings
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from .document import (
@@ -103,8 +104,25 @@ def _feature(value: object, path: str) -> _Feature:
 
 
 def _normalize_pfam(accession: str) -> str:
+    """Remove a numeric version from a standard PFAM accession.
+
+    For example, ``PF00512.28`` becomes ``PF00512``. Non-standard database
+    cross-references and unversioned accessions are retained unchanged.
+    """
     match = re.fullmatch(r"(PF\d{5})\.\d+", accession)
     return match.group(1) if match else accession
+
+
+def _parent_region_key(
+    region: _Feature, record_path: str
+) -> tuple[int, int, str]:
+    size = sum(
+        part.end - part.start for part in region.location.parts
+    )
+    region_number = _number(
+        region.qualifiers, "region_number", record_path
+    )
+    return size, region_number, region.location.serialized
 
 
 def _emit_warning(
@@ -243,17 +261,8 @@ def extract_documents(
                     )
                 parent = min(
                     parents,
-                    key=lambda region: (
-                        sum(
-                            part.end - part.start
-                            for part in region.location.parts
-                        ),
-                        _number(
-                            region.qualifiers,
-                            "region_number",
-                            record_path,
-                        ),
-                        region.location.serialized,
+                    key=partial(
+                        _parent_region_key, record_path=record_path
                     ),
                 )
 
