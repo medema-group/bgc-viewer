@@ -1,5 +1,7 @@
 # Plan: Embedded Protocluster Search
 
+TODO remove this document before merging PR
+
 ## Goal
 
 Keep SQLite as the authoritative catalog for files, records, byte offsets, and metadata. Add Tantivy as a rebuildable embedded search index through the official `tantivy` Python package, pinned to an exact version.
