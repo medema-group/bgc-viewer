@@ -1,7 +1,12 @@
 <template>
   <div class="file-upload-section">
-    <h3>Upload JSON File</h3>
-    <p class="help-text">Select or drag and drop an antiSMASH JSON file</p>
+    <h3>Upload Genomic Data</h3>
+    <p class="help-text">
+      Select or drag and drop supported genomic files
+      <a href="https://medema-group.github.io/bgc-viewer/guide/data-sources.html#_2-direct-file-loading-client-side" target="_blank" rel="noopener noreferrer">
+        (supported formats)
+      </a>
+    </p>
     
     <input
       ref="fileInputRef"
@@ -23,7 +28,7 @@
         <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
         </svg>
-        <p class="drop-text">Drag and drop JSON files here</p>
+        <p class="drop-text">Drag and drop files here</p>
         <p class="or-text">or</p>
         <button class="select-file-btn" @click="triggerFileInput">
           Select Files
@@ -278,6 +283,16 @@ export default {
   margin: 0 0 15px 0;
   font-size: 13px;
   color: #666;
+}
+
+.help-text a {
+  color: #1976d2;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.help-text a:hover {
+  text-decoration: underline;
 }
 
 .drop-zone {
