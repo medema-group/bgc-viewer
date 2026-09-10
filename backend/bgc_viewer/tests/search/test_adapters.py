@@ -4,13 +4,15 @@ import warnings
 from pathlib import Path
 
 import pytest
-from bgc_viewer.search import (
-    ExtractionError,
-    ExtractionWarning,
+from bgc_viewer.search.document import (
     Location,
     ProtoclusterSearchDocument,
     SearchFields,
     SourceFile,
+)
+from bgc_viewer.search.extraction import (
+    ExtractionError,
+    ExtractionWarning,
     extract,
 )
 

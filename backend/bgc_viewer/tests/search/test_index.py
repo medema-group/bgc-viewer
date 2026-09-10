@@ -2,22 +2,24 @@ import json
 from pathlib import Path
 
 import pytest
-from bgc_viewer.search import (
+from bgc_viewer.search.document import (
     SEARCH_FIELD_REGISTRY,
     SEARCH_SCHEMA_VERSION,
+    Location,
+    ProtoclusterSearchDocument,
+    SearchFields,
+    SourceFile,
+)
+from bgc_viewer.search.extraction import extract_documents
+from bgc_viewer.search.index import (
     EmptyQueryError,
     IndexCorruptError,
     IndexIncompatibleError,
     IndexNotFoundError,
-    Location,
-    ProtoclusterSearchDocument,
     QuerySyntaxError,
-    SearchFields,
     SearchIndex,
-    SourceFile,
     UnknownFieldError,
     build_index,
-    extract_documents,
     open_index,
     search,
 )
