@@ -5,6 +5,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from typing import Protocol
 
 from .document import (
     Location,
@@ -32,6 +33,19 @@ class ExtractionWarning(UserWarning):
         self.source_path = source_path
         self.record_id = record_id
         self.json_path = json_path
+
+
+class SourceAdapter(Protocol):
+    name: str
+
+    def extract(
+        self,
+        raw_data: object,
+        source_path: str,
+        version: str,
+        warning_threshold: int,
+        identities: dict[tuple[str, str, int, int], SourceFile],
+    ) -> Iterator[ProtoclusterSearchDocument]: ...
 
 
 @dataclass(frozen=True)
@@ -280,14 +294,14 @@ def _check_identity(
     identities[identity] = source
 
 
-def _extract(
+def _extract_v8(
     raw_data: object,
     source_path: str,
+    version: str,
     warning_threshold: int,
     identities: dict[tuple[str, str, int, int], SourceFile],
 ) -> Iterator[ProtoclusterSearchDocument]:
     data = _mapping(raw_data, source_path)
-    version = _text(data.get("version"), "version")
     input_file_value = data.get("input_file", "")
     input_file = input_file_value.strip() if isinstance(input_file_value, str) else ""
     source = SourceFile(version, source_path, Path(source_path).name, input_file)
@@ -358,6 +372,60 @@ def _extract(
             warning_counts,
             warning_threshold,
         )
+
+
+class Antismash8Adapter:
+    name = "Antismash8Adapter"
+
+    def extract(
+        self,
+        raw_data: object,
+        source_path: str,
+        version: str,
+        warning_threshold: int,
+        identities: dict[tuple[str, str, int, int], SourceFile],
+    ) -> Iterator[ProtoclusterSearchDocument]:
+        yield from _extract_v8(
+            raw_data,
+            source_path,
+            version,
+            warning_threshold,
+            identities,
+        )
+
+
+_V8_ADAPTER = Antismash8Adapter()
+_ADAPTERS: dict[int, SourceAdapter] = {8: _V8_ADAPTER}
+
+
+def _declared_major(version: str) -> int | None:
+    match = re.match(r"(\d+)", version)
+    return int(match.group(1)) if match else None
+
+
+def _extract(
+    raw_data: object,
+    source_path: str,
+    warning_threshold: int,
+    identities: dict[tuple[str, str, int, int], SourceFile],
+) -> Iterator[ProtoclusterSearchDocument]:
+    data = _mapping(raw_data, source_path)
+    version = _text(data.get("version"), "version")
+    major = _declared_major(version)
+    adapter = _V8_ADAPTER if major is None else _ADAPTERS.get(major, _V8_ADAPTER)
+    try:
+        yield from adapter.extract(
+            data,
+            source_path,
+            version,
+            warning_threshold,
+            identities,
+        )
+    except ExtractionError as error:
+        raise ExtractionError(
+            f"{source_path} (antiSMASH {version}) is incompatible with "
+            f"{adapter.name}: {error}"
+        ) from error
 
 
 def extract(

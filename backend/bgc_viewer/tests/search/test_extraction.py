@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 from bgc_viewer.search import (
+    SEARCH_FIELD_REGISTRY,
+    SEARCH_SCHEMA_VERSION,
     ExtractionError,
     ExtractionWarning,
     Location,
@@ -13,6 +15,30 @@ from bgc_viewer.search import (
     extract,
     extract_documents,
 )
+
+
+def test_search_fields_expose_the_versioned_public_registry():
+    assert SEARCH_SCHEMA_VERSION == 1
+    assert SearchFields.registry is SEARCH_FIELD_REGISTRY
+    assert [field.name for field in SEARCH_FIELD_REGISTRY] == [
+        "pfam",
+        "pfam_name",
+        "organism",
+        "gene",
+        "locus",
+        "product",
+        "category",
+        "record",
+        "region",
+        "protocluster",
+        "start",
+        "end",
+        "output_file",
+        "input_file",
+    ]
+    assert len({field.name for field in SEARCH_FIELD_REGISTRY}) == len(
+        SEARCH_FIELD_REGISTRY
+    )
 
 
 def test_extracts_canonical_protocluster_document(tmp_path):
@@ -141,6 +167,49 @@ def test_extracts_from_data_without_reading_a_file():
         input_file="sample.gbk",
     )
     assert document.search_fields.record_id == "record-1"
+
+
+def test_compatible_unknown_major_version_uses_v8_adapter():
+    source = {
+        "version": "9.0.0",
+        "records": [
+            {
+                "id": "record-1",
+                "features": [
+                    {
+                        "type": "region",
+                        "location": "[0:500](+)",
+                        "qualifiers": {"region_number": ["1"]},
+                    },
+                    {
+                        "type": "protocluster",
+                        "location": "[100:400](+)",
+                        "qualifiers": {
+                            "protocluster_number": ["1"],
+                            "product": ["NRPS"],
+                            "product_category": ["NRPS"],
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+
+    [document] = extract(source, "memory/sample.json")
+
+    assert document.source.antismash_version == "9.0.0"
+
+
+def test_incompatible_version_error_identifies_adapter_and_source():
+    source = {"version": "7.1.0", "records": "incompatible"}
+
+    with pytest.raises(ExtractionError) as caught:
+        list(extract(source, "memory/sample.json"))
+
+    message = str(caught.value)
+    assert "memory/sample.json (antiSMASH 7.1.0)" in message
+    assert "Antismash8Adapter" in message
+    assert "records" in message
 
 
 def test_selects_smallest_parent_region_and_warns_for_multiple_matches(
