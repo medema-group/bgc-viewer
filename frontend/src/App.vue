@@ -58,12 +58,13 @@
         <!-- Bottom section: Record list -->
         <div class="sidebar-bottom">
           <!-- Record List Selector Section - Hidden when creating an index -->
-          <RecordListSelector 
+          <RecordListSelector
             v-if="!folderForIndexing"
             ref="recordListSelectorRef"
             :data-root="selectedDataRoot"
             :index-path="selectedIndexPath"
-            @record-selected="handleRecordSelected" 
+            :data-source="dataSource"
+            @record-selected="handleRecordSelected"
           />
         </div>
       </aside>
