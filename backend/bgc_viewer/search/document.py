@@ -22,7 +22,6 @@ class SearchFieldDefinition:
     default_search: bool
     boost: float
     required: bool
-    aliases: tuple[str, ...] = ()
 
 
 SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (

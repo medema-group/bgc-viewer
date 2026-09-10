@@ -144,7 +144,7 @@ Define the versioned search-field registry in
 fields. Use typed, immutable Python field definitions rather than a separate
 JSON manifest. Each field definition contains:
 
-- Public field name and optional aliases
+- Public field name
 - Value type (`text`, `keyword`, or numeric)
 - Cardinality (`single` or `multi`)
 - Analyzer (`full_text`, case-sensitive exact, or another registered analyzer)
@@ -155,7 +155,7 @@ JSON manifest. Each field definition contains:
 
 `document.py` owns the registry end to end: it validates extracted documents,
 and `index.py` consumes it to build the Tantivy schema and configure fields,
-aliases, default fields, and boosts. Do not serialize or copy the registry into
+default fields, and boosts. Do not serialize or copy the registry into
 the index, SQLite, Rust, or another source file. Adding a field that uses an
 existing analyzer requires only registry and adapter changes; only a genuinely
 new analysis strategy requires registering a new analyzer.
@@ -196,7 +196,7 @@ Add a short contributor guide with these checklists.
 To add a field such as `go`:
 
 1. Add one typed field definition to the registry in `document.py`, choosing
-	cardinality, analyzer, storage, aliases, and default-search behavior.
+	cardinality, analyzer, storage, and default-search behavior.
 2. Add extraction for that canonical field to each source adapter that can
 	provide it. Missing optional data produces an empty value, not a failed file.
 3. Add a minimal fixture containing two protoclusters that differ only in the
@@ -272,10 +272,10 @@ organism:Amycolatopsis
 organism:Amycolatopsis NOT pfam:PF00513
 ```
 
-Invalid syntax must produce a structured parse error with the best available
-character position. It must not silently become an empty result or literal
-query. Unknown fields likewise produce a structured error listing available
-fields.
+Invalid syntax must produce a structured parse error carrying the parser
+message. It must not silently become an empty result or literal query. The
+query character position is not tracked and is omitted from errors. Unknown
+fields likewise produce a structured error listing available fields.
 
 ## Stage 1: Python Indexer and Searcher
 
@@ -369,25 +369,26 @@ Exact and analyzed fields must live in the same Tantivy document so one nested B
 ### 3. Expose a Python API over `tantivy`
 
 Implement `build_index(documents, index_path)`, `open_index(index_path)`, and
-`search(query, offset, limit)` in `backend/bgc_viewer/search/index.py`:
+`search(index, query, offset, limit)` in `backend/bgc_viewer/search/index.py`:
 
 - `build_index` creates the index at its final path, streams one compact
 	document at a time into the writer so Python never retains a converted copy
 	of the full corpus, inserts documents in deterministic selected-file,
 	record, and protocluster order, and commits.
-- `open_index` builds the expected schema from the current registry, checks
-	index compatibility (`Index.is_compatible`) and the persisted schema version,
-	then loads fields, aliases, default fields, and boosts from the registry.
-- `search` validates before parsing: an empty query raises a structured
-	`EmptyQueryError`, and field names are checked against the registry and its
-	aliases so unknown fields raise a structured `UnknownFieldError` carrying
-	the offending position and the available fields. Remaining parser failures
-	surface as a structured syntax error with the parser message; the character
-	position is omitted when unavailable. Queries execute with offset/limit
-	pagination, return the total hit count, and return stored identities,
-	display fields, and scores.
+- `open_index` builds the expected schema from the current registry, reopens
+	the stored index with it (Tantivy rejects an index whose stored schema
+	differs), verifies the persisted schema version, then loads fields, default
+	fields, and boosts from the registry.
+- `search` runs against an already-open index and validates before parsing: an
+	empty query raises a structured `EmptyQueryError`. Unknown fields raise a
+	structured `UnknownFieldError` naming the field and the available fields. Any
+	remaining parser failure surfaces as a structured syntax error carrying the
+	parser message. Search errors do not report a character position. Queries
+	execute with offset/limit pagination, return the total hit count, and return
+	stored identities, display fields, and scores.
 
-Use public field aliases rather than exposing internal Tantivy schema names.
+Use the public field names declared in the registry for queries and results
+rather than exposing internal Tantivy schema names.
 Expose `extract_documents(files, source_root)` as a public iterator for tests and
 interactive inspection, but do not write canonical documents to JSONL or another
 side artifact.
@@ -536,13 +537,12 @@ Return HTTP 400 for invalid syntax with a stable envelope:
 	"error": {
 		"code": "unknown_field",
 		"message": "Unknown field: go",
-		"position": 0,
 		"details": {"available_fields": ["pfam", "organism"]}
 	}
 }
 ```
 
-`position` and `details` are omitted when unavailable. Empty frontend/backend
+`details` is omitted when unavailable. Empty frontend/backend
 queries use existing SQLite record browsing and are not sent to Tantivy.
 
 Add `GET /api/search/schema` for public field metadata derived from the registry

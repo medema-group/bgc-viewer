@@ -5,12 +5,21 @@ import pytest
 from bgc_viewer.search import (
     SEARCH_FIELD_REGISTRY,
     SEARCH_SCHEMA_VERSION,
+    EmptyQueryError,
+    IndexCorruptError,
+    IndexIncompatibleError,
+    IndexNotFoundError,
     Location,
     ProtoclusterSearchDocument,
+    QuerySyntaxError,
     SearchFields,
+    SearchIndex,
     SourceFile,
+    UnknownFieldError,
     build_index,
     extract_documents,
+    open_index,
+    search,
 )
 from tantivy import Index
 
@@ -264,3 +273,263 @@ def test_build_from_extracted_fixture():
     searcher = index.searcher()
     assert searcher.num_docs == len(documents)
     assert _hits(searcher, index, 'category:"trans-AT PKS"') == 1
+
+
+def _open(corpus, tmp_path, name="tantivy.index") -> SearchIndex:
+    index_dir = tmp_path / name
+    build_index(iter(corpus), index_dir)
+    return open_index(index_dir)
+
+
+def test_open_index_reopens_a_committed_index(corpus, tmp_path):
+    index_dir = tmp_path / "tantivy.index"
+    build_index(iter(corpus), index_dir)
+
+    reopened = open_index(index_dir)
+    result = search(reopened, "pfam:PF00512")
+    assert result.total == 1
+
+
+def test_open_index_missing_path_raises(tmp_path):
+    with pytest.raises(IndexNotFoundError):
+        open_index(tmp_path / "absent")
+
+
+def test_open_index_empty_directory_raises(tmp_path):
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(IndexNotFoundError):
+        open_index(tmp_path / "empty")
+
+
+def test_open_index_rejects_mismatched_schema_version(corpus, tmp_path):
+    index_dir = tmp_path / "tantivy.index"
+    build_index(iter(corpus), index_dir)
+    meta_path = index_dir / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    payload = json.loads(meta["payload"])
+    payload["search_schema_version"] = SEARCH_SCHEMA_VERSION + 1
+    meta["payload"] = json.dumps(payload)
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    with pytest.raises(IndexIncompatibleError):
+        open_index(index_dir)
+
+
+def test_open_index_rejects_incompatible_schema(tmp_path):
+    from tantivy import Document, SchemaBuilder
+
+    index_dir = tmp_path / "tantivy.index"
+    index_dir.mkdir()
+    builder = SchemaBuilder()
+    builder.add_text_field("totally", tokenizer_name="raw")
+    builder.add_text_field("different", tokenizer_name="raw")
+    foreign = Index(builder.build(), path=str(index_dir))
+    writer = foreign.writer(num_threads=1)
+    document = Document()
+    document.add_text("totally", "x")
+    writer.add_document(document)
+    writer.commit()
+    meta_path = index_dir / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["payload"] = json.dumps({"search_schema_version": SEARCH_SCHEMA_VERSION})
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    with pytest.raises(IndexIncompatibleError):
+        open_index(index_dir)
+
+
+def test_open_index_rejects_corrupt_index(corpus, tmp_path):
+    index_dir = tmp_path / "tantivy.index"
+    build_index(iter(corpus), index_dir)
+    (index_dir / "meta.json").write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(IndexCorruptError):
+        open_index(index_dir)
+
+
+def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
+    target = _open(corpus, tmp_path)
+    result = search(target, "pfam:PF00512")
+
+    assert result.total == 1
+    hit = result.hits[0]
+    assert hit.score > 0
+    assert hit.fields["record"] == "recA"
+    assert hit.fields["region"] == 1
+    assert hit.fields["protocluster"] == 1
+    assert hit.fields["start"] == 100
+    assert hit.fields["end"] == 500
+    assert hit.fields["product"] == "NRP"
+    assert hit.fields["category"] == "NRPS"
+    assert hit.fields["output_file"] == "rec.json"
+    assert hit.fields["input_file"] == "rec.gbk"
+
+
+def test_search_omits_indexed_only_fields(corpus, tmp_path):
+    target = _open(corpus, tmp_path)
+    hit = search(target, "pfam:PF00512").hits[0]
+    for field in ("pfam", "pfam_name", "gene", "locus"):
+        assert field not in hit.fields
+
+
+def test_search_omits_empty_optional_field(corpus, tmp_path):
+    target = _open(corpus, tmp_path)
+    hit = search(target, "organism:coelicolor").hits[0]
+    assert "input_file" not in hit.fields
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("pfam:PF00512", 1),
+        ("pfam:pf00512", 0),
+        ('product:"T1PKS"', 1),
+        ('product:"t1pks"', 0),
+    ],
+)
+def test_search_exact_fields_are_case_sensitive(corpus, tmp_path, query, expected):
+    target = _open(corpus, tmp_path)
+    assert search(target, query).total == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("organism:amycolatopsis", 1),
+        ("organism:Amycolatopsis", 1),
+        ('organism:"His Kinase"', 1),
+        ('organism:"Kinase His"', 0),
+    ],
+)
+def test_search_full_text_is_lowercased_and_phrasable(
+    corpus, tmp_path, query, expected
+):
+    target = _open(corpus, tmp_path)
+    assert search(target, query).total == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("pfam:PF00512 AND pfam:PF00513", 1),
+        ("pfam:PF00512 AND pfam:PF00999", 0),
+        ("pfam:PF00512 OR pfam:PF00999", 2),
+        ("(pfam:PF00512 OR pfam:PF00999) AND organism:streptomyces", 1),
+        ("organism:streptomyces NOT pfam:PF00999", 0),
+        ("organism:amycolatopsis NOT pfam:PF00999", 1),
+        ("gene:spaA AND gene:spaB", 1),
+    ],
+)
+def test_search_boolean_precedence_and_nesting(corpus, tmp_path, query, expected):
+    target = _open(corpus, tmp_path)
+    assert search(target, query).total == expected
+
+
+def test_search_unqualified_covers_default_fields(corpus, tmp_path):
+    target = _open(corpus, tmp_path)
+    assert search(target, "spaA").total == 1
+    assert search(target, "coelicolor").total == 1
+    assert search(target, "SPAU_1").total == 1
+    # Numeric navigation fields are excluded from unqualified search.
+    assert search(target, "600").total == 0
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [("start:[100 TO 500]", 1), ("end:[800 TO 1000]", 1), ("region:[1 TO 1]", 2)],
+)
+def test_search_numeric_range(corpus, tmp_path, query, expected):
+    target = _open(corpus, tmp_path)
+    assert search(target, query).total == expected
+
+
+def test_search_pagination_and_total_counts(corpus, tmp_path):
+    many = [
+        _doc(number, pfam=("shared",), organism=f"organism {number}")
+        for number in range(5)
+    ]
+    target = _open(many, tmp_path)
+
+    page_one = search(target, "pfam:shared", offset=0, limit=2)
+    assert page_one.total == 5
+    assert [hit.fields["protocluster"] for hit in page_one.hits] == [0, 1]
+
+    page_two = search(target, "pfam:shared", offset=3, limit=2)
+    assert page_two.total == 5
+    assert [hit.fields["protocluster"] for hit in page_two.hits] == [3, 4]
+
+    beyond = search(target, "pfam:shared", offset=10, limit=2)
+    assert beyond.total == 5
+    assert beyond.hits == ()
+
+
+def test_search_equal_scores_resolve_in_insertion_order(corpus, tmp_path):
+    many = [_doc(number, pfam=("shared",)) for number in range(4)]
+    target = _open(many, tmp_path)
+    hits = search(target, "pfam:shared", limit=10).hits
+
+    scores = [hit.score for hit in hits]
+    assert scores == sorted(scores, reverse=True)
+    assert len(set(scores)) == 1
+    assert [hit.fields["protocluster"] for hit in hits] == [0, 1, 2, 3]
+
+
+def test_search_boosts_exact_field_above_full_text(tmp_path):
+    documents = [
+        _doc(1, pfam=("shared",), organism="other organism"),
+        _doc(2, pfam=("other",), organism="shared term"),
+    ]
+    target = _open(documents, tmp_path)
+    hits = search(target, "shared", limit=10).hits
+
+    assert hits[0].fields["protocluster"] == 1
+    assert hits[0].score > hits[1].score
+
+
+@pytest.mark.parametrize("query", ["", "   ", "\t\n"])
+def test_search_empty_query_raises(corpus, tmp_path, query):
+    target = _open(corpus, tmp_path)
+    with pytest.raises(EmptyQueryError):
+        search(target, query)
+
+
+def test_search_unknown_field_reports_field_and_available(corpus, tmp_path):
+    target = _open(corpus, tmp_path)
+    with pytest.raises(UnknownFieldError) as excinfo:
+        search(target, "pfam:PF00512 AND go:something")
+
+    error = excinfo.value
+    assert error.field == "go"
+    assert error.available_fields == sorted(
+        definition.name for definition in SEARCH_FIELD_REGISTRY
+    )
+
+
+@pytest.mark.parametrize("query", ["pfam:(", "(pfam:PF00512 AND", "-pfam:PF00512"])
+def test_search_malformed_query_raises_structured_syntax_error(corpus, tmp_path, query):
+    target = _open(corpus, tmp_path)
+    with pytest.raises(QuerySyntaxError):
+        search(target, query)
+
+
+def test_search_syntax_error_carries_parser_message(corpus, tmp_path):
+    target = _open(corpus, tmp_path)
+    with pytest.raises(QuerySyntaxError) as excinfo:
+        search(target, "pfam:(")
+    assert "Syntax Error" in excinfo.value.message
+
+
+def test_search_validates_pagination_arguments(corpus, tmp_path):
+    target = _open(corpus, tmp_path)
+    with pytest.raises(ValueError):
+        search(target, "pfam:PF00512", offset=-1)
+    with pytest.raises(ValueError):
+        search(target, "pfam:PF00512", limit=0)
+
+
+def test_search_over_index_built_from_fixture(tmp_path):
+    documents = list(extract_documents([Path("multi.json")], FIXTURES / "antismash8"))
+    index_dir = tmp_path / "tantivy.index"
+    build_index(iter(documents), index_dir)
+    target = open_index(index_dir)
+    assert search(target, 'category:"trans-AT PKS"').total == 1
