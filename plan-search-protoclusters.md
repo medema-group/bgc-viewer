@@ -281,6 +281,16 @@ fields likewise produce a structured error listing available fields.
 
 The first stage must be usable without Flask or Vue. Its purpose is to experiment with document extraction, analyzers, query syntax, and ranking directly from Python.
 
+> **Stage 1: complete.** Build, close, reopen, and query work entirely from Python, verified via the `python -m bgc_viewer.search.index` CLI and the `bgc_viewer/tests/search` suite.
+>
+> - [x] 1. Extract protocluster documents
+> - [x] 2. Build the index with the `tantivy` Python package
+> - [x] 3. Expose a Python API over `tantivy`
+> - [x] 4. Add a Python development CLI
+> - [x] 5. Test Stage 1
+>
+> Only deferred or non-code work remains: `extract_documents()`/`preprocessing.py` integration is a Stage 2 task (see step 1 gaps), and recording index size, build throughput, and cold/warm query latency on representative data is the pre-Stage 2 go/no-go measurement.
+
 ### 1. Extract protocluster documents
 
 Add a Python extraction package used by `backend/bgc_viewer/preprocessing.py`.
