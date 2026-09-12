@@ -8,11 +8,8 @@ reader can validate compatibility when it opens the index.
 
 from __future__ import annotations
 
-import argparse
 import json
-import sys
-import warnings
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
@@ -27,7 +24,6 @@ from .document import (
     SEARCH_SCHEMA_VERSION,
     SearchFieldDefinition,
 )
-from .extraction import ExtractionError, extract_documents
 
 # Registry analyzer name -> Tantivy built-in analyzer name.
 # ``exact`` uses the ``raw`` analyzer: one whole-value token with no case
@@ -210,6 +206,49 @@ class SearchResults:
 
 
 @dataclass(frozen=True)
+class RegionHit:
+    """One ranked region, scored by its best-matching protocluster."""
+
+    score: float
+    record: str
+    region: int
+    output_file: str
+    input_file: str | None
+
+
+@dataclass(frozen=True)
+class RegionResults:
+    """A page of unique regions plus the total number of matching regions."""
+
+    query: str
+    hits: tuple[RegionHit, ...]
+    total: int
+    offset: int
+    limit: int
+
+
+@dataclass(frozen=True)
+class RecordHit:
+    """One ranked record, scored by its best-matching protocluster."""
+
+    score: float
+    record: str
+    output_file: str
+    input_file: str | None
+
+
+@dataclass(frozen=True)
+class RecordResults:
+    """A page of unique records plus the total number of matching records."""
+
+    query: str
+    hits: tuple[RecordHit, ...]
+    total: int
+    offset: int
+    limit: int
+
+
+@dataclass(frozen=True)
 class SearchIndex:
     """An open Tantivy index plus the query-time configuration it uses.
 
@@ -326,7 +365,14 @@ def _parse_query(index: SearchIndex, query: str):
     return parsed
 
 
-def search(
+def _validate_pagination(offset: int, limit: int) -> None:
+    if offset < 0:
+        raise ValueError("offset must not be negative")
+    if limit < 1:
+        raise ValueError("limit must be at least 1")
+
+
+def search_protoclusters(
     index: SearchIndex,
     query: str,
     offset: int = 0,
@@ -343,10 +389,7 @@ def search(
     """
     if not query.strip():
         raise EmptyQueryError()
-    if offset < 0:
-        raise ValueError("offset must not be negative")
-    if limit < 1:
-        raise ValueError("limit must be at least 1")
+    _validate_pagination(offset, limit)
 
     parsed = _parse_query(index, query)
 
@@ -365,211 +408,117 @@ def search(
     )
 
 
-_CLI_EXAMPLES = """\
-examples (run these from the backend/ directory):
+def _matching_protocluster_fields(
+    index: SearchIndex, parsed: Any
+) -> list[tuple[float, dict[str, Any]]]:
+    """Return ``(score, stored_fields)`` for every matching protocluster document.
 
-  # Index the bundled demo antiSMASH outputs into a scratch directory
-  uv run python -m bgc_viewer.search.index build-index ../demos/data \\
-      -o /tmp/bgv --file NC_003888.3.json --file Y16952.json
-
-  # Exact, multi-valued, and analyzed (full-text) field queries
-  uv run python -m bgc_viewer.search.index search /tmp/bgv product:terpene
-  uv run python -m bgc_viewer.search.index search /tmp/bgv \\
-      'pfam:PF00550 AND pfam:PF00668'
-  uv run python -m bgc_viewer.search.index search /tmp/bgv 'pfam_name:"thioesterase"'
-
-  # Boolean negation, numeric ranges, and pagination
-  uv run python -m bgc_viewer.search.index search /tmp/bgv \\
-      'organism:Amycolatopsis NOT product:terpene'
-  uv run python -m bgc_viewer.search.index search /tmp/bgv 'product:terpene' \\
-      --offset 2 --limit 2
-"""
+    Documents are yielded in Tantivy relevance order so the first occurrence of
+    any grouping key carries that group's best score.
+    """
+    searcher = index.searcher()
+    probe = searcher.search(parsed, limit=1, count=True)
+    if probe.count == 0:
+        return []
+    result = searcher.search(parsed, limit=probe.count, count=True)
+    return [
+        (score, _stored_fields(searcher, address)) for score, address in result.hits
+    ]
 
 
-def _format_hit(position: int, hit: SearchHit) -> str:
-    fields = hit.fields
-    input_file = fields.get("input_file")
-    source = fields.get("output_file", "")
-    if input_file:
-        source = f"{source}  <-  {input_file}"
-    location = f"[{fields.get('start', '')}:{fields.get('end', '')}]"
-    return "\n".join(
-        (
-            f"[{position}] score={hit.score:.4f}  {source}",
-            (
-                f"      record={fields.get('record', '')}  "
-                f"region={fields.get('region', '')}  "
-                f"protocluster={fields.get('protocluster', '')}  {location}"
-            ),
-            (
-                f"      product={fields.get('product', '')}  "
-                f"category={fields.get('category', '')}"
-            ),
-            f"      organism={fields.get('organism', '')}",
+def _unique_by(
+    matches: list[tuple[float, dict[str, Any]]], key_fields: tuple[str, ...]
+) -> list[tuple[float, dict[str, Any]]]:
+    """Keep the first match per distinct ``key_fields`` tuple, in order."""
+    seen: set[tuple[Any, ...]] = set()
+    unique: list[tuple[float, dict[str, Any]]] = []
+    for score, fields in matches:
+        key = tuple(fields.get(name) for name in key_fields)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((score, fields))
+    return unique
+
+
+def search_region(
+    index: SearchIndex,
+    query: str,
+    offset: int = 0,
+    limit: int = 10,
+) -> RegionResults:
+    """Run ``query`` and return a page of unique regions.
+
+    A region is identified by its output file, record, and region number. Every
+    protocluster matching ``query`` contributes to its parent region, but each
+    region is reported once, scored by its highest-scoring matching
+    protocluster, and ordered by that score. The total is the number of distinct
+    matching regions, and ``offset``/``limit`` paginate that distinct set.
+    """
+    if not query.strip():
+        raise EmptyQueryError()
+    _validate_pagination(offset, limit)
+
+    parsed = _parse_query(index, query)
+    unique = _unique_by(
+        _matching_protocluster_fields(index, parsed),
+        ("output_file", "record", "region"),
+    )
+    hits = tuple(
+        RegionHit(
+            score=score,
+            record=fields.get("record", ""),
+            region=cast(int, fields.get("region")),
+            output_file=fields.get("output_file", ""),
+            input_file=fields.get("input_file"),
         )
+        for score, fields in unique[offset : offset + limit]
+    )
+    return RegionResults(
+        query=query,
+        hits=hits,
+        total=len(unique),
+        offset=offset,
+        limit=limit,
     )
 
 
-def _print_results(result: SearchResults) -> None:
-    print(f"query: {result.query}")
-    if result.total == 0:
-        print("0 total")
-        return
-    shown = len(result.hits)
-    if shown == 0:
-        print(f"{result.total} total; no hits at offset {result.offset}")
-        return
-    first = result.offset + 1
-    last = result.offset + shown
-    print(f"{result.total} total; showing {first}-{last}")
-    for position, hit in enumerate(result.hits, start=first):
-        print(_format_hit(position, hit))
+def search_record(
+    index: SearchIndex,
+    query: str,
+    offset: int = 0,
+    limit: int = 10,
+) -> RecordResults:
+    """Run ``query`` and return a page of unique records.
 
+    A record is identified by its output file and record id. Every protocluster
+    matching ``query`` contributes to its parent record, but each record is
+    reported once, scored by its highest-scoring matching protocluster, and
+    ordered by that score. The total is the number of distinct matching
+    records, and ``offset``/``limit`` paginate that distinct set.
+    """
+    if not query.strip():
+        raise EmptyQueryError()
+    _validate_pagination(offset, limit)
 
-def _build_command(args: argparse.Namespace) -> int:
-    source_root = Path(args.source_directory)
-    if not source_root.is_dir():
-        print(f"error: source directory not found: {source_root}", file=sys.stderr)
-        return 1
-
-    files = [Path(relative) for relative in args.files]
-    index_dir = Path(args.index_directory)
-
-    warnings.simplefilter("default")
-    indexed = 0
-
-    def streaming() -> Iterable[ProtoclusterSearchDocument]:
-        nonlocal indexed
-        for document in extract_documents(
-            files, source_root, warning_threshold=args.warning_threshold
-        ):
-            indexed += 1
-            yield document
-
-    try:
-        build_index(streaming(), index_dir)
-    except ExtractionError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
-    except OSError as error:
-        print(f"error: cannot write index to {index_dir}: {error}", file=sys.stderr)
-        return 1
-
-    print(f"Indexed {indexed} protocluster document(s) into {index_dir}")
-    return 0
-
-
-def _search_command(args: argparse.Namespace) -> int:
-    query = " ".join(args.query)
-    try:
-        target = open_index(args.index_directory)
-        result = search(target, query, offset=args.offset, limit=args.limit)
-    except SearchError as error:
-        print(f"error: [{error.code}] {error}", file=sys.stderr)
-        return 2
-    except ValueError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-
-    _print_results(result)
-    return 0
-
-
-def _build_cli_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m bgc_viewer.search.index",
-        description=(
-            "Build and query a Tantivy protocluster search index directly "
-            "from Python (Stage 1 development CLI)."
-        ),
-        epilog=_CLI_EXAMPLES,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+    parsed = _parse_query(index, query)
+    unique = _unique_by(
+        _matching_protocluster_fields(index, parsed),
+        ("output_file", "record"),
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    build = subparsers.add_parser(
-        "build-index", help="Build a search index from antiSMASH JSON files."
+    hits = tuple(
+        RecordHit(
+            score=score,
+            record=fields.get("record", ""),
+            output_file=fields.get("output_file", ""),
+            input_file=fields.get("input_file"),
+        )
+        for score, fields in unique[offset : offset + limit]
     )
-    build.add_argument(
-        "source_directory",
-        metavar="SOURCE_DIRECTORY",
-        help="Source root that selected JSON paths are resolved against.",
+    return RecordResults(
+        query=query,
+        hits=hits,
+        total=len(unique),
+        offset=offset,
+        limit=limit,
     )
-    build.add_argument(
-        "-o",
-        "--index-directory",
-        dest="index_directory",
-        required=True,
-        metavar="INDEX_DIRECTORY",
-        help="Directory the Tantivy index is written to.",
-    )
-    build.add_argument(
-        "--file",
-        dest="files",
-        action="append",
-        required=True,
-        metavar="RELATIVE_JSON",
-        help=(
-            "antiSMASH JSON path relative to SOURCE_DIRECTORY; repeat for "
-            "multiple files. Paths outside the source root are rejected."
-        ),
-    )
-    build.add_argument(
-        "--warning-threshold",
-        type=int,
-        default=100,
-        help=(
-            "Fail the build after this many occurrences of one warning code "
-            "in a single file (default: 100)."
-        ),
-    )
-
-    query_parser = subparsers.add_parser(
-        "search", help="Query an existing search index."
-    )
-    query_parser.add_argument(
-        "index_directory",
-        metavar="INDEX_DIRECTORY",
-        help="Directory of a previously built Tantivy index.",
-    )
-    query_parser.add_argument(
-        "query",
-        nargs="+",
-        metavar="QUERY",
-        help=(
-            "Tantivy query string. Pass it as one quoted argument or as "
-            "separate tokens, which are joined with spaces."
-        ),
-    )
-    query_parser.add_argument(
-        "--offset",
-        type=int,
-        default=0,
-        help="Number of ranked hits to skip (default: 0).",
-    )
-    query_parser.add_argument(
-        "--limit",
-        type=int,
-        default=10,
-        help="Maximum number of hits to print (default: 10).",
-    )
-    return parser
-
-
-def _run_cli(args: argparse.Namespace) -> int:
-    if args.command == "build-index":
-        return _build_command(args)
-    if args.command == "search":
-        return _search_command(args)
-    raise AssertionError(f"unhandled command: {args.command}")
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point for the Stage 1 search development CLI."""
-    parser = _build_cli_parser()
-    args = parser.parse_args(argv)
-    return _run_cli(args)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

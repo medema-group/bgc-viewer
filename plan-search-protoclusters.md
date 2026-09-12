@@ -228,6 +228,7 @@ Use this proposed layout so ownership is easy to discover:
 backend/bgc_viewer/search/
 	document.py                 # field registry, schema version, canonical document validation
 	index.py                    # index build, open, and search via tantivy
+	cli.py                      # development CLI entry point (python -m bgc_viewer.search.cli)
 	adapters/
 		base.py                   # adapter protocol and shared errors
 		registry.py               # version selection and v8 compatibility fallback
@@ -281,7 +282,7 @@ fields likewise produce a structured error listing available fields.
 
 The first stage must be usable without Flask or Vue. Its purpose is to experiment with document extraction, analyzers, query syntax, and ranking directly from Python.
 
-> **Stage 1: complete.** Build, close, reopen, and query work entirely from Python, verified via the `python -m bgc_viewer.search.index` CLI and the `bgc_viewer/tests/search` suite.
+> **Stage 1: complete.** Build, close, reopen, and query work entirely from Python, verified via the `python -m bgc_viewer.search.cli` CLI and the `bgc_viewer/tests/search` suite.
 >
 > - [x] 1. Extract protocluster documents
 > - [x] 2. Build the index with the `tantivy` Python package
@@ -408,22 +409,27 @@ must remain inspectable with tools such as `tantivy-cli` or `pytantivy`.
 
 ### 4. Add a Python development CLI
 
-Add a small script or module CLI under the backend package with commands equivalent to:
+Add a module CLI at `backend/bgc_viewer/search/cli.py`, run with
+`python -m bgc_viewer.search.cli`, with commands equivalent to:
 
 ```text
 build-index SOURCE_DIRECTORY --file RELATIVE_JSON [--file RELATIVE_JSON ...]
-search INDEX_DIRECTORY QUERY
+search INDEX_DIRECTORY QUERY [--level protocluster|region|record]
 ```
 
-The search command should print:
+The search command prints, per hit:
 
 - Score
-- Source-root-relative JSON path
 - JSON basename and antiSMASH input filename
 - Record ID
-- Region number
-- Protocluster number
-- Useful display metadata
+- Region number (protocluster and region levels)
+- Protocluster number, coordinates, product, category, and organism
+  (protocluster level)
+
+The `--level` flag selects the result granularity: `protocluster` (default)
+returns one hit per matching protocluster, `region` collapses matches to unique
+regions, and `record` collapses them to unique records, each scored by its
+best-matching protocluster.
 
 This CLI is the primary manual experimentation surface for Stage 1.
 

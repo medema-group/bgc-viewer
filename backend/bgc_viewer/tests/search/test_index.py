@@ -21,7 +21,9 @@ from bgc_viewer.search.index import (
     UnknownFieldError,
     build_index,
     open_index,
-    search,
+    search_protoclusters,
+    search_record,
+    search_region,
 )
 from tantivy import Index
 
@@ -288,7 +290,7 @@ def test_open_index_reopens_a_committed_index(corpus, tmp_path):
     build_index(iter(corpus), index_dir)
 
     reopened = open_index(index_dir)
-    result = search(reopened, "pfam:PF00512")
+    result = search_protoclusters(reopened, "pfam:PF00512")
     assert result.total == 1
 
 
@@ -351,7 +353,7 @@ def test_open_index_rejects_corrupt_index(corpus, tmp_path):
 
 def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
     target = _open(corpus, tmp_path)
-    result = search(target, "pfam:PF00512")
+    result = search_protoclusters(target, "pfam:PF00512")
 
     assert result.total == 1
     hit = result.hits[0]
@@ -369,14 +371,14 @@ def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
 
 def test_search_omits_indexed_only_fields(corpus, tmp_path):
     target = _open(corpus, tmp_path)
-    hit = search(target, "pfam:PF00512").hits[0]
+    hit = search_protoclusters(target, "pfam:PF00512").hits[0]
     for field in ("pfam", "pfam_name", "gene", "locus"):
         assert field not in hit.fields
 
 
 def test_search_omits_empty_optional_field(corpus, tmp_path):
     target = _open(corpus, tmp_path)
-    hit = search(target, "organism:coelicolor").hits[0]
+    hit = search_protoclusters(target, "organism:coelicolor").hits[0]
     assert "input_file" not in hit.fields
 
 
@@ -391,7 +393,7 @@ def test_search_omits_empty_optional_field(corpus, tmp_path):
 )
 def test_search_exact_fields_are_case_sensitive(corpus, tmp_path, query, expected):
     target = _open(corpus, tmp_path)
-    assert search(target, query).total == expected
+    assert search_protoclusters(target, query).total == expected
 
 
 @pytest.mark.parametrize(
@@ -407,7 +409,7 @@ def test_search_full_text_is_lowercased_and_phrasable(
     corpus, tmp_path, query, expected
 ):
     target = _open(corpus, tmp_path)
-    assert search(target, query).total == expected
+    assert search_protoclusters(target, query).total == expected
 
 
 @pytest.mark.parametrize(
@@ -424,16 +426,16 @@ def test_search_full_text_is_lowercased_and_phrasable(
 )
 def test_search_boolean_precedence_and_nesting(corpus, tmp_path, query, expected):
     target = _open(corpus, tmp_path)
-    assert search(target, query).total == expected
+    assert search_protoclusters(target, query).total == expected
 
 
 def test_search_unqualified_covers_default_fields(corpus, tmp_path):
     target = _open(corpus, tmp_path)
-    assert search(target, "spaA").total == 1
-    assert search(target, "coelicolor").total == 1
-    assert search(target, "SPAU_1").total == 1
+    assert search_protoclusters(target, "spaA").total == 1
+    assert search_protoclusters(target, "coelicolor").total == 1
+    assert search_protoclusters(target, "SPAU_1").total == 1
     # Numeric navigation fields are excluded from unqualified search.
-    assert search(target, "600").total == 0
+    assert search_protoclusters(target, "600").total == 0
 
 
 @pytest.mark.parametrize(
@@ -442,7 +444,7 @@ def test_search_unqualified_covers_default_fields(corpus, tmp_path):
 )
 def test_search_numeric_range(corpus, tmp_path, query, expected):
     target = _open(corpus, tmp_path)
-    assert search(target, query).total == expected
+    assert search_protoclusters(target, query).total == expected
 
 
 def test_search_pagination_and_total_counts(corpus, tmp_path):
@@ -452,15 +454,15 @@ def test_search_pagination_and_total_counts(corpus, tmp_path):
     ]
     target = _open(many, tmp_path)
 
-    page_one = search(target, "pfam:shared", offset=0, limit=2)
+    page_one = search_protoclusters(target, "pfam:shared", offset=0, limit=2)
     assert page_one.total == 5
     assert [hit.fields["protocluster"] for hit in page_one.hits] == [0, 1]
 
-    page_two = search(target, "pfam:shared", offset=3, limit=2)
+    page_two = search_protoclusters(target, "pfam:shared", offset=3, limit=2)
     assert page_two.total == 5
     assert [hit.fields["protocluster"] for hit in page_two.hits] == [3, 4]
 
-    beyond = search(target, "pfam:shared", offset=10, limit=2)
+    beyond = search_protoclusters(target, "pfam:shared", offset=10, limit=2)
     assert beyond.total == 5
     assert beyond.hits == ()
 
@@ -468,7 +470,7 @@ def test_search_pagination_and_total_counts(corpus, tmp_path):
 def test_search_equal_scores_resolve_in_insertion_order(corpus, tmp_path):
     many = [_doc(number, pfam=("shared",)) for number in range(4)]
     target = _open(many, tmp_path)
-    hits = search(target, "pfam:shared", limit=10).hits
+    hits = search_protoclusters(target, "pfam:shared", limit=10).hits
 
     scores = [hit.score for hit in hits]
     assert scores == sorted(scores, reverse=True)
@@ -482,7 +484,7 @@ def test_search_boosts_exact_field_above_full_text(tmp_path):
         _doc(2, pfam=("other",), organism="shared term"),
     ]
     target = _open(documents, tmp_path)
-    hits = search(target, "shared", limit=10).hits
+    hits = search_protoclusters(target, "shared", limit=10).hits
 
     assert hits[0].fields["protocluster"] == 1
     assert hits[0].score > hits[1].score
@@ -492,13 +494,13 @@ def test_search_boosts_exact_field_above_full_text(tmp_path):
 def test_search_empty_query_raises(corpus, tmp_path, query):
     target = _open(corpus, tmp_path)
     with pytest.raises(EmptyQueryError):
-        search(target, query)
+        search_protoclusters(target, query)
 
 
 def test_search_unknown_field_reports_field_and_available(corpus, tmp_path):
     target = _open(corpus, tmp_path)
     with pytest.raises(UnknownFieldError) as excinfo:
-        search(target, "pfam:PF00512 AND go:something")
+        search_protoclusters(target, "pfam:PF00512 AND go:something")
 
     error = excinfo.value
     assert error.field == "go"
@@ -511,22 +513,22 @@ def test_search_unknown_field_reports_field_and_available(corpus, tmp_path):
 def test_search_malformed_query_raises_structured_syntax_error(corpus, tmp_path, query):
     target = _open(corpus, tmp_path)
     with pytest.raises(QuerySyntaxError):
-        search(target, query)
+        search_protoclusters(target, query)
 
 
 def test_search_syntax_error_carries_parser_message(corpus, tmp_path):
     target = _open(corpus, tmp_path)
     with pytest.raises(QuerySyntaxError) as excinfo:
-        search(target, "pfam:(")
+        search_protoclusters(target, "pfam:(")
     assert "Syntax Error" in excinfo.value.message
 
 
 def test_search_validates_pagination_arguments(corpus, tmp_path):
     target = _open(corpus, tmp_path)
     with pytest.raises(ValueError):
-        search(target, "pfam:PF00512", offset=-1)
+        search_protoclusters(target, "pfam:PF00512", offset=-1)
     with pytest.raises(ValueError):
-        search(target, "pfam:PF00512", limit=0)
+        search_protoclusters(target, "pfam:PF00512", limit=0)
 
 
 def test_search_over_index_built_from_fixture(tmp_path):
@@ -534,4 +536,156 @@ def test_search_over_index_built_from_fixture(tmp_path):
     index_dir = tmp_path / "tantivy.index"
     build_index(iter(documents), index_dir)
     target = open_index(index_dir)
-    assert search(target, 'category:"trans-AT PKS"').total == 1
+    assert search_protoclusters(target, 'category:"trans-AT PKS"').total == 1
+
+
+@pytest.fixture
+def grouped() -> list[ProtoclusterSearchDocument]:
+    return [
+        _doc(1, record_id="recA", region_number=1, pfam=("shared",)),
+        _doc(2, record_id="recA", region_number=1, pfam=("shared",)),
+        _doc(1, record_id="recA", region_number=2, pfam=("shared",)),
+        _doc(1, record_id="recB", region_number=1, pfam=("shared",)),
+    ]
+
+
+def test_search_region_collapses_protoclusters_into_unique_regions(grouped, tmp_path):
+    target = _open(grouped, tmp_path)
+    result = search_region(target, "pfam:shared")
+    assert result.total == 3
+    assert [(hit.record, hit.region) for hit in result.hits] == [
+        ("recA", 1),
+        ("recA", 2),
+        ("recB", 1),
+    ]
+    assert all(isinstance(hit.region, int) for hit in result.hits)
+    assert all(hit.output_file == "rec.json" for hit in result.hits)
+    assert all(hit.input_file == "rec.gbk" for hit in result.hits)
+
+
+def test_search_record_collapses_protoclusters_into_unique_records(grouped, tmp_path):
+    target = _open(grouped, tmp_path)
+    result = search_record(target, "pfam:shared")
+    assert result.total == 2
+    assert [hit.record for hit in result.hits] == ["recA", "recB"]
+    assert all(hit.output_file == "rec.json" for hit in result.hits)
+    assert all(hit.input_file == "rec.gbk" for hit in result.hits)
+
+
+def test_grouped_search_totals_are_nested(tmp_path):
+    documents = [
+        _doc(1, record_id="recA", region_number=1, pfam=("shared",)),
+        _doc(2, record_id="recA", region_number=1, pfam=("shared",)),
+        _doc(1, record_id="recA", region_number=2, pfam=("shared",)),
+        _doc(1, record_id="recB", region_number=1, pfam=("shared",)),
+    ]
+    target = _open(documents, tmp_path)
+    protoclusters = search_protoclusters(target, "pfam:shared", limit=10)
+    regions = search_region(target, "pfam:shared", limit=10)
+    records = search_record(target, "pfam:shared", limit=10)
+    assert protoclusters.total == 4
+    assert regions.total == 3
+    assert records.total == 2
+
+
+def test_region_score_is_best_matching_protocluster(tmp_path):
+    documents = [
+        _doc(
+            1,
+            record_id="recA",
+            region_number=1,
+            pfam=("shared",),
+            organism="nothing here",
+        ),
+        _doc(
+            2,
+            record_id="recA",
+            region_number=1,
+            pfam=("nothing",),
+            organism="shared term",
+        ),
+    ]
+    target = _open(documents, tmp_path)
+    protoclusters = search_protoclusters(target, "shared", limit=10)
+    best = max(hit.score for hit in protoclusters.hits)
+    lowest = min(hit.score for hit in protoclusters.hits)
+    assert best > lowest
+
+    region = search_region(target, "shared").hits[0]
+    assert (region.record, region.region) == ("recA", 1)
+    assert region.score == best
+
+    record = search_record(target, "shared").hits[0]
+    assert record.record == "recA"
+    assert record.score == best
+
+
+def test_search_region_pagination(grouped, tmp_path):
+    target = _open(grouped, tmp_path)
+    page = search_region(target, "pfam:shared", offset=1, limit=1)
+    assert page.total == 3
+    assert [(hit.record, hit.region) for hit in page.hits] == [("recA", 2)]
+
+    beyond = search_region(target, "pfam:shared", offset=5, limit=2)
+    assert beyond.total == 3
+    assert beyond.hits == ()
+
+
+def test_search_record_pagination(grouped, tmp_path):
+    target = _open(grouped, tmp_path)
+    page = search_record(target, "pfam:shared", offset=1, limit=1)
+    assert page.total == 2
+    assert [hit.record for hit in page.hits] == ["recB"]
+
+    beyond = search_record(target, "pfam:shared", offset=3, limit=2)
+    assert beyond.total == 2
+    assert beyond.hits == ()
+
+
+def test_grouped_search_omits_empty_input_file(tmp_path):
+    documents = [
+        _doc(1, record_id="recA", region_number=1, pfam=("shared",), input_file="")
+    ]
+    target = _open(documents, tmp_path)
+    assert search_region(target, "pfam:shared").hits[0].input_file is None
+    assert search_record(target, "pfam:shared").hits[0].input_file is None
+
+
+def test_grouped_search_excludes_non_matching_regions(tmp_path):
+    documents = [
+        _doc(1, record_id="recA", region_number=1, pfam=("match",)),
+        _doc(2, record_id="recB", region_number=1, pfam=("other",)),
+    ]
+    target = _open(documents, tmp_path)
+    regions = search_region(target, "pfam:match")
+    assert regions.total == 1
+    assert (regions.hits[0].record, regions.hits[0].region) == ("recA", 1)
+    records = search_record(target, "pfam:match")
+    assert records.total == 1
+    assert records.hits[0].record == "recA"
+
+
+@pytest.mark.parametrize("query", ["", "   ", "\t\n"])
+def test_grouped_search_empty_query_raises(grouped, tmp_path, query):
+    target = _open(grouped, tmp_path)
+    with pytest.raises(EmptyQueryError):
+        search_region(target, query)
+    with pytest.raises(EmptyQueryError):
+        search_record(target, query)
+
+
+def test_grouped_search_unknown_field_raises(grouped, tmp_path):
+    target = _open(grouped, tmp_path)
+    with pytest.raises(UnknownFieldError):
+        search_region(target, "go:something")
+    with pytest.raises(UnknownFieldError):
+        search_record(target, "go:something")
+
+
+def test_grouped_search_validates_pagination_arguments(grouped, tmp_path):
+    target = _open(grouped, tmp_path)
+    for func in (search_region, search_record):
+        with pytest.raises(ValueError):
+            func(target, "pfam:shared", offset=-1)
+        with pytest.raises(ValueError):
+            func(target, "pfam:shared", limit=0)
