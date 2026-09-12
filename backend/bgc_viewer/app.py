@@ -28,7 +28,7 @@ PUBLIC_MODE = os.getenv('BGCV_PUBLIC_MODE', 'false').lower() == 'true'
 # Get the directory where this module is installed
 app_dir = Path(__file__).parent
 # Look for frontend build directory (in development: ../../frontend/build, in package: static)
-frontend_build_dir = app_dir.parent.parent.parent / 'frontend' / 'build'
+frontend_build_dir = app_dir.parent.parent / 'frontend' / 'build'
 if not frontend_build_dir.exists():
     # Fallback to package static directory when installed
     frontend_build_dir = app_dir / 'static'
