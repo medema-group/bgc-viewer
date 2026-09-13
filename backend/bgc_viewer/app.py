@@ -6,7 +6,7 @@ import os
 import threading
 from pathlib import Path
 from typing import Optional
-from functools import lru_cache
+from functools import lru_cache, wraps
 from waitress import serve
 from dotenv import load_dotenv
 
@@ -16,6 +16,20 @@ from .preprocessing import preprocess_antismash_files
 from .data_loader import load_specific_record
 from .file_utils import match_location
 from .database import get_database_entries, get_database_info
+from .search.api import (
+    ProtoclusterResponse,
+    RecordResponse,
+    RegionResponse,
+    error_response,
+    parse_search_request,
+)
+from .search.index import (
+    SearchError,
+    open_index,
+    search_protoclusters,
+    search_record,
+    search_region,
+)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -876,6 +890,85 @@ def get_database_entries_endpoint():
         return jsonify(result), 404 if "No database found" in result["error"] else 500
     
     return jsonify(result)
+
+class NoDatabaseError(SearchError):
+    """Raised when a search is attempted without a selected database."""
+
+    code = "no_database"
+
+    def __init__(self) -> None:
+        super().__init__("No database selected. Please select a database first.")
+
+
+class MissingDatabaseError(SearchError):
+    """Raised when the selected database file no longer exists."""
+
+    code = "missing_database"
+
+    def __init__(self, path: str) -> None:
+        super().__init__(f"Database file does not exist: {path}")
+
+
+def _open_search_index():
+    """Resolve the current database's sibling index and open it for querying.
+
+    Raises :class:`NoDatabaseError`/:class:`MissingDatabaseError` for local-mode
+    session problems and the structured ``open_index`` errors otherwise.
+    """
+    if PUBLIC_MODE:
+        db_path = get_public_database_path()
+    else:
+        db_path = session.get('current_database_path')
+        if not db_path:
+            raise NoDatabaseError()
+        if not Path(db_path).exists():
+            raise MissingDatabaseError(db_path)
+    return open_index(str(Path(db_path).parent / "tantivy.index"))
+
+
+def search_errors(view):
+    """Map structured search errors raised in a search route to a JSON response."""
+
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        try:
+            return view(*args, **kwargs)
+        except SearchError as error:
+            payload, status = error_response(error)
+            return jsonify(payload), status
+
+    return wrapper
+
+
+@app.route('/api/search/protocluster', methods=['POST'])
+@search_errors
+def search_protocluster_endpoint():
+    """Search the embedded index, returning one self-contained hit per protocluster."""
+    index = _open_search_index()
+    req = parse_search_request(request.get_json(silent=True))
+    results = search_protoclusters(index, req.query, offset=req.offset, limit=req.per_page)
+    return jsonify(ProtoclusterResponse.from_results(results, req)), 200
+
+
+@app.route('/api/search/region', methods=['POST'])
+@search_errors
+def search_region_endpoint():
+    """Search the embedded index, collapsing matches to unique scored regions."""
+    index = _open_search_index()
+    req = parse_search_request(request.get_json(silent=True))
+    results = search_region(index, req.query, offset=req.offset, limit=req.per_page)
+    return jsonify(RegionResponse.from_results(results, req)), 200
+
+
+@app.route('/api/search/record', methods=['POST'])
+@search_errors
+def search_record_endpoint():
+    """Search the embedded index, collapsing matches to unique scored records."""
+    index = _open_search_index()
+    req = parse_search_request(request.get_json(silent=True))
+    results = search_record(index, req.query, offset=req.offset, limit=req.per_page)
+    return jsonify(RecordResponse.from_results(results, req)), 200
+
 
 # Preprocessing endpoint - only available in local mode
 if not PUBLIC_MODE:

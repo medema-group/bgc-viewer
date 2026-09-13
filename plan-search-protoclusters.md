@@ -473,29 +473,58 @@ Make preprocess_antismash_files also include the number of docs in index.
 
 Keep `/api/database-entries` and `get_database_entries()` for existing record browsing.
 
-Add a dedicated endpoint:
+Add dedicated endpoints whose URL path selects the result granularity:
 
 ```text
-POST /api/search
+POST /api/search/protocluster
+POST /api/search/region
+POST /api/search/record
 {"query": "QUERY", "page": 1, "per_page": 20}
 ```
 
-A dedicated endpoint avoids conflating record-level browsing with protocluster-level search results.
+A dedicated endpoint avoids conflating record-level browsing with
+protocluster-level search results. Placing the level in the URL keeps the API
+predictable and makes each granularity an addressable resource. The request
+body carries no `level`; the URL path is authoritative.
 
-The response should contain:
+Each endpoint calls its own core function directly (no shared search funnel):
+`protocluster` calls `search_protoclusters`, `region` calls `search_region`,
+and `record` calls `search_record`. Region and record hits collapse matching
+protoclusters to unique groups, each scored by its best-matching protocluster.
+Each endpoint returns a jsonified response dataclass that subclasses the
+matching core result type and adds the pagination envelope:
+`ProtoclusterResponse(SearchResults)`, `RegionResponse(RegionResults)`, and
+`RecordResponse(RecordResults)`. There is no dedicated unknown-level handler:
+an unrecognized level path is not a registered route, so the framework's
+default not-found/method-not-allowed response is returned (POST to an unknown
+level yields 405 because the SPA fallback only accepts GET).
 
-- Ranked protocluster hits
-- Total hit count
-- Page and page size
-- Tantivy score
-- Source path
-- Parent record ID
-- Region number
-- Protocluster number
-- Display metadata
+Every successful response contains the common fields `query`, `total`,
+`total_pages`, `page`, `per_page`, `offset`, `limit`, and an echoed `level`,
+plus a `hits` array whose per-hit shape depends on the selected level
+(serialized directly from the result dataclasses via `jsonify`):
 
-Use a default page size of 20 and a maximum of 100. Every successful response
-contains exact `total` and `total_pages` values.
+- `protocluster`: `{"score": ..., "fields": {...}}`, where `fields` holds the
+  stored identity and display values: `record`, `region`, `protocluster`,
+  `start`, `end`, `product`, `category`, `organism`, `output_file`, and
+  `input_file`.
+- `region`: flat `{"score", "record", "region", "output_file", "input_file"}`.
+- `record`: flat `{"score", "record", "output_file", "input_file"}`.
+
+Use a default page size of 20 and a maximum of 100. `total` and `total_pages`
+reflect the distinct units at the selected level (protoclusters, regions, or
+records), not the raw matching-document count.
+
+> **Caveat (source path).** The "source path" in the per-level hit shapes above
+> is currently satisfied by the stored `output_file` (JSON basename) and
+> `input_file` fields. The field registry does not store the source-root-relative
+> JSON path, so hits do not carry a full relative path even though the Search
+> Document section lists it as a stored identity value. This is fine for
+> self-contained display, but Stage 3 navigation that needs the
+> source-root-relative path to open the parent record must either add a stored
+> `source_path` field to the registry (a `SEARCH_SCHEMA_VERSION` bump plus an
+> index rebuild) or resolve the relative path from `output_file` against the
+> selected database's `data_root`.
 
 ### 3. Return self-contained results
 
@@ -580,7 +609,8 @@ Update:
 - `frontend/src/services/dataProviders/BGCViewerAPIProvider.ts`
 - `frontend/src/services/dataProviders/types.ts`
 
-Call `/api/search` for advanced backend searches and map the response into a protocluster search-result type.
+Call `/api/search/<level>` for advanced backend searches and map the response
+into a protocluster search-result type.
 
 Each result must carry:
 
@@ -723,8 +753,9 @@ Relevant documentation locations include:
 	an in-memory flag and a `.building` sentinel. A failed build leaves neither
 	artifact, and rerunning preprocessing is the recovery procedure. No
 	cross-artifact pairing metadata is stored beyond the search schema version.
-- Search uses `POST /api/search`, returns compact self-contained summaries, and
-	does not report matched field names.
+- Search uses `POST /api/search/<level>` with the granularity in the URL path,
+  returns compact self-contained summaries, and does not report matched field
+  names.
 - The backend opens a fresh Tantivy reader per search request instead of caching
 	readers, and the frontend shows a modal blocking popup for the duration of a
 	rebuild.
