@@ -465,29 +465,9 @@ Stage 2 begins only after the Python search API and query behavior are stable.
 
 ### 1. Integrate preprocessing
 
-Extend `preprocess_antismash_files()` to:
-
-1. Set the server's in-memory rebuilding flag and create a `.building` sentinel
-	file in the output directory before touching any existing outputs.
-2. Delete the previous SQLite database and the fixed sibling `tantivy.index/`
-	in place, then build the new pair at their final paths. Each output
-	directory supports one SQLite/Tantivy pair, while the SQLite filename
-	remains user-selected. There is no temporary directory and no publication
-	step.
-3. Stream extracted protocluster documents into the Tantivy writer while
-	processing records, then commit and validate both outputs.
-4. On any failure, remove both partial outputs, clear the flag, and remove the
-	sentinel. The previous pair is not preserved; rerunning preprocessing from
-	the source JSON is the recovery procedure.
-5. On success or failure in the server context, clear the record-data LRU
-	cache entries for the rebuilt database path so no pre-rebuild data is
-	served.
-
-Store only the search schema version in SQLite metadata. The index location is
-the fixed sibling path, and no build UUIDs, index versions, or cross-artifact
-mismatch detection are used.
-
-The supported update model is build once and query many. Incremental indexing and live writes are deferred.
+Extend `preprocess_antismash_files()` to also call `build_index()`.
+Just before calling build_index remove tantivy index dir if it exists.
+Make preprocess_antismash_files also include the number of docs in index.
 
 ### 2. Add a dedicated search endpoint
 

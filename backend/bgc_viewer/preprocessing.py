@@ -3,6 +3,7 @@ Preprocessing module for AntiSMASH JSON files.
 Extracts attributes into SQLite database.
 """
 
+import shutil
 import sqlite3
 import ijson
 import gzip
@@ -10,6 +11,9 @@ import bz2
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime
+
+from .search.extraction import extract_documents
+from .search.index import build_index
 
 # Try to import Rust extension for fast scanning, fall back to Python if not available
 try:
@@ -316,6 +320,14 @@ def preprocess_antismash_files(
     # Create database at the specified path
     conn = create_attributes_database(db_path)
 
+    # The search index is a fixed sibling of the database; its meta.json must
+    # never be treated as a source file when scanning the input directory.
+    search_index_dir = db_path.parent / "tantivy.index"
+    resolved_index_dir = search_index_dir.resolve()
+
+    def is_index_artifact(path: Path) -> bool:
+        return path.resolve().is_relative_to(resolved_index_dir)
+
     # Populate metadata table with the data root (input directory)
     data_root = str(input_path.absolute())
     populate_metadata_table(conn, data_root)
@@ -323,12 +335,16 @@ def preprocess_antismash_files(
     # Determine which files to process
     if json_files is not None:
         # Use the provided list of files
-        files_to_process = json_files
+        files_to_process = [f for f in json_files if not is_index_artifact(f)]
     else:
         # Find all JSON files (uncompressed and compressed)
         files_to_process = []
         for pattern in ["*.json", "*.json.gz", "*.json.bz2"]:
-            files_to_process.extend(input_path.rglob(pattern))
+            files_to_process.extend(
+                candidate
+                for candidate in input_path.rglob(pattern)
+                if not is_index_artifact(candidate)
+            )
 
     total_records = 0
     total_attributes = 0
@@ -533,9 +549,43 @@ def preprocess_antismash_files(
             progress_callback("", files_processed, len(files_to_process))
         conn.close()
 
+    # Build the protocluster search index as a fixed sibling of the database.
+    # The source files are the same explicit set used for the SQLite build,
+    # resolved to paths relative to the input directory. Only uncompressed
+    # JSON files are indexed; compressed files remain a SQLite-only path.
+    search_files = []
+    for json_file in files_to_process:
+        resolved = json_file.resolve()
+        try:
+            relative = resolved.relative_to(input_path.resolve())
+        except ValueError:
+            # Path outside the source root; the SQLite pass skips it too.
+            continue
+        if relative.suffix == ".json":
+            search_files.append(relative)
+
+    # Remove any existing index before rebuilding so a stale index is never
+    # paired with a freshly rebuilt database.
+    if search_index_dir.exists():
+        shutil.rmtree(search_index_dir)
+
+    try:
+        index = build_index(
+            extract_documents(search_files, input_path), str(search_index_dir)
+        )
+    except Exception:
+        # A failed build must not leave a partial index artifact.
+        if search_index_dir.exists():
+            shutil.rmtree(search_index_dir, ignore_errors=True)
+        raise
+
+    indexed = index.searcher().num_docs
+
     return {
         "files_processed": files_processed,
         "total_records": total_records,
         "total_attributes": total_attributes,
         "database_path": str(db_path),
+        "indexed_protoclusters": indexed,
+        "search_index_path": str(search_index_dir),
     }
