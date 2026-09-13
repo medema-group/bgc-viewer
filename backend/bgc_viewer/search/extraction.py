@@ -1,4 +1,3 @@
-import json
 import re
 import warnings
 from collections.abc import Iterable, Iterator, Mapping
@@ -6,6 +5,8 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Protocol
+
+import ijson
 
 from .document import (
     Location,
@@ -40,9 +41,8 @@ class SourceAdapter(Protocol):
 
     def extract(
         self,
-        raw_data: object,
-        source_path: str,
-        version: str,
+        records: Iterable[object],
+        source: SourceFile,
         warning_threshold: int,
         identities: dict[tuple[str, str, int, int], SourceFile],
     ) -> Iterator[ProtoclusterSearchDocument]: ...
@@ -323,21 +323,17 @@ def _check_identity(
     identities[identity] = source
 
 
-def _extract_v8(
-    raw_data: object,
-    source_path: str,
-    version: str,
+def _extract_records(
+    records: Iterable[object],
+    source: SourceFile,
     warning_threshold: int,
     identities: dict[tuple[str, str, int, int], SourceFile],
 ) -> Iterator[ProtoclusterSearchDocument]:
-    data = _mapping(raw_data, source_path)
-    input_file_value = data.get("input_file", "")
-    input_file = input_file_value.strip() if isinstance(input_file_value, str) else ""
-    source = SourceFile(version, source_path, Path(source_path).name, input_file)
+    source_path = source.source_path
     warning_counts: dict[str, int] = {}
     found_protocluster = False
 
-    for record_index, raw_record in enumerate(_items(data.get("records"), "records")):
+    for record_index, raw_record in enumerate(records):
         record_path = f"records[{record_index}]"
         record = _mapping(raw_record, record_path)
         record_id = _text(record.get("id"), f"{record_path}.id")
@@ -410,19 +406,12 @@ class Antismash8Adapter:
 
     def extract(
         self,
-        raw_data: object,
-        source_path: str,
-        version: str,
+        records: Iterable[object],
+        source: SourceFile,
         warning_threshold: int,
         identities: dict[tuple[str, str, int, int], SourceFile],
     ) -> Iterator[ProtoclusterSearchDocument]:
-        yield from _extract_v8(
-            raw_data,
-            source_path,
-            version,
-            warning_threshold,
-            identities,
-        )
+        yield from _extract_records(records, source, warning_threshold, identities)
 
 
 _V8_ADAPTER = Antismash8Adapter()
@@ -434,29 +423,48 @@ def _declared_major(version: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _extract(
-    raw_data: object,
-    source_path: str,
+def _select_adapter(version: str) -> SourceAdapter:
+    major = _declared_major(version)
+    return _V8_ADAPTER if major is None else _ADAPTERS.get(major, _V8_ADAPTER)
+
+
+def _run_adapter(
+    adapter: SourceAdapter,
+    records: Iterable[object],
+    source: SourceFile,
     warning_threshold: int,
     identities: dict[tuple[str, str, int, int], SourceFile],
 ) -> Iterator[ProtoclusterSearchDocument]:
-    data = _mapping(raw_data, source_path)
-    version = _text(data.get("version"), "version")
-    major = _declared_major(version)
-    adapter = _V8_ADAPTER if major is None else _ADAPTERS.get(major, _V8_ADAPTER)
     try:
-        yield from adapter.extract(
-            data,
-            source_path,
-            version,
-            warning_threshold,
-            identities,
-        )
+        yield from adapter.extract(records, source, warning_threshold, identities)
     except ExtractionError as error:
         raise ExtractionError(
-            f"{source_path} (antiSMASH {version}) is incompatible with "
-            f"{adapter.name}: {error}"
+            f"{source.source_path} (antiSMASH {source.antismash_version}) is "
+            f"incompatible with {adapter.name}: {error}"
         ) from error
+
+
+def _iter_records(value: object) -> Iterator[object]:
+    yield from _items(value, "records")
+
+
+_MISSING = object()
+
+
+def _read_file_metadata(source_path: Path) -> tuple[str, str]:
+    version: object = _MISSING
+    input_file: object = _MISSING
+    with source_path.open("rb") as handle:
+        for prefix, _event, value in ijson.parse(handle):
+            if prefix == "version" and version is _MISSING:
+                version = value
+            elif prefix == "input_file" and input_file is _MISSING:
+                input_file = value
+            elif prefix == "records" and version is not _MISSING:
+                break
+    text_version = _text(None if version is _MISSING else version, "version")
+    text_input = input_file.strip() if isinstance(input_file, str) else ""
+    return text_version, text_input
 
 
 def extract(
@@ -468,7 +476,15 @@ def extract(
     """Extract search documents from decoded antiSMASH JSON data."""
     if warning_threshold < 1:
         raise ValueError("warning_threshold must be at least 1")
-    yield from _extract(data, source_path, warning_threshold, {})
+    obj = _mapping(data, source_path)
+    version = _text(obj.get("version"), "version")
+    adapter = _select_adapter(version)
+    input_file_value = obj.get("input_file", "")
+    input_file = input_file_value.strip() if isinstance(input_file_value, str) else ""
+    source = SourceFile(version, source_path, Path(source_path).name, input_file)
+    yield from _run_adapter(
+        adapter, _iter_records(obj.get("records")), source, warning_threshold, {}
+    )
 
 
 def extract_documents(
@@ -490,6 +506,13 @@ def extract_documents(
                 f"Selected path is outside source root: {selected_path}"
             ) from error
 
-        with source_path.open(encoding="utf-8") as handle:
-            raw_data: object = json.load(handle)
-        yield from _extract(raw_data, relative_path, warning_threshold, identities)
+        version, input_file = _read_file_metadata(source_path)
+        adapter = _select_adapter(version)
+        source = SourceFile(
+            version, relative_path, Path(relative_path).name, input_file
+        )
+        with source_path.open("rb") as handle:
+            records = ijson.items(handle, "records.item")
+            yield from _run_adapter(
+                adapter, records, source, warning_threshold, identities
+            )
