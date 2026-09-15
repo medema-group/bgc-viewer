@@ -9,6 +9,7 @@
           <span v-else>Loading version...</span>
         </div>
         <nav class="header-links">
+          •<a href="https://medema-group.github.io/bgc-viewer/" target="_blank" rel="noopener noreferrer">Docs</a>
           •<a href="https://research-software-directory.org/projects/big-views" target="_blank" rel="noopener noreferrer">Project</a>
           •<a href="https://github.com/medema-group/bgc-viewer" target="_blank" rel="noopener noreferrer">GitHub</a>
         </nav>
