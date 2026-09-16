@@ -275,7 +275,8 @@ class SearchFields:
     pfam: tuple[str, ...]
     pfam_name: tuple[str, ...]
     gene: tuple[str, ...]
-    locus: tuple[str, ...]
+    # TODO locus is too generic it is used as genbank root level, rename to gene_locus?
+    locus: tuple[str, ...] 
 
     @property
     def start(self) -> int:
