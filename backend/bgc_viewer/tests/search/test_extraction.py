@@ -21,7 +21,6 @@ from bgc_viewer.search.extraction import (
 
 def test_search_fields_expose_the_versioned_public_registry():
     assert SEARCH_SCHEMA_VERSION == 1
-    assert SearchFields.registry is SEARCH_FIELD_REGISTRY
     assert [field.name for field in SEARCH_FIELD_REGISTRY] == [
         "pfam",
         "pfam_name",

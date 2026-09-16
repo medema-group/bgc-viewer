@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal
+from typing import Literal
 
 SEARCH_SCHEMA_VERSION = 1
 
@@ -265,8 +265,6 @@ class SourceFile:
 
 @dataclass(frozen=True)
 class SearchFields:
-    registry: ClassVar[tuple[SearchFieldDefinition, ...]] = SEARCH_FIELD_REGISTRY
-
     record_id: str
     region_number: int
     protocluster_number: int
@@ -294,7 +292,7 @@ class ProtoclusterSearchDocument:
     search_fields: SearchFields
 
     def __post_init__(self) -> None:
-        for definition in self.search_fields.registry:
+        for definition in SEARCH_FIELD_REGISTRY:
             value = self.field_value(definition)
             if definition.cardinality == "multi":
                 if not isinstance(value, tuple):
