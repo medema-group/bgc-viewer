@@ -1,7 +1,12 @@
 <template>
   <div class="file-upload-section">
-    <h3>Upload JSON File</h3>
-    <p class="help-text">Select or drag and drop an antiSMASH JSON file</p>
+    <h3>Upload Genomic Data</h3>
+    <p class="help-text">
+      Select or drag and drop supported genomic files
+      <a href="https://medema-group.github.io/bgc-viewer/guide/data-sources.html#_2-direct-file-loading-client-side" target="_blank" rel="noopener noreferrer">
+        (supported formats)
+      </a>
+    </p>
     
     <input
       ref="fileInputRef"
@@ -23,7 +28,7 @@
         <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
         </svg>
-        <p class="drop-text">Drag and drop JSON files here</p>
+        <p class="drop-text">Drag and drop files here</p>
         <p class="or-text">or</p>
         <button class="select-file-btn" @click="triggerFileInput">
           Select Files
@@ -31,19 +36,27 @@
       </div>
       
       <div v-else class="files-list">
-        <div v-for="fileInfo in loadedFiles" :key="fileInfo.id" class="file-info">
-          <svg class="file-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          <div class="file-details">
-            <p class="file-name">{{ fileInfo.name }}</p>
-            <p class="file-size">{{ fileInfo.size }} • {{ fileInfo.recordCount }} records</p>
-          </div>
-          <button class="remove-btn" @click="removeFile(fileInfo.id)" title="Remove file">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+        <div class="files-header">
+          <h4>Loaded Files ({{ loadedFiles.length }})</h4>
+          <button class="remove-all-btn" @click="removeAllFiles" title="Remove all files">
+            Remove All
           </button>
+        </div>
+        <div class="files-container">
+          <div v-for="fileInfo in loadedFiles" :key="fileInfo.id" class="file-info">
+            <svg class="file-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <div class="file-details">
+              <p class="file-name">{{ fileInfo.name }}</p>
+              <p class="file-size">{{ fileInfo.size }} • {{ fileInfo.recordCount }} records</p>
+            </div>
+            <button class="remove-btn" @click="removeFile(fileInfo.id)" title="Remove file">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
         <button class="add-more-btn" @click="triggerFileInput">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -225,10 +238,10 @@ export default {
     const removeFile = async (fileId) => {
       loadedFiles.value = loadedFiles.value.filter(f => f.id !== fileId)
       error.value = ''
-      
+
       // Emit updated file list
       emit('files-loaded', loadedFiles.value)
-      
+
       // Update storage
       try {
         if (loadedFiles.value.length > 0) {
@@ -238,6 +251,21 @@ export default {
         }
       } catch (err) {
         console.error('Failed to update storage:', err)
+      }
+    }
+
+    const removeAllFiles = async () => {
+      loadedFiles.value = []
+      error.value = ''
+
+      // Emit updated file list
+      emit('files-loaded', loadedFiles.value)
+
+      // Update storage
+      try {
+        await fileStorage.clearFiles()
+      } catch (err) {
+        console.error('Failed to clear storage:', err)
       }
     }
     
@@ -252,7 +280,8 @@ export default {
       handleDrop,
       handleDragOver,
       handleDragLeave,
-      removeFile
+      removeFile,
+      removeAllFiles
     }
   }
 }
@@ -278,6 +307,16 @@ export default {
   margin: 0 0 15px 0;
   font-size: 13px;
   color: #666;
+}
+
+.help-text a {
+  color: #1976d2;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.help-text a:hover {
+  text-decoration: underline;
 }
 
 .drop-zone {
@@ -315,6 +354,46 @@ export default {
   padding: 4px;
   max-height: 100%; /* Constrained by parent but grows naturally to content */
   min-height: 0; /* Allow shrinking below content size */
+}
+
+.files-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #e0e0e0;
+  margin-bottom: 8px;
+}
+
+.files-header h4 {
+  margin: 0;
+  font-size: 13px;
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.files-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.remove-all-btn {
+  padding: 4px 12px;
+  background-color: #ffebee;
+  color: #f44336;
+  border: 1px solid #ffcdd2;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.remove-all-btn:hover {
+  background-color: #ffcdd2;
+  border-color: #f44336;
 }
 
 .drop-zone-content {
