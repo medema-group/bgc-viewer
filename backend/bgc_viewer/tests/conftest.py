@@ -53,6 +53,13 @@ def sample_antismash_data():
                         }
                     },
                     {
+                        "type": "region",
+                        "location": "[1:1000]",
+                        "qualifiers": {
+                            "region_number": ["1"]
+                        }
+                    },
+                    {
                         "type": "gene",
                         "location": "[100:500]",
                         "qualifiers": {
@@ -61,13 +68,21 @@ def sample_antismash_data():
                         }
                     },
                     {
+                        "type": "PFAM_domain",
+                        "location": "[400:500]",
+                        "qualifiers": {
+                            "db_xref": ["PF00501.25"],
+                            "description": ["Thioesterase"]
+                        }
+                    },
+                    {
                         "type": "protocluster",
                         "location": "[100:800]",
                         "qualifiers": {
-                            "protocluster_number": "1",
-                            "category": "PKS",
-                            "product": "polyketide",
-                            "core_location": "[200:600]"
+                            "protocluster_number": ["1"],
+                            "category": ["PKS"],
+                            "product": ["polyketide"],
+                            "core_location": ["[200:600]"]
                         }
                     },
                     {
@@ -101,13 +116,36 @@ def sample_antismash_data():
                         }
                     },
                     {
+                        "type": "region",
+                        "location": "[1:1500]",
+                        "qualifiers": {
+                            "region_number": ["1"]
+                        }
+                    },
+                    {
+                        "type": "gene",
+                        "location": "[300:700]",
+                        "qualifiers": {
+                            "gene": "testB",
+                            "product": "test protein B"
+                        }
+                    },
+                    {
+                        "type": "PFAM_domain",
+                        "location": "[350:450]",
+                        "qualifiers": {
+                            "db_xref": ["PF00501.25"],
+                            "description": ["Thioesterase"]
+                        }
+                    },
+                    {
                         "type": "protocluster",
                         "location": "[200:1200]",
                         "qualifiers": {
-                            "protocluster_number": "1",
-                            "category": "NRPS",
-                            "product": "NRPS",
-                            "core_location": "[300:900]"
+                            "protocluster_number": ["1"],
+                            "category": ["NRPS"],
+                            "product": ["NRPS"],
+                            "core_location": ["[300:900]"]
                         }
                     },
                     {

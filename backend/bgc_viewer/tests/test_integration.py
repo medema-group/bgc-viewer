@@ -131,13 +131,11 @@ class TestFullSystemIntegration:
         with open(invalid_file, 'w') as f:
             f.write('{"invalid": json content}')  # Invalid JSON
         
-        # Preprocessing should handle this gracefully
+        # Preprocessing builds a search index from the same source files, so a
+        # malformed file must fail the build rather than be silently skipped.
         index_path = str(temp_dir / "attributes.db")
-        result = preprocess_antismash_files(str(temp_dir), index_path)
-        
-        # Should report the error but not crash
-        assert "files_processed" in result
-        # The invalid file might be skipped, that's acceptable behavior
+        with pytest.raises(Exception):
+            preprocess_antismash_files(str(temp_dir), index_path)
     
     def test_empty_directory_processing(self, temp_dir):
         """Test processing an empty directory."""
@@ -164,6 +162,15 @@ class TestPerformanceAndScalability:
             "description": "Record with many features",
             "features": []
         }
+        
+        # Add 1 region feature so the protocluster has a parent region
+        large_record["features"].append({
+            "type": "region",
+            "location": "[0:10000]",
+            "qualifiers": {
+                "region_number": ["1"]
+            }
+        })
         
         # Add 1 protocluster feature so it passes filtering
         large_record["features"].append({
@@ -210,7 +217,7 @@ class TestPerformanceAndScalability:
         # Test loading the large record
         loaded = load_specific_record(str(test_file), "large_record", str(temp_dir))
         assert loaded is not None
-        assert len(loaded["records"][0]["features"]) == 101  # 1 protocluster + 100 CDS
+        assert len(loaded["records"][0]["features"]) == 102  # 1 region + 1 protocluster + 100 CDS
     
     def test_random_access_vs_fallback_performance(self, processed_data_dir, sample_json_file):
         """Test that random access is working (basic performance check)."""

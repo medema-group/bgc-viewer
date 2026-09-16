@@ -12,6 +12,8 @@ from bgc_viewer.preprocessing import (
     extract_attributes_from_record,
     create_attributes_database
 )
+from bgc_viewer.search.extraction import ExtractionError
+from bgc_viewer.search.index import open_index, search_protoclusters
 
 
 class TestFlattenComplexValue:
@@ -123,6 +125,8 @@ class TestPreprocessingPipeline:
         """Test the complete preprocessing pipeline."""
         # Create sample file
         sample_data = {
+            "version": "8.0.2",
+            "input_file": "test_sample.json",
             "records": [
                 {
                     "id": "test_record_1",
@@ -231,3 +235,70 @@ class TestPreprocessingPipeline:
         # Check final progress update
         final_update = progress_updates[-1]
         assert final_update[1] == final_update[2]  # files_processed == total_files
+
+
+class TestSearchIndexIntegration:
+    """Tests for the search index built alongside the SQLite database."""
+
+    def test_preprocessing_builds_search_index(self, sample_json_file):
+        """Preprocessing builds a Tantivy index as a sibling of the database."""
+        temp_dir = sample_json_file.parent
+        index_path = str(temp_dir / "attributes.db")
+        result = preprocess_antismash_files(str(temp_dir), index_path)
+
+        assert "indexed_protoclusters" in result
+        assert result["indexed_protoclusters"] == 2  # one protocluster per record
+
+        search_index_dir = temp_dir / "tantivy.index"
+        assert result["search_index_path"] == str(search_index_dir)
+        assert search_index_dir.exists()
+
+        # The generated index is directly usable through the search API.
+        index = open_index(str(search_index_dir))
+        hits = search_protoclusters(index, "product:polyketide")
+        assert hits.total == 1
+        assert hits.hits[0].fields["record"] == "test_record_1"
+
+    def test_preprocessing_rebuild_removes_previous_index(self, sample_json_file):
+        """A rebuild deletes the previous index before creating the new one."""
+        temp_dir = sample_json_file.parent
+        index_path = str(temp_dir / "attributes.db")
+        preprocess_antismash_files(str(temp_dir), index_path)
+
+        search_index_dir = temp_dir / "tantivy.index"
+        assert search_index_dir.exists()
+        marker = search_index_dir / "marker.txt"
+        marker.write_text("stale")
+
+        result = preprocess_antismash_files(str(temp_dir), index_path)
+        assert not marker.exists()
+        assert result["indexed_protoclusters"] == 2
+
+    def test_preprocessing_failed_build_leaves_no_index(self, temp_dir):
+        """A structurally incompatible file fails the build and leaves no index."""
+        sample = {
+            "version": "8.0.2",
+            "input_file": "bad.gbk",
+            "records": [
+                {
+                    "id": "bad_record",
+                    "features": [
+                        {
+                            "type": "protocluster",
+                            "location": "[100:800]",
+                            "qualifiers": {
+                                "protocluster_number": ["1"],
+                                "category": ["PKS"],
+                                "product": ["polyketide"],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+        (temp_dir / "bad.json").write_text(json.dumps(sample))
+
+        index_path = str(temp_dir / "attributes.db")
+        with pytest.raises(ExtractionError):
+            preprocess_antismash_files(str(temp_dir), index_path)
+        assert not (temp_dir / "tantivy.index").exists()
