@@ -197,6 +197,8 @@ export default {
   border: 1px solid #dee2e6;
   border-radius: 8px;
   padding: 20px;
+  overflow-y: auto;
+  height: 100%;
 }
 
 .index-creation-section h2 {
