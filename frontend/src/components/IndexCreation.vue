@@ -8,6 +8,9 @@
     </div>
     <p class="section-description">
       Creating index for: <strong>{{ folderPath }}</strong>
+      <button @click="showFolderPathDialog" class="change-button small">
+        Change
+      </button>
     </p>
     
     <PreprocessingStatus 
@@ -51,11 +54,19 @@
     />
 
     <!-- Dialog for selecting index path -->
-    <FolderSelectionDialog 
+    <FolderSelectionDialog
       :show="showIndexPathDialogFlag"
       title="Select folder for index file location"
       @close="handleIndexPathDialogClose"
       @folder-selected="handleIndexPathSelected"
+    />
+
+    <!-- Dialog for selecting folder path -->
+    <FolderSelectionDialog
+      :show="showFolderPathDialogFlag"
+      title="Select folder for index creation"
+      @close="handleFolderPathDialogClose"
+      @folder-selected="handleFolderPathSelected"
     />
   </div>
 </template>
@@ -98,11 +109,12 @@ export default {
       default: false
     }
   },
-  emits: ['preprocessing-completed', 'cancel'],
+  emits: ['preprocessing-completed', 'cancel', 'folder-changed'],
   setup(props, { emit }) {
     const selectedFiles = ref([])
     const preprocessingStatusRef = ref(null)
     const showIndexPathDialogFlag = ref(false)
+    const showFolderPathDialogFlag = ref(false)
     const indexPath = ref(props.indexPath || `${props.folderPath}/attributes.db`)
     const isPreprocessingRunning = ref(false)
     const indexFileExists = ref(false)
@@ -138,6 +150,19 @@ export default {
     
     const handleIndexPathDialogClose = () => {
       showIndexPathDialogFlag.value = false
+    }
+
+    const showFolderPathDialog = () => {
+      showFolderPathDialogFlag.value = true
+    }
+
+    const handleFolderPathDialogClose = () => {
+      showFolderPathDialogFlag.value = false
+    }
+
+    const handleFolderPathSelected = (folderData) => {
+      emit('folder-changed', folderData.folderPath)
+      showFolderPathDialogFlag.value = false
     }
     
     const handleIndexPathSelected = (folderData) => {
@@ -175,6 +200,7 @@ export default {
       selectedFiles,
       preprocessingStatusRef,
       showIndexPathDialogFlag,
+      showFolderPathDialogFlag,
       indexPath,
       defaultIndexPath,
       isPreprocessingRunning,
@@ -182,6 +208,9 @@ export default {
       showIndexPathDialog,
       handleIndexPathDialogClose,
       handleIndexPathSelected,
+      showFolderPathDialog,
+      handleFolderPathDialogClose,
+      handleFolderPathSelected,
       handlePreprocessingCompleted,
       handleFilesSelected,
       handleCancel,
@@ -329,5 +358,12 @@ export default {
 .loading-text {
   color: #495057;
   font-size: 14px;
+}
+
+.change-button.small {
+  margin-left: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  vertical-align: middle;
 }
 </style>

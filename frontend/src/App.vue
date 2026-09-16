@@ -46,6 +46,7 @@
             :is-loading-files="isLoadingFiles"
             :needs-preprocessing="needsPreprocessing"
             @preprocessing-completed="handlePreprocessingCompleted"
+            @folder-changed="handleFolderForIndexingChanged"
             @cancel="handleCancelIndexCreation"
           />
 
@@ -247,6 +248,10 @@ export default {
       availableFiles.value = files.availableFiles || []
       isLoadingFiles.value = files.isLoadingFiles || false
       needsPreprocessing.value = files.needsPreprocessing || false
+    }
+
+    const handleFolderForIndexingChanged = (newFolderPath) => {
+      folderForIndexing.value = newFolderPath
     }
     
     const handlePreprocessingCompleted = async (indexPath) => {
@@ -514,6 +519,7 @@ export default {
       handleAnnotationClicked,
       handleViewerError,
       handleCreateIndexForFolder,
+      handleFolderForIndexingChanged,
       handlePreprocessingCompleted,
       handleCancelIndexCreation,
       handleFilesLoaded,
