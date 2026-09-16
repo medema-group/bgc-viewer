@@ -99,8 +99,10 @@ Also store these identity or display values:
 - Declared antiSMASH version
 
 Search results return these stored summary values directly, without hydrating
-display data from SQLite or reopening source JSON. PFAMs, PFAM names, genes, and
-locus tags are indexed but are not returned in ordinary hits. Matched field
+display data from SQLite or reopening source JSON. Every registered field is
+always stored in the index so values can be read back for example collection
+and diagnostics; PFAMs, PFAM names, genes, and locus tags are stored but are
+not returned in ordinary hits. Matched field
 names and highlighting are deferred.
 
 For every `db_xref` value on an overlapping `PFAM_domain`, remove a trailing
@@ -145,13 +147,19 @@ fields. Use typed, immutable Python field definitions rather than a separate
 JSON manifest. Each field definition contains:
 
 - Public field name
+- A short user-facing description of what the field holds and where its
+	values come from
 - Value type (`text`, `keyword`, or numeric)
 - Cardinality (`single` or `multi`)
 - Analyzer (`full_text`, case-sensitive exact, or another registered analyzer)
-- Whether the field is stored in search hits
+- Whether the field is included in ordinary search hits
 - Whether unqualified queries search the field
 - Its static query-time boost
 - Whether the field is required or optional in a canonical document
+
+All fields are stored in the index, so field definitions carry no storage
+flag; the only storage-related decision is which stored fields are returned in
+ordinary hits.
 
 `document.py` owns the registry end to end: it validates extracted documents,
 and `index.py` consumes it to build the Tantivy schema and configure fields,
@@ -196,7 +204,8 @@ Add a short contributor guide with these checklists.
 To add a field such as `go`:
 
 1. Add one typed field definition to the registry in `document.py`, choosing
-	cardinality, analyzer, storage, and default-search behavior.
+	cardinality, analyzer, storage, and default-search behavior and writing
+	its user-facing description.
 2. Add extraction for that canonical field to each source adapter that can
 	provide it. Missing optional data produces an empty value, not a failed file.
 3. Add a minimal fixture containing two protoclusters that differ only in the
@@ -219,8 +228,8 @@ To support a changed antiSMASH major version:
 
 The contributor guide should name the concrete registry, adapter, fixture, and
 test paths once they are created. A CI test must ensure every registered field
-has valid schema options, is accepted by the `tantivy` schema builder, and
-appears in the field documentation.
+has valid schema options, is accepted by the `tantivy` schema builder, has a
+non-empty description, and appears in the field documentation.
 
 Use this proposed layout so ownership is easy to discover:
 
@@ -463,6 +472,19 @@ Record index size, build throughput, and cold and warm query latency on represen
 
 Stage 2 begins only after the Python search API and query behavior are stable.
 
+> **Stage 2: in progress.** Steps 1-3 are complete; reader lifecycle, rebuild
+> signaling, SQLite-backed examples, the schema endpoint, and Stage 2 tests
+> remain.
+>
+> - [x] 1. Integrate preprocessing
+> - [x] 2. Add a dedicated search endpoint
+> - [x] 3. Return self-contained results
+> - [ ] 4. Manage reader lifecycle
+> - [ ] 5. Signal rebuilds and report distinct errors
+> - [ ] 6. Store generated examples in SQLite
+> - [ ] 7. Add the level-independent schema endpoint
+> - [ ] 8. Test Stage 2
+
 ### 1. Integrate preprocessing
 
 Extend `preprocess_antismash_files()` to also call `build_index()`.
@@ -533,13 +555,21 @@ search summaries from SQLite or source JSON. Preserve Tantivy result order and
 use the stored relative source path and record identity when the user opens a
 hit.
 
-### 4. Manage reader lifecycle and rebuild signaling
+### 4. Manage reader lifecycle
 
 Do not cache Tantivy readers. Each search request opens the index, creates a
 searcher held in Flask's `g` for the request duration, and discards it at
 request end. At the expected corpus sizes the per-request open cost is
 negligible, and readers automatically pick up a completed in-place rebuild
-without explicit invalidation.
+without explicit invalidation. SQLite record browsing must continue to work
+when the derived Tantivy index is unavailable or being rebuilt.
+
+### 5. Signal rebuilds and report distinct errors
+
+A request arriving during a rebuild is detected through the in-memory
+preprocessing flag or the `.building` sentinel and returns HTTP 409 with code
+`index_rebuilding`; the sentinel lets a restarted server distinguish an
+interrupted build from a valid pair.
 
 Report distinct errors for:
 
@@ -548,12 +578,6 @@ Report distinct errors for:
 - Missing index
 - Corrupt index
 - Incompatible schema version
-
-A request arriving during a rebuild is detected through the in-memory flag or
-the `.building` sentinel and returns HTTP 409 with code `index_rebuilding`; the
-sentinel lets a restarted server distinguish an interrupted build from a valid
-pair. SQLite record browsing must continue to work when the derived Tantivy
-index is unavailable or being rebuilt.
 
 Return HTTP 400 for invalid syntax with a stable envelope:
 
@@ -567,21 +591,91 @@ Return HTTP 400 for invalid syntax with a stable envelope:
 }
 ```
 
-`details` is omitted when unavailable. Empty frontend/backend
-queries use existing SQLite record browsing and are not sent to Tantivy.
+`details` is omitted when unavailable. Empty frontend/backend queries use
+existing SQLite record browsing and are not sent to Tantivy.
 
-Add `GET /api/search/schema` for public field metadata derived from the registry
-in `document.py`, generated runnable examples, and a generic link to Tantivy
-query syntax. Return 404 until a database with a search index is selected, 404
-when the index is missing, and 409 when the index is rebuilding or its schema is
-incompatible. Do not expose the Tantivy
-library version in this
-user-facing response. During indexing, collect the first non-empty value for each
-example field in deterministic selected-file, record, and feature order. Omit an
-example if its required values are unavailable. These data-derived examples are
-allowed in local and public deployments.
+### 6. Store generated examples in SQLite
 
-### 5. Test Stage 2
+Add a `search_examples` table to the attributes database created in
+`create_attributes_database()`:
+
+```sql
+CREATE TABLE IF NOT EXISTS search_examples (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	template TEXT NOT NULL,
+	query TEXT NOT NULL
+)
+```
+
+The table is rebuilt with the rest of the database on every preprocessing run,
+so the stored examples always belong to the database they are served with.
+
+Define a versioned example-template registry beside the field registry in
+`document.py`. Every template entry has a stable template id, a query pattern
+with value placeholders, and the fields whose collected values it requires.
+The initial templates mirror the query shapes demonstrated by `_CLI_EXAMPLES`
+in `backend/bgc_viewer/search/cli.py`:
+
+- `unqualified_word`: a bare single word such as `terpene`, filled from a
+	single-word value of a default-search field.
+- `quoted_phrase`: a multi-word quoted phrase on a full-text field, for
+	example `organism:"Homo Sapiens"`, filled from the first multi-word
+	`organism` value, otherwise from `pfam_name`.
+- `and_fields`: two values from two different fields, for example
+	`category:X AND product:Y`.
+- `negation`: a negated second clause, for example
+	`organism:X NOT product:Y`.
+
+Numeric navigation and coordinate fields get no templates, and no template is
+generated per field: the help popup lists the available fields separately, so
+the examples only demonstrate query shapes.
+
+After the index build commits, read the first non-empty value for each
+registry field from the built index in document-insertion order (deterministic
+selected-file, record, and protocluster order), scanning documents until every
+field has a value or the corpus ends. Every field is stored, so the values are
+read directly from the index with no stream wrapping.
+
+Then instantiate every template from the collected values and insert the rows
+into `search_examples`. Each row stores the template
+id in `template` and the generated runnable query in `query`; omit a template
+when any of its required values is unavailable. Rows are stored in
+deterministic template order. These data-derived examples are allowed in local
+and public deployments; a failed build leaves no examples behind, and rerunning
+preprocessing is the recovery procedure.
+
+### 7. Add the level-independent schema endpoint
+
+Add `GET /api/search/schema`. Searchable fields and examples are identical for
+every level: the level only changes the hit shape and what happens when a hit
+is selected, so the URL carries no level and the response carries no level. The
+frontend serves one shared help popup from this endpoint regardless of the
+selected level.
+
+The response contains:
+
+- `fields`: public field metadata derived from the registry in `document.py`:
+  `name`, a user-facing `kind` of `exact`, `full_text`, or `numeric` so the
+  popup shows whether a field is exact, full text, or numeric, whether the
+  field participates in unqualified search, and a short `description` of what
+  the field holds and where its values come from, for example `product` holds
+  the protocluster's product string and `pfam` holds the PFAM accession of a
+  domain overlapping the protocluster. Cardinality, boosts, and storage flags
+  are internal details and are not exposed.
+- `examples`: the runnable example queries read from the SQLite
+  `search_examples` table, in template order.
+- `query_syntax_url`: a generic link to the Tantivy query-language
+  documentation at
+  `https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html`. Do
+  not expose the Tantivy library version in this user-facing response.
+
+Return 404 until a database with a search index is selected, 404 when the
+index is missing, and 409 when the index is rebuilding or its schema is
+incompatible. The endpoint resolves the index only for this availability
+signaling; field metadata comes from the registry and examples come from
+SQLite, so the response never reads values from the index.
+
+### 8. Test Stage 2
 
 Add backend tests for:
 
@@ -594,7 +688,8 @@ Add backend tests for:
 - Invalid-query responses
 - Rebuilding, missing, corrupt, and incompatible-index responses
 - Existing record browsing without a search index
-- Schema endpoint availability and data-derived examples
+- SQLite example collection and template generation during preprocessing
+- Schema endpoint availability, field metadata, and SQLite-backed examples
 
 Stage 2 is complete when protocluster searches work through Flask without frontend changes.
 
@@ -628,6 +723,9 @@ Each result must carry:
 Update `frontend/src/components/RecordListSelector.vue` to:
 
 - Display multiple protocluster hits from the same parent record
+- Show a level-selection combo beside the search input; the searchable fields
+	and example queries from `/api/search/schema` are shared across all levels
+	because the level only changes the hit shape and the hit-selection behavior
 - Show enough organism, product, category, region, and cluster context to distinguish them
 - Display structured query errors beside the search input
 - Keep the previous valid result set visible when a new query has a syntax error
@@ -756,6 +854,21 @@ Relevant documentation locations include:
 - Search uses `POST /api/search/<level>` with the granularity in the URL path,
   returns compact self-contained summaries, and does not report matched field
   names.
+- The schema endpoint `GET /api/search/schema` is level-independent: searchable
+  fields and examples are identical for every level because the level only
+  changes the hit shape and what happens when a hit is selected.
+- Example values are read from the built index, which stores every registered
+  field; generated queries come from a versioned example-template registry
+  beside the field registry in `document.py` (`unqualified_word`,
+  `quoted_phrase`, `and_fields`, `negation`) and are stored in a SQLite
+  `search_examples` table keyed by template id, rebuilt with the attributes
+  database. The schema endpoint serves them from SQLite and never reads values
+  from the index. No example is generated per field because the popup lists
+  the available fields separately.
+- The schema endpoint exposes each field's user-facing kind (`exact`,
+  `full_text`, or `numeric`), a short description of what the field holds, and
+  links to the Tantivy `QueryParser` query-language documentation; cardinality,
+  boosts, and storage flags stay internal.
 - The backend opens a fresh Tantivy reader per search request instead of caching
 	readers, and the frontend shows a modal blocking popup for the duration of a
 	rebuild.
