@@ -17,7 +17,9 @@ from bgc_viewer.search.index import (
     IndexIncompatibleError,
     IndexNotFoundError,
     QuerySyntaxError,
+    SearchHit,
     SearchIndex,
+    SearchResults,
     UnknownFieldError,
     build_index,
     open_index,
@@ -355,18 +357,30 @@ def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
     target = _open(corpus, tmp_path)
     result = search_protoclusters(target, "pfam:PF00512")
 
-    assert result.total == 1
-    hit = result.hits[0]
-    assert hit.score > 0
-    assert hit.fields["record"] == "recA"
-    assert hit.fields["region"] == 1
-    assert hit.fields["protocluster"] == 1
-    assert hit.fields["start"] == 100
-    assert hit.fields["end"] == 500
-    assert hit.fields["product"] == "NRP"
-    assert hit.fields["category"] == "NRPS"
-    assert hit.fields["output_file"] == "rec.json"
-    assert hit.fields["input_file"] == "rec.gbk"
+    expected = SearchResults(
+        query="pfam:PF00512",
+        hits=(
+            SearchHit(
+                score=result.hits[0].score,
+                fields={
+                    "record": "recA",
+                    "region": 1,
+                    "protocluster": 1,
+                    "start": 100,
+                    "end": 500,
+                    "product": "NRP",
+                    "category": "NRPS",
+                    "organism": "His Kinase Amycolatopsis",
+                    "output_file": "rec.json",
+                    "input_file": "rec.gbk",
+                },
+            ),
+        ),
+        total=1,
+        offset=0,
+        limit=10,
+    )
+    assert result == expected and result.hits[0].score > 0
 
 
 def test_search_omits_indexed_only_fields(corpus, tmp_path):
