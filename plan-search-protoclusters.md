@@ -482,16 +482,15 @@ Record index size, build throughput, and cold and warm query latency on represen
 
 Stage 2 begins only after the Python search API and query behavior are stable.
 
-> **Stage 2: in progress.** Steps 1-5 are complete; SQLite-backed examples,
-> the schema endpoint, Stage 2 tests, and the search-index contributor guide
-> remain.
+> **Stage 2: in progress.** Steps 1-6 are complete; the schema endpoint,
+> Stage 2 tests, and the search-index contributor guide remain.
 >
 > - [x] 1. Integrate preprocessing
 > - [x] 2. Add a dedicated search endpoint
 > - [x] 3. Return self-contained results
 > - [x] 4. Manage reader lifecycle
 > - [x] 5. Signal rebuilds (the distinct-error half was already done in steps 2-4)
-> - [ ] 6. Store generated examples in SQLite
+> - [x] 6. Store generated examples in SQLite
 > - [ ] 7. Add the level-independent schema endpoint
 > - [ ] 8. Test Stage 2
 > - [ ] 9. Document the search index and contributor recipes
@@ -706,9 +705,14 @@ in `backend/bgc_viewer/search/cli.py`:
 
 - `unqualified_word`: a bare single word such as `terpene`, filled from a
 	single-word value of a default-search field.
-- `quoted_phrase`: a multi-word quoted phrase on a full-text field, for
-	example `organism:"Homo Sapiens"`, filled from the first multi-word
-	`organism` value, otherwise from `pfam_name`.
+- `fielded_word`: a single-word fielded term such as `category:PKS`, filled
+	from a single-word `category` value, otherwise `product`. It introduces the
+	`field:` prefix on its own, without double quotes, so the quoted-phrase
+	example below introduces quoting as the only new concept.
+- `quoted_phrase`: an unqualified multi-word quoted phrase such as
+	`"Homo Sapiens"`, filled from the first multi-word `organism` value,
+	otherwise from `pfam_name`. It is searched across the default fields with no
+	field prefix, so it introduces double-quote phrase syntax on its own.
 - `and_fields`: two values from two different fields, for example
 	`category:X AND product:Y`.
 - `negation`: a negated second clause, for example
@@ -731,6 +735,44 @@ when any of its required values is unavailable. Rows are stored in
 deterministic template order. These data-derived examples are allowed in local
 and public deployments; a failed build leaves no examples behind, and rerunning
 preprocessing is the recovery procedure.
+
+> **Implemented.** Resolved ambiguities as follows.
+>
+> - **Storage alignment.** The plan asserts every registered field is stored in
+>   Tantivy, but Stage 1 had `stored=False` for `pfam`, `pfam_name`, `gene`,
+>   and `locus`, making them unreadable for example collection. Aligned with
+>   the plan: `_add_field` now stores every field in Tantivy, and the registry
+>   flag was renamed `stored` -> `returned` to mean only "included in ordinary
+>   hits" (applied in `_stored_fields`). This changes the Tantivy schema, so
+>   `SEARCH_SCHEMA_VERSION` was bumped to 2 and an index rebuild is required.
+> - **Template bindings** (concrete, mirroring the plan's examples):
+>   `unqualified_word` takes the first single-word value from any
+>   default-search field in registry order (`pfam` first); `fielded_word`
+>   takes a single-word `category`, otherwise `product`, to introduce the
+>   `field:` prefix without quotes; `quoted_phrase` takes the first multi-word
+>   `organism`, otherwise `pfam_name`; `and_fields` binds `category` AND
+>   `product`; `negation` binds `organism` NOT `product`. Templates are
+>   declared as `ExampleTemplate`/`ExampleSlot` with a `str.format` pattern
+>   and value slots in `document.py`.
+> - **Escaping.** Bare term positions quote a value only when Tantivy's parser
+>   cannot accept it as a bare term: whitespace, the grammar's `ESCAPE_IN_WORD`
+>   set (`^ ` : { } " ' [ ] ( ) \`), a leading `-`, or a reserved word
+>   (`OR`/`AND`/`NOT`/`IN`). A mid-term `-`, `.`, `/`, `*`, `?`, `~` stays
+>   unquoted (0.26 has no wildcard query and the term is passed through the
+>   field's analyzer), so `hglE-KS` renders bare. Quoted values escape embedded
+>   `"` and `\`; the quoted-phrase slot always renders inside double quotes, so
+>   every generated query is runnable.
+> - **Versioning.** The declared `EXAMPLE_TEMPLATE_REGISTRY` tuple is the
+>   version; no separate version constant, since examples are rebuilt with the
+>   attributes database.
+> - **Collection.** `collect_first_values(index)` in `index.py` reads stored
+>   documents in Tantivy document-address order (single-segment insertion order
+>   for the single-writer, single-commit build), stopping once every text field
+>   has a value or the corpus ends. `preprocess_antismash_files` writes the
+>   generated rows inside the existing build sentinel, so a present sentinel
+>   still means the pair is untrustworthy.
+>
+> Tests: `backend/bgc_viewer/tests/search/test_examples.py`.
 
 ### 7. Add the level-independent schema endpoint
 
@@ -996,7 +1038,7 @@ Relevant documentation locations include:
 - Example values are read from the built index, which stores every registered
   field; generated queries come from a versioned example-template registry
   beside the field registry in `document.py` (`unqualified_word`,
-  `quoted_phrase`, `and_fields`, `negation`) and are stored in a SQLite
+  `fielded_word`, `quoted_phrase`, `and_fields`, `negation`) and are stored in a SQLite
   `search_examples` table keyed by template id, rebuilt with the attributes
   database. The schema endpoint serves them from SQLite and never reads values
   from the index. No example is generated per field because the popup lists

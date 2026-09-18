@@ -15,7 +15,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, cast
 
-from tantivy import Document, Index, Schema, SchemaBuilder
+from tantivy import Document, DocAddress, Index, Schema, SchemaBuilder
 from tantivy import query_parser_error as parser_errors  # type: ignore[attr-defined]
 
 from .document import (
@@ -36,10 +36,13 @@ _META_FILE = "meta.json"
 
 
 def _add_field(builder: SchemaBuilder, definition: SearchFieldDefinition) -> None:
+    # Every registered field is stored so its value can be read back for
+    # example collection and diagnostics; ``returned`` only selects what comes
+    # back in ordinary hits and is applied in ``_stored_fields``.
     if definition.value_type == "numeric":
         builder.add_integer_field(
             definition.name,
-            stored=definition.stored,
+            stored=True,
             indexed=True,
             fast=True,
         )
@@ -56,7 +59,7 @@ def _add_field(builder: SchemaBuilder, definition: SearchFieldDefinition) -> Non
 
     builder.add_text_field(
         definition.name,
-        stored=definition.stored,
+        stored=True,
         tokenizer_name=tokenizer,
         index_option="position" if definition.analyzer == "full_text" else "freq",
     )
@@ -337,7 +340,7 @@ def _stored_fields(searcher, address: Any) -> dict[str, Any]:
     raw = searcher.doc(address).to_dict()
     summary: dict[str, Any] = {}
     for definition in SEARCH_FIELD_REGISTRY:
-        if not definition.stored or definition.name not in raw:
+        if not definition.returned or definition.name not in raw:
             continue
         value = raw[definition.name]
         if definition.value_type == "numeric":
@@ -347,6 +350,48 @@ def _stored_fields(searcher, address: Any) -> dict[str, Any]:
         else:
             summary[definition.name] = tuple(value)
     return summary
+
+
+def collect_first_values(index: SearchIndex) -> dict[str, str]:
+    """Read the first non-empty stored value for each text field from ``index``.
+
+    Documents are visited in Tantivy document-address order. The index is built
+    by a single writer thread with a single commit, so it is a single segment
+    and this order is the deterministic selected-file, record, protocluster
+    insertion order the plan calls for. The scan stops as soon as every text
+    registry field has a value or the corpus ends, and a multi-valued field
+    contributes its first stored value. Numeric fields are skipped because no
+    example template consumes them.
+    """
+    text_fields = tuple(
+        definition
+        for definition in SEARCH_FIELD_REGISTRY
+        if definition.value_type != "numeric"
+    )
+    values: dict[str, str] = {}
+    searcher = index.searcher()
+    for segment_ord in range(searcher.num_segments):
+        if len(values) == len(text_fields):
+            break
+        doc_id = 0
+        while True:
+            try:
+                raw = searcher.doc(DocAddress(segment_ord, doc_id)).to_dict()
+            except ValueError:
+                break
+            for definition in text_fields:
+                if definition.name in values:
+                    continue
+                items = raw.get(definition.name)
+                if not items:
+                    continue
+                value = items[0] if isinstance(items, list) else items
+                if value:
+                    values[definition.name] = value
+            if len(values) == len(text_fields):
+                break
+            doc_id += 1
+    return values
 
 
 def _parse_query(index: SearchIndex, query: str):

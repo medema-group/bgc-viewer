@@ -13,8 +13,9 @@ from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime
 
 from .search.build_state import building
+from .search.document import generate_example_queries
 from .search.extraction import extract_documents
-from .search.index import build_index
+from .search.index import build_index, collect_first_values
 
 # Try to import Rust extension for fast scanning, fall back to Python if not available
 try:
@@ -111,6 +112,19 @@ def create_attributes_database(db_path: Path) -> sqlite3.Connection:
             attribute_value TEXT NOT NULL,
             UNIQUE(record_id, attribute_name, attribute_value),
             FOREIGN KEY (record_id) REFERENCES records (id) ON DELETE CASCADE
+        )
+    """
+    )
+
+    # Create the search_examples table for generated runnable example queries.
+    # It is rebuilt with the rest of the database on every preprocessing run,
+    # so the stored examples always belong to the database they are served with.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS search_examples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            template TEXT NOT NULL,
+            query TEXT NOT NULL
         )
     """
     )
@@ -606,6 +620,22 @@ def _build_pair(
 
     indexed = index.searcher().num_docs
 
+    # Generate runnable example queries from the freshly built index and store
+    # them in the attributes database so the schema endpoint can serve them.
+    # This runs inside the caller's build sentinel, which is cleared only after
+    # the block returns, so a present sentinel keeps meaning the pair is not yet
+    # trustworthy and a failed build leaves no examples behind.
+    example_rows = generate_example_queries(collect_first_values(index))
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executemany(
+            "INSERT INTO search_examples (template, query) VALUES (?, ?)",
+            example_rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
     return {
         "files_processed": files_processed,
         "total_records": total_records,
@@ -613,4 +643,5 @@ def _build_pair(
         "database_path": str(db_path),
         "indexed_protoclusters": indexed,
         "search_index_path": str(search_index_dir),
+        "search_examples": len(example_rows),
     }

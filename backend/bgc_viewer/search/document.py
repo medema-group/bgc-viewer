@@ -2,9 +2,9 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Mapping
 
-SEARCH_SCHEMA_VERSION = 1
+SEARCH_SCHEMA_VERSION = 2
 
 FieldValueType = Literal["text", "keyword", "numeric"]
 FieldCardinality = Literal["single", "multi"]
@@ -18,7 +18,7 @@ class SearchFieldDefinition:
     value_type: FieldValueType
     cardinality: FieldCardinality
     analyzer: FieldAnalyzer | None
-    stored: bool
+    returned: bool
     default_search: bool
     boost: float
     required: bool
@@ -31,7 +31,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="keyword",
         cardinality="multi",
         analyzer="exact",
-        stored=False,
+        returned=False,
         default_search=True,
         boost=2.0,
         required=False,
@@ -42,7 +42,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="text",
         cardinality="multi",
         analyzer="full_text",
-        stored=False,
+        returned=False,
         default_search=True,
         boost=1.0,
         required=False,
@@ -53,7 +53,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="text",
         cardinality="single",
         analyzer="full_text",
-        stored=True,
+        returned=True,
         default_search=True,
         boost=1.0,
         required=False,
@@ -64,7 +64,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="keyword",
         cardinality="multi",
         analyzer="exact",
-        stored=False,
+        returned=False,
         default_search=True,
         boost=2.0,
         required=False,
@@ -75,7 +75,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="keyword",
         cardinality="multi",
         analyzer="exact",
-        stored=False,
+        returned=False,
         default_search=True,
         boost=2.0,
         required=False,
@@ -86,7 +86,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="keyword",
         cardinality="single",
         analyzer="exact",
-        stored=True,
+        returned=True,
         default_search=True,
         boost=2.0,
         required=True,
@@ -97,7 +97,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="keyword",
         cardinality="single",
         analyzer="exact",
-        stored=True,
+        returned=True,
         default_search=True,
         boost=2.0,
         required=True,
@@ -108,7 +108,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="keyword",
         cardinality="single",
         analyzer="exact",
-        stored=True,
+        returned=True,
         default_search=True,
         boost=2.0,
         required=True,
@@ -119,7 +119,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="numeric",
         cardinality="single",
         analyzer=None,
-        stored=True,
+        returned=True,
         default_search=False,
         boost=1.0,
         required=True,
@@ -130,7 +130,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="numeric",
         cardinality="single",
         analyzer=None,
-        stored=True,
+        returned=True,
         default_search=False,
         boost=1.0,
         required=True,
@@ -141,7 +141,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="numeric",
         cardinality="single",
         analyzer=None,
-        stored=True,
+        returned=True,
         default_search=False,
         boost=1.0,
         required=True,
@@ -152,7 +152,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="numeric",
         cardinality="single",
         analyzer=None,
-        stored=True,
+        returned=True,
         default_search=False,
         boost=1.0,
         required=True,
@@ -163,7 +163,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="keyword",
         cardinality="single",
         analyzer="exact",
-        stored=True,
+        returned=True,
         default_search=True,
         boost=2.0,
         required=True,
@@ -174,12 +174,197 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         value_type="keyword",
         cardinality="single",
         analyzer="exact",
-        stored=True,
+        returned=True,
         default_search=True,
         boost=2.0,
         required=False,
     ),
 )
+
+# Every registered field is stored in the Tantivy index so its value can be read
+# back for example collection and diagnostics. The ``returned`` flag is the only
+# storage-related decision: it selects which stored fields come back in ordinary
+# search hits. PFAMs, PFAM names, genes, and locus tags are stored but are not
+# returned in ordinary hits.
+
+ExampleValueFilter = Literal["any", "single_word", "multi_word"]
+
+_BARE_SAFE_PATTERN = re.compile(r"\w+", re.ASCII)
+
+# Characters Tantivy's query parser must not see inside a bare term. Mirrors
+# ``ESCAPE_IN_WORD`` in tantivy-query-grammar, plus whitespace and a leading
+# ``-`` (a leading hyphen is the negation operator). Everything else -- a
+# mid-term ``-``, ``.``, ``/``, ``*``, ``?``, ``~`` -- is safe unquoted: the
+# term text is passed through the field's analyzer, and 0.26 has no wildcard
+# query (regex is gated behind ``allow_regexes``, which we disable).
+_TANTIVY_ESCAPE_IN_WORD = frozenset("^`:{}\"'[]()\\")
+_RESERVED_TERMS = frozenset({"OR", "AND", "NOT", "IN"})
+
+
+def _needs_quoting(value: str) -> bool:
+    """Whether ``value`` cannot stand as a bare term in Tantivy's parser."""
+    if not value or value in _RESERVED_TERMS:
+        return True
+    if value[0] == "-" or value[0] in _TANTIVY_ESCAPE_IN_WORD:
+        return True
+    return any(ch.isspace() or ch in _TANTIVY_ESCAPE_IN_WORD for ch in value)
+
+
+def _escape_quoted(value: str) -> str:
+    """Escape a value placed inside double quotes."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _escape_term(value: str) -> str:
+    """Render a value for a bare term position, quoting it only when needed.
+
+    Tantivy accepts any character in a bare term except whitespace, the
+    ``ESCAPE_IN_WORD`` set, and a leading ``-``, so values like ``hglE-KS``
+    stay unquoted. Anything that would break parsing is wrapped in double
+    quotes with embedded quotes and backslashes escaped.
+    """
+    if not _needs_quoting(value):
+        return value
+    return f'"{_escape_quoted(value)}"'
+
+
+def _default_search_field_names() -> tuple[str, ...]:
+    return tuple(
+        definition.name
+        for definition in SEARCH_FIELD_REGISTRY
+        if definition.default_search
+    )
+
+
+def _passes_value_filter(value: str, value_filter: ExampleValueFilter) -> bool:
+    if value_filter == "single_word":
+        return bool(_BARE_SAFE_PATTERN.fullmatch(value))
+    if value_filter == "multi_word":
+        return len(value.split()) >= 2
+    return True
+
+
+@dataclass(frozen=True)
+class ExampleSlot:
+    """One value placeholder consumed by an example template.
+
+    ``candidates`` lists public field names in priority order; an empty tuple
+    means every field that participates in unqualified search. ``value_filter``
+    narrows which collected values the slot accepts, and ``quoted`` renders the
+    value inside double quotes (for phrase templates) instead of the
+    quote-when-needed rendering used for bare terms.
+    """
+
+    name: str
+    candidates: tuple[str, ...]
+    value_filter: ExampleValueFilter
+    quoted: bool = False
+
+    def select(self, values: Mapping[str, str]) -> tuple[str, str] | None:
+        """Return the ``(field, value)`` this slot resolves to, or ``None``."""
+        candidates = self.candidates or _default_search_field_names()
+        for name in candidates:
+            value = values.get(name)
+            if value and _passes_value_filter(value, self.value_filter):
+                return name, value
+        return None
+
+
+@dataclass(frozen=True)
+class ExampleTemplate:
+    """A runnable example query shape built from collected field values.
+
+    ``pattern`` is a ``str.format`` template whose placeholders are filled from
+    the value each slot resolves to: ``{slot}_field`` is the public field name
+    the value came from and ``{slot}_value`` is the escaped value. The template
+    is instantiable only when every slot resolves to a value.
+    """
+
+    template_id: str
+    pattern: str
+    slots: tuple[ExampleSlot, ...]
+
+    def instantiate(self, values: Mapping[str, str]) -> str | None:
+        """Return the runnable query, or ``None`` if a slot cannot be filled."""
+        context: dict[str, str] = {}
+        for slot in self.slots:
+            selected = slot.select(values)
+            if selected is None:
+                return None
+            name, value = selected
+            context[f"{slot.name}_field"] = name
+            context[f"{slot.name}_value"] = (
+                _escape_quoted(value) if slot.quoted else _escape_term(value)
+            )
+        return self.pattern.format(**context)
+
+
+# The declared registry is the version of the example set: it is rebuilt with
+# the attributes database on every preprocessing run, so it carries no
+# separate version number. The templates mirror the query shapes demonstrated
+# by ``_CLI_EXAMPLES`` in ``bgc_viewer/search/cli.py``.
+EXAMPLE_TEMPLATE_REGISTRY: tuple[ExampleTemplate, ...] = (
+    ExampleTemplate(
+        template_id="unqualified_word",
+        pattern="{word_value}",
+        slots=(ExampleSlot(name="word", candidates=(), value_filter="single_word"),),
+    ),
+    ExampleTemplate(
+        template_id="fielded_word",
+        pattern="{term_field}:{term_value}",
+        slots=(
+            ExampleSlot(
+                name="term",
+                candidates=("category", "product"),
+                value_filter="single_word",
+            ),
+        ),
+    ),
+    ExampleTemplate(
+        template_id="quoted_phrase",
+        pattern='"{phrase_value}"',
+        slots=(
+            ExampleSlot(
+                name="phrase",
+                candidates=("organism", "pfam_name"),
+                value_filter="multi_word",
+                quoted=True,
+            ),
+        ),
+    ),
+    ExampleTemplate(
+        template_id="and_fields",
+        pattern="{left_field}:{left_value} AND {right_field}:{right_value}",
+        slots=(
+            ExampleSlot(name="left", candidates=("category",), value_filter="any"),
+            ExampleSlot(name="right", candidates=("product",), value_filter="any"),
+        ),
+    ),
+    ExampleTemplate(
+        template_id="negation",
+        pattern="{left_field}:{left_value} NOT {right_field}:{right_value}",
+        slots=(
+            ExampleSlot(name="left", candidates=("organism",), value_filter="any"),
+            ExampleSlot(name="right", candidates=("product",), value_filter="any"),
+        ),
+    ),
+)
+
+
+def generate_example_queries(values: Mapping[str, str]) -> list[tuple[str, str]]:
+    """Return ``(template_id, query)`` rows in deterministic template order.
+
+    A template is omitted when any of its slots cannot be filled from the
+    collected first values, so a corpus missing a required value simply yields
+    fewer examples.
+    """
+    rows: list[tuple[str, str]] = []
+    for template in EXAMPLE_TEMPLATE_REGISTRY:
+        query = template.instantiate(values)
+        if query is not None:
+            rows.append((template.template_id, query))
+    return rows
+
 
 _SIMPLE_LOCATION_PATTERN = r"\[[<>]?\d+:[<>]?\d+\](?:\([+\-?]\))?"
 _LOCATION_PATTERN = re.compile(
@@ -276,7 +461,7 @@ class SearchFields:
     pfam_name: tuple[str, ...]
     gene: tuple[str, ...]
     # TODO locus is too generic it is used as genbank root level, rename to gene_locus?
-    locus: tuple[str, ...] 
+    locus: tuple[str, ...]
 
     @property
     def start(self) -> int:

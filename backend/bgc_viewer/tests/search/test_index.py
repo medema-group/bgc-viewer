@@ -132,7 +132,7 @@ def test_schema_is_derived_from_registry_not_hardcoded(tmp_path):
 @pytest.mark.parametrize(
     ("field", "expected"),
     [
-        ("pfam", {"type": "text", "stored": False, "indexing": {"tokenizer": "raw"}}),
+        ("pfam", {"type": "text", "stored": True, "indexing": {"tokenizer": "raw"}}),
         (
             "organism",
             {
@@ -240,8 +240,11 @@ def test_stored_summary_includes_display_fields(pfam_summary):
 
 
 @pytest.mark.parametrize("field", ["pfam", "pfam_name", "gene", "locus"])
-def test_indexed_only_fields_are_not_stored(pfam_summary, field):
-    assert field not in pfam_summary
+def test_every_registered_field_is_stored_in_the_index(pfam_summary, field):
+    # Every registered field is stored so its value can be read back for
+    # example collection and diagnostics, even though these fields are not
+    # returned in ordinary hits (see test_search_omits_indexed_only_fields).
+    assert field in pfam_summary
 
 
 def test_empty_optional_single_field_is_not_indexed(built):
