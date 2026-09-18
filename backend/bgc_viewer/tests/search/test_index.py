@@ -430,35 +430,46 @@ def test_search_full_text_is_lowercased_and_phrasable(
 
 
 @pytest.mark.parametrize(
-    ("query", "expected"),
+    "query",
     [
-        ("organism:Strepto*", 1),
-        ("organism:Strepto", 1),
-        ("pfam_name:Thioest*", 1),
-        ("pfam_name:Thioest", 1),
-        ("Strepto*", 1),
+        "organism:Strepto",
+        "organism:Strepto*",
+        "pfam_name:Thioest",
+        "pfam_name:Thioest*",
+        "Strepto*",
     ],
 )
-def test_search_prefix_matches_on_full_text_fields(
-    corpus, tmp_path, query, expected
-):
+def test_single_word_prefix_is_not_supported(corpus, tmp_path, query):
+    """A single word matches whole words only, with or without a trailing ``*``.
+
+    Tantivy offers prefix matching only as a per-field parser option applied to
+    *every* term on the field, which would widen a plain search without the
+    searcher asking for it, so no field is configured for it. A ``*`` after a
+    bare term is not a wildcard either: the grammar folds it into the term text
+    and the tokenizer drops it. Prefix matching exists only inside a multi-word
+    quoted phrase; see ``test_phrase_prefix_matches_the_last_word``.
+    """
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == expected
+    assert search_protoclusters(target, query).total == 0
 
 
 @pytest.mark.parametrize(
-    ("query", "expected"),
+    "query",
     [
-        ("organism:Streptomycez", 1),
-        ("pfam_name:Thioesteraz", 1),
-        ("Thioesteraz", 1),
+        "organism:Streptomycez",
+        "pfam_name:Thioesteraz",
+        "Thioesteraz",
     ],
 )
-def test_search_full_text_fields_tolerate_one_character_typos(
-    corpus, tmp_path, query, expected
-):
+def test_search_plain_terms_are_not_typo_tolerated(corpus, tmp_path, query):
+    """Nothing widens a plain term to nearby spellings.
+
+    Tantivy offers Levenshtein tolerance only as a per-field parser option applied
+    to every term on the field, which would make an unqualified search fuzzy
+    without the searcher asking for it, so no distance is configured.
+    """
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == expected
+    assert search_protoclusters(target, query).total == 0
 
 
 @pytest.mark.parametrize(
@@ -475,31 +486,81 @@ def test_search_exact_fields_do_not_match_prefixes(corpus, tmp_path, query):
     assert search_protoclusters(target, query).total == 0
 
 
-def test_typed_fuzzy_operator_matches_nothing(corpus, tmp_path):
-    """``term~N`` is not a fuzzy operator in the pinned tantivy binding.
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ('organism:"His Kinase Amycolatopsis"', 1),
+        ('organism:"His Amycolatopsis"', 0),
+        ('organism:"His Amycolatopsis"~1', 1),
+        ('organism:"His Amycolatopsis"~2', 1),
+        ('organism:"Kinase His"', 0),
+        ('organism:"Kinase His"~1', 0),
+        ('organism:"Kinase His"~2', 1),
+        ('"His Amycolatopsis"~1', 1),
+    ],
+)
+def test_phrase_slop_widens_the_gap_between_words(corpus, tmp_path, query, expected):
+    """``"a b"~N`` is Tantivy's native phrase slop on a quoted phrase.
 
-    The tilde and its digits stay part of the term text, so the term cannot match
-    even on a field that has fuzzy tolerance configured. Prefix and fuzzy matching
-    come only from the registry's ``prefix_matches`` and ``fuzzy_distance``, which
-    the query parser applies to every term built against the field.
+    Slop is the total number of positions the query words may shift from sitting
+    next to each other, so skipping one word costs 1 and swapping two adjacent
+    words costs 2. It is available on every full-text field without registry
+    support and only when the searcher types it.
     """
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, "organism:Streptomyces~1").total == 0
-    assert search_protoclusters(target, "pfam:PF00513~1").total == 0
+    assert search_protoclusters(target, query).total == expected
 
 
-def test_fuzzy_configuration_is_derived_from_the_registry(corpus, tmp_path):
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ('organism:"streptomyces coeli"*', 1),
+        ('pfam_name:"his ki"*', 1),
+        ('organism:"streptomyces coelicolor"*', 1),
+        ('organism:"coelicolor strepto"*', 0),
+    ],
+)
+def test_phrase_prefix_matches_the_last_word(corpus, tmp_path, query, expected):
+    """``"a b"*`` turns the last word of a quoted phrase into a prefix.
+
+    This is Tantivy's native phrase prefix. The prefixed word still has to sit
+    next to the words before it, so a reversed phrase matches nothing.
+    """
     target = _open(corpus, tmp_path)
-    assert target.fuzzy_fields == {
-        definition.name: (
-            definition.prefix_matches,
-            definition.fuzzy_distance,
-            True,
-        )
-        for definition in SEARCH_FIELD_REGISTRY
-        if definition.prefix_matches or definition.fuzzy_distance
-    }
-    assert set(target.fuzzy_fields) == {"organism", "pfam_name"}
+    assert search_protoclusters(target, query).total == expected
+
+
+@pytest.mark.parametrize(
+    "query",
+    ['organism:"coeli"*', 'pfam_name:"ki"*'],
+)
+def test_single_word_phrase_prefix_is_rejected(corpus, tmp_path, query):
+    """A prefix needs a phrase of at least two words, and says so.
+
+    Tantivy refuses ``"word"*`` outright, which is the single-word prefix that
+    is deliberately not offered.
+    """
+    target = _open(corpus, tmp_path)
+    with pytest.raises(QuerySyntaxError):
+        search_protoclusters(target, query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "organism:Streptomyces~1",
+        "pfam_name:Thioesterase~1",
+        "pfam:PF00513~1",
+    ],
+)
+def test_tilde_on_an_unquoted_term_matches_nothing(corpus, tmp_path, query):
+    """The slop operator needs a quoted phrase; on a bare term the tilde is text.
+
+    Tantivy attaches ``~N`` only to quoted phrases, so a tilde typed after an
+    unquoted term stays part of the term and cannot match.
+    """
+    target = _open(corpus, tmp_path)
+    assert search_protoclusters(target, query).total == 0
 
 
 @pytest.mark.parametrize(

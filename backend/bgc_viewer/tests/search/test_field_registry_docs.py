@@ -23,9 +23,7 @@ VALID_VALUE_TYPES = frozenset({"text", "keyword", "numeric"})
 VALID_CARDINALITIES = frozenset({"single", "multi"})
 
 
-@pytest.mark.parametrize(
-    "definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name
-)
+@pytest.mark.parametrize("definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name)
 def test_field_name_is_non_empty(definition):
     assert definition.name.strip()
 
@@ -35,23 +33,17 @@ def test_field_names_are_unique():
     assert len(set(names)) == len(names)
 
 
-@pytest.mark.parametrize(
-    "definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name
-)
+@pytest.mark.parametrize("definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name)
 def test_value_type_is_registered(definition):
     assert definition.value_type in VALID_VALUE_TYPES
 
 
-@pytest.mark.parametrize(
-    "definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name
-)
+@pytest.mark.parametrize("definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name)
 def test_cardinality_is_registered(definition):
     assert definition.cardinality in VALID_CARDINALITIES
 
 
-@pytest.mark.parametrize(
-    "definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name
-)
+@pytest.mark.parametrize("definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name)
 def test_analyzer_is_consistent_with_value_type(definition):
     """Numeric fields carry no analyzer; every other field names a registered one.
 
@@ -65,38 +57,18 @@ def test_analyzer_is_consistent_with_value_type(definition):
         assert definition.analyzer in _ANALYZERS
 
 
-@pytest.mark.parametrize(
-    "definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name
-)
-def test_prefix_and_fuzzy_are_restricted_to_full_text_fields(definition):
-    """Only analyzed text is prefix or typo tolerant.
-
-    Exact fields hold identifiers and whole-value keys, where a prefix or
-    typo-tolerant hit is not a meaningful answer, so tolerance on such a field
-    is a registry mistake rather than a feature.
-    """
-    if definition.prefix_matches or definition.fuzzy_distance:
-        assert definition.analyzer == "full_text"
-
-
-@pytest.mark.parametrize(
-    "definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name
-)
+@pytest.mark.parametrize("definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name)
 def test_numeric_fields_are_excluded_from_unqualified_search(definition):
     if definition.value_type == "numeric":
         assert definition.default_search is False
 
 
-@pytest.mark.parametrize(
-    "definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name
-)
+@pytest.mark.parametrize("definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name)
 def test_boost_is_positive(definition):
     assert definition.boost > 0
 
 
-@pytest.mark.parametrize(
-    "definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name
-)
+@pytest.mark.parametrize("definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name)
 def test_description_is_non_empty_plain_prose(definition):
     """The description is rendered verbatim in the browser help popup.
 
@@ -108,9 +80,7 @@ def test_description_is_non_empty_plain_prose(definition):
     assert "``" not in description
 
 
-@pytest.mark.parametrize(
-    "definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name
-)
+@pytest.mark.parametrize("definition", SEARCH_FIELD_REGISTRY, ids=lambda d: d.name)
 def test_tantivy_schema_builder_accepts_field(definition):
     builder = SchemaBuilder()
     _add_field(builder, definition)

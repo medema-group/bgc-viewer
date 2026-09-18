@@ -28,18 +28,18 @@ class SearchFieldDefinition:
     default_search: bool
     boost: float
     required: bool
-    # Query-time tolerance. ``prefix_matches`` makes a term that is a prefix of an
-    # indexed term match, and ``fuzzy_distance`` is the maximum Levenshtein
-    # distance at which a term still matches, with a transposition of two
-    # neighbouring characters counting as one. Both are applied by the query
-    # parser rather than the index, so changing them does not alter the stored
-    # Tantivy schema and does not bump SEARCH_SCHEMA_VERSION.
+    # Query-time tolerance is deliberately absent from the registry. Tantivy
+    # offers prefix and Levenshtein fuzzy matching only as a per-field parser
+    # option applied to *every* term built against that field, which would
+    # widen a plain search without the searcher asking for it. Both knobs are
+    # therefore left unset for all fields.
     #
-    # They are deliberately left off identifier fields such as ``pfam``, whose
-    # whole value is the lookup key: a prefix or typo-tolerant hit on an accession
-    # is not a meaningful answer.
-    prefix_matches: bool = False
-    fuzzy_distance: int = 0
+    # A searcher who wants looser matching uses the operators Tantivy provides
+    # on a quoted phrase: ``~N`` is slop, the slack between the quoted words,
+    # and ``*`` makes the last word a prefix. Both need the phrase to tokenize
+    # to at least two words. A trailing ``*`` on a bare, unquoted term is not a
+    # wildcard: the grammar folds it into the term text and the tokenizer drops
+    # it, so such a query matches nothing.
 
 
 SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
@@ -73,8 +73,6 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         default_search=True,
         boost=1.0,
         required=False,
-        prefix_matches=True,
-        fuzzy_distance=1,
     ),
     SearchFieldDefinition(
         name="organism",
@@ -90,8 +88,6 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         default_search=True,
         boost=1.0,
         required=False,
-        prefix_matches=True,
-        fuzzy_distance=1,
     ),
     SearchFieldDefinition(
         name="gene",

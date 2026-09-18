@@ -121,7 +121,14 @@ fields. Exact fields use boost `2.0`; the full-text fields `organism` and
 `pfam_name` use `1.0`. Results are ordered by Tantivy relevance score; equal
 scores resolve in Tantivy document-insertion order, which is deterministic
 because documents are always indexed in selected-file, record, and protocluster
-order. Native prefix syntax is available on every exact field.
+order. No field gets prefix or typo tolerance: Tantivy offers both only as a
+per-field parser option applied to *every* term built against the field, which
+would widen a plain search without the searcher asking. A single word therefore
+matches whole indexed words only. Looser matching is available solely on a
+quoted phrase of at least two words, where the searcher types it: `~N` is
+Tantivy's native phrase slop, the positional slack between the quoted words,
+and `*` turns the last word into a prefix that must still sit next to the words
+before it.
 
 Detect duplicate biological documents while streaming, using:
 
@@ -274,7 +281,17 @@ defaults and syntax, including:
 - Field-qualified terms
 - Quoted phrases for analyzed text
 - Unqualified terms across default fields
-- Prefix, fuzzy, range, and boost syntax supported by the normal parser
+- Range and boost syntax supported by the normal parser
+- Strict single-word terms. No field is prefix or typo tolerant, so a bare term
+  matches whole indexed words only. A trailing `*` on a bare term is inert: the
+  grammar folds it into the term text and the tokenizer drops it.
+- Phrase slop with `"a b"~N` on quoted phrases, Tantivy's native operator for
+  the positional slack between the quoted words. It is searcher-triggered, so
+  a plain query is never affected.
+- Phrase prefix with `"a b"*` on quoted phrases, which makes the last word a
+  prefix that must still sit next to the words before it.
+- Both phrase operators need the phrase to tokenize to at least two words; a
+  one-word prefix is refused by the parser and surfaces as a 400.
 
 Whitespace uses Tantivy's native implicit `OR`. Double quotes create ordered,
 adjacent phrase searches on the full-text fields `pfam_name` and `organism`,
@@ -482,8 +499,8 @@ Record index size, build throughput, and cold and warm query latency on represen
 
 Stage 2 begins only after the Python search API and query behavior are stable.
 
-> **Stage 2: in progress.** Steps 1-8 are complete; the search-index
-> contributor guide remains.
+> **Stage 2: complete.** All nine steps are done, including the
+> search-index contributor guide.
 >
 > - [x] 1. Integrate preprocessing
 > - [x] 2. Add a dedicated search endpoint
@@ -493,7 +510,7 @@ Stage 2 begins only after the Python search API and query behavior are stable.
 > - [x] 6. Store generated examples in SQLite
 > - [x] 7. Add the level-independent schema endpoint
 > - [x] 8. Test Stage 2
-> - [ ] 9. Document the search index and contributor recipes
+> - [x] 9. Document the search index and contributor recipes
 
 ### 1. Integrate preprocessing
 
@@ -939,11 +956,12 @@ The guide contains:
   and disabled regex queries, PFAM version normalization, query error
   responses, backend-only availability of the advanced syntax, and
   representative query examples.
-- A field reference generated from the registry in
-  `backend/bgc_viewer/search/document.py`: public name, user-facing kind,
-  description, and whether the field participates in unqualified search.
-  Generate it from the registry rather than hand-writing it, and commit the
-  generated output so the docs are reviewable in the diff.
+- Instead of a generated field table, point readers at the registry itself:
+  link to
+  `backend/bgc_viewer/search/document.py` on GitHub as the source of truth,
+  and to `GET /api/search/schema` for the live list of public names, kinds,
+  descriptions, and unqualified participation. No field list is duplicated in
+  the docs, so nothing there can drift from the registry.
 - Search index rebuild requirements: which changes bump
   `SEARCH_SCHEMA_VERSION`, that a rebuild deletes and recreates the database
   and `tantivy.index/` in place, and that rerunning preprocessing is the
@@ -957,10 +975,61 @@ The guide contains:
 Add the CI guard for this step as
 `backend/bgc_viewer/tests/search/test_field_registry_docs.py`, asserting that
 every registered field has valid schema options, is accepted by the `tantivy`
-schema builder, has a non-empty description, and appears in the generated
-field reference. The test belongs with this step rather than step 8 because it
-fails on registry and documentation drift, not on search behavior, and it is
-the mechanism that keeps the guide from going stale after the step closes.
+schema builder, and has a non-empty description. The earlier "appears in the
+generated field reference" assertion is dropped: the docs no longer carry a
+generated table, so there is nothing in them to compare against, and the
+registry-to-docs link is checked by hand. The test belongs with this step
+rather than step 8 because it fails on registry drift, not on search behavior.
+
+> **Implemented.** Resolved ambiguities as follows.
+>
+> - **No generated field reference.** The guide links to the registry source
+>   on GitHub and to `GET /api/search/schema` for the live field list rather
+>   than carrying a generated or hand-written table. No generator module was
+>   added, and no committed generated block exists to keep in sync.
+> - **CI guard scope.** `test_field_registry_docs.py` enforces registry
+>   hygiene only: non-empty and unique field names, registered value types and
+>   cardinalities, analyzer consistent with value type, numeric fields excluded
+>   from unqualified search, positive boosts, plain-prose descriptions without
+>   markup, `tantivy` schema-builder acceptance per field, and that every
+>   registered field reaches a built index. The docs link is checked by hand.
+> - **Adapter layout documented as-is.** The planned
+>   `adapters/base.py`/`registry.py`/`antismash8.py` split was not built;
+>   the guide names the real `backend/bgc_viewer/search/extraction.py`,
+>   `Antismash8Adapter`, `_ADAPTERS`, and `_select_adapter`. Step 9 is
+>   docs-only and does not refactor.
+> - **Endpoints documented in the REST API section too.** New
+>   `docs/guide/api/search.md` covers `POST /api/search/<level>` and
+>   `GET /api/search/schema`; the guide links to it rather than duplicating
+>   the HTTP contract.
+> - **Site navigation.** Both pages are in the VitePress sidebar
+>   (`Development` and `REST API` groups), and the guide is linked from
+>   `CONTRIBUTING.md`.
+> - **Shipped behavior only.** The guide describes what exists now and marks
+>   the Stage 3 frontend surfaces as planned and not yet shipped.
+> - **No prefix or typo tolerance on a single word.** The plan asserted native
+>   prefix syntax on every exact field. Measured against the pinned `tantivy`
+>   0.26, `pfam:PF0066*` matches nothing: the `raw` analyzer keeps the `*` in
+>   the term, and on a full-text field the tokenizer strips it, so a trailing
+>   `*` on a bare term is inert on every field. Prefix and Levenshtein matching
+>   are reachable only as the per-field `set_field_fuzzy` parser option, which
+>   applies to *every* term built against the field and would widen a plain
+>   search without the searcher asking. Per the decision to keep plain search
+>   exact, no field is configured for either, and the registry carries no
+>   tolerance knob at all: `SearchFieldDefinition` has no `prefix_matches` or
+>   `fuzzy_distance`, and `SearchIndex` passes no `fuzzy_fields` to the parser.
+> - **`~N` is phrase slop and `*` is phrase prefix.** Checked against the
+>   upstream `tantivy` 0.27 source and the pinned 0.26 binding. Both are
+>   native operators on a **quoted phrase of at least two words**: `~N` is the
+>   positional slack between the quoted words (`"big wolf"~1` matches "big bad
+>   wolf"), and `*` turns the last word into a prefix that must still sit next to
+>   the words before it (`"streptomyces coeli"*` matches "Streptomyces
+>   coelicolor"; `"coelicolor strepto"*` matches nothing). A one-word prefix
+>   is refused by the parser with `PhrasePrefixRequiresAtLeastTwoTerms`, which
+>   surfaces as a 400. Neither operator reaches a bare term. None of this is
+>   stored, so `SEARCH_SCHEMA_VERSION` is not bumped. Covered by the strict
+>   single-word, phrase-slop, phrase-prefix, single-word-prefix-rejected, and
+>   bare-tilde tests in `test_index.py`.
 
 ## Stage 3: Frontend Search and Navigation
 
