@@ -482,8 +482,8 @@ Record index size, build throughput, and cold and warm query latency on represen
 
 Stage 2 begins only after the Python search API and query behavior are stable.
 
-> **Stage 2: in progress.** Steps 1-7 are complete; the Stage 2 test sweep
-> and the search-index contributor guide remain.
+> **Stage 2: in progress.** Steps 1-8 are complete; the search-index
+> contributor guide remains.
 >
 > - [x] 1. Integrate preprocessing
 > - [x] 2. Add a dedicated search endpoint
@@ -492,7 +492,7 @@ Stage 2 begins only after the Python search API and query behavior are stable.
 > - [x] 5. Signal rebuilds (the distinct-error half was already done in steps 2-4)
 > - [x] 6. Store generated examples in SQLite
 > - [x] 7. Add the level-independent schema endpoint
-> - [ ] 8. Test Stage 2
+> - [x] 8. Test Stage 2
 > - [ ] 9. Document the search index and contributor recipes
 
 ### 1. Integrate preprocessing
@@ -876,6 +876,48 @@ Add backend tests for:
 - SQLite example collection and template generation during preprocessing
 - Schema endpoint availability, field metadata, and SQLite-backed examples
 - Registry and documentation consistency, delivered with step 9
+
+> **Implemented.** Resolved ambiguities as follows.
+>
+> - **Record-data LRU invalidation was not implemented, only listed.**
+>   `load_cached_entry()` was keyed on `(entry_id, db_path, data_root)`, so an
+>   in-place rebuild at the same path served record data parsed from the build
+>   it replaced. Both the record JSON and the byte offsets the loader reads from
+>   the database change on a rebuild, so that is wrong content, not merely old
+>   content. The key now carries the database build generation:
+>   `get_database_info()` exposes `build_id` (the `modified_date` metadata
+>   `populate_metadata_table()` rewrites on every run, falling back to
+>   `creation_date` and then the file's `st_mtime_ns`), and
+>   `record_cache_build_id()` in `backend/bgc_viewer/app.py` resolves it and is
+>   passed at both call sites.
+> - **Invalidation is read, not remembered.** The generation is read from the
+>   live database on every request instead of being flushed by whoever ran the
+>   build, so no caller can forget to clear it and a build driven from another
+>   entry point cannot leave a reachable stale generation. Because
+>   `create_attributes_database()` unlinks the old file before any new metadata
+>   exists, the previous generation disappears at the destructive delete.
+> - **Mid-rebuild window.** Invalidating at build start was chosen over keeping
+>   the previous entries alive until the new pair lands. Inside the window the
+>   live build id is empty, so a record request cannot resolve the generation
+>   the deleted build was cached under.
+> - **Public mode.** The public path resolves the generation too, so the
+>   contract does not depend on the shipped database being immutable.
+> - **Corrupt and incompatible index** and **stable ranked pagination** are now
+>   covered end-to-end through `POST /api/search/<level>` rather than only by
+>   the unit-level error-mapping table, alongside syntax-error and negative-only
+>   query responses and a check that protocluster hits carry exactly the
+>   registry's returned fields.
+> - **Registry and documentation consistency** stays with step 9, which owns
+>   `test_field_registry_docs.py`.
+>
+> Tests: `backend/bgc_viewer/tests/search/test_record_cache_invalidation.py`
+> (generation identity, cache-key participation, why a remembered token
+> resurrects the deleted build, the delete-in-place window, and record browsing
+> through the Flask app before and after a rebuild) and
+> `backend/bgc_viewer/tests/search/test_api.py` (`TestSearchEndpoint`
+> corrupt/incompatible/syntax/negative-only/self-contained hits,
+> `TestSearchEndpointRanking` descending score order, paged order equal to the
+> full order, tied-score stability across page boundaries, paging past the end).
 
 Stage 2 is complete when protocluster searches work through Flask without
 frontend changes and the search-index guide exists.

@@ -305,6 +305,164 @@ class TestSearchEndpoint:
             definition.name for definition in SEARCH_FIELD_REGISTRY
         )
 
+    def test_syntax_error_returns_400_invalid_query(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "(pfam:PF00501 AND"}
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data["error"]["code"] == "invalid_query"
+        assert "Syntax Error" in data["error"]["message"]
+
+    def test_query_errors_report_no_character_position(self, search_client, test_database):
+        """The contract omits the parser position rather than guessing it."""
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post("/api/search/protocluster", json={"query": "("})
+        error = json.loads(response.data)["error"]
+        assert error["code"] == "invalid_query"
+        assert "position" not in error
+
+    def test_negative_only_query_is_rejected(self, search_client, test_database):
+        """Tantivy rejects negative-only queries and so does the endpoint."""
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "-pfam:PF00501"}
+        )
+        assert response.status_code == 400
+        assert json.loads(response.data)["error"]["code"] == "invalid_query"
+
+    def test_corrupt_index_returns_500(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        meta_path = db_path.parent / "tantivy.index" / "meta.json"
+        meta_path.write_text("{not json", encoding="utf-8")
+
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+        assert response.status_code == 500
+        assert json.loads(response.data)["error"]["code"] == "corrupt_index"
+
+    def test_incompatible_index_returns_409(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        meta_path = db_path.parent / "tantivy.index" / "meta.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["payload"] = json.dumps(
+            {"search_schema_version": SEARCH_SCHEMA_VERSION + 1}
+        )
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+        assert response.status_code == 409
+        assert json.loads(response.data)["error"]["code"] == "incompatible_schema"
+
+    def test_protocluster_hits_are_self_contained(self, search_client, test_database):
+        """Every display value comes off the index; nothing needs hydrating."""
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+        returned = {
+            definition.name for definition in SEARCH_FIELD_REGISTRY if definition.returned
+        }
+        indexed_only = {
+            definition.name
+            for definition in SEARCH_FIELD_REGISTRY
+            if not definition.returned
+        }
+        for hit in json.loads(response.data)["hits"]:
+            assert returned <= set(hit["fields"])
+            assert not indexed_only & set(hit["fields"])
+            assert hit["fields"]["record"]
+            assert hit["fields"]["output_file"] == "test_sample.json"
+
+
+@pytest.fixture
+def ranked_database(temp_dir):
+    """A selected database whose sibling index yields distinctly scored hits."""
+    database = temp_dir / "attributes.db"
+    database.write_text("")
+    build_index(
+        iter(
+            [
+                _doc(1, record_id="recA", pfam=("PF00512", "PF00513")),
+                _doc(2, record_id="recA", pfam=("PF00512",)),
+                _doc(3, record_id="recB", pfam=("PF00513",)),
+            ]
+        ),
+        temp_dir / "tantivy.index",
+    )
+    return database
+
+
+class TestSearchEndpointRanking:
+    """Ranked pagination and stable ordering through the endpoint."""
+
+    QUERY = "pfam:PF00512 OR pfam:PF00513"
+
+    def _search(self, client, **pagination):
+        response = client.post(
+            "/api/search/protocluster", json={"query": self.QUERY, **pagination}
+        )
+        assert response.status_code == 200
+        return json.loads(response.data)
+
+    def test_hits_are_ordered_by_descending_score(self, search_client, ranked_database):
+        _select_database(search_client, ranked_database)
+        data = self._search(search_client, per_page=10)
+        scores = [hit["score"] for hit in data["hits"]]
+        assert scores == sorted(scores, reverse=True)
+        assert [hit["fields"]["protocluster"] for hit in data["hits"]] == [1, 2, 3]
+
+    def test_paged_requests_reproduce_the_full_ranked_order(
+        self, search_client, ranked_database
+    ):
+        _select_database(search_client, ranked_database)
+        full = self._search(search_client, per_page=10)
+        assert full["total"] == 3
+
+        paged: list[dict] = []
+        for page in range(1, 4):
+            page_data = self._search(search_client, page=page, per_page=1)
+            assert page_data["total"] == full["total"]
+            paged.extend(page_data["hits"])
+
+        assert [hit["score"] for hit in paged] == [hit["score"] for hit in full["hits"]]
+        assert [hit["fields"]["protocluster"] for hit in paged] == [
+            hit["fields"]["protocluster"] for hit in full["hits"]
+        ]
+
+    def test_tied_scores_keep_insertion_order_across_pages(
+        self, search_client, ranked_database
+    ):
+        """Equal scores resolve by document order, so paging cannot reshuffle them."""
+        _select_database(search_client, ranked_database)
+        data = self._search(search_client, per_page=10)
+        assert data["hits"][1]["score"] == data["hits"][2]["score"]
+
+        for _ in range(3):
+            singles = [
+                self._search(search_client, page=page, per_page=1)["hits"][0]
+                for page in range(1, 4)
+            ]
+            assert [hit["fields"]["protocluster"] for hit in singles] == [1, 2, 3]
+
+    def test_a_page_beyond_the_end_returns_no_hits_without_changing_the_total(
+        self, search_client, ranked_database
+    ):
+        _select_database(search_client, ranked_database)
+        data = self._search(search_client, page=9, per_page=5)
+        assert data["hits"] == []
+        assert data["total"] == 3
+
 
 # --- Public field projection -------------------------------------------------
 

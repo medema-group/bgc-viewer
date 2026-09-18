@@ -130,9 +130,39 @@ if not PUBLIC_MODE:
         'folder_path': None
     }
 
+
+def record_cache_build_id(db_path: str, db_info: dict | None = None) -> str:
+    """Build generation token for the record-data cache of ``db_path``.
+
+    ``populate_metadata_table()`` rewrites the timestamp on every preprocessing
+    run, so an in-place rebuild yields a new token and entries cached from the
+    build that was deleted become unreachable. Because the token is read from the
+    live database on every request, the previous generation disappears the
+    moment the rebuild deletes the old file: no request can serve record data
+    from a database that no longer exists.
+
+    Args:
+        db_path: Full path to the database file
+        db_info: Already-read database info, to avoid a second metadata read
+
+    Returns:
+        The build id, or an empty string when the database cannot be read.
+        Callers validate database metadata before consulting the cache, so an
+        unreadable database never reaches a cached entry anyway.
+    """
+    if db_info is None:
+        try:
+            db_info = get_database_info(db_path)
+        except Exception:
+            return ""
+    if not db_info or "error" in db_info:
+        return ""
+    return str(db_info.get("build_id") or "")
+
+
 # LRU cache for loaded AntiSMASH data to support multiple users efficiently
 @lru_cache(maxsize=100)
-def load_cached_entry(entry_id: str, db_path: str, data_dir: str):
+def load_cached_entry(entry_id: str, db_path: str, data_dir: str, build_id: str):
     """
     Load and cache AntiSMASH entry data.
     
@@ -140,14 +170,17 @@ def load_cached_entry(entry_id: str, db_path: str, data_dir: str):
         entry_id: Entry ID in format "filename:record_id"
         db_path: Full path to the database file (used as cache key)
         data_dir: Data directory path (where the JSON files are located)
+        build_id: Build generation of the database (see record_cache_build_id)
     
     Returns:
         Loaded AntiSMASH data for the specified entry
     
     Note:
-        The cache key includes db_path to ensure cache invalidation when
-        the database changes (important for LOCAL_MODE where users can
-        switch between different databases).
+        The cache key includes db_path so switching databases cannot reuse an
+        entry, and build_id so an in-place rebuild of the same path cannot be
+        served stale record data. The record JSON and the byte offsets stored in
+        the database both change when a folder is re-preprocessed, so the
+        generation is part of correctness, not just freshness.
     """
     filename, record_id = entry_id.split(':', 1)
     file_path = Path(data_dir) / filename
@@ -169,6 +202,7 @@ def get_current_entry_data():
     if PUBLIC_MODE:
         db_path = get_public_database_path()
         data_root = PUBLIC_DATA_ROOT
+        build_id = record_cache_build_id(db_path)
     else:
         # In LOCAL_MODE, get from session
         db_path = session.get('current_database_path')
@@ -187,10 +221,12 @@ def get_current_entry_data():
         except Exception:
             # If we can't read metadata, we can't proceed
             return None, None
+        build_id = record_cache_build_id(db_path, db_info)
     
-    # Load from cache (using db_path as part of cache key)
+    # Load from cache (keyed by db_path and build generation so a rebuild of
+    # the same path cannot serve stale record data)
     try:
-        data = load_cached_entry(entry_id, db_path, data_root)
+        data = load_cached_entry(entry_id, db_path, data_root, build_id)
         return data, data_root
     except Exception:
         return None, None
@@ -390,6 +426,7 @@ def load_database_entry():
         if PUBLIC_MODE:
             db_path = get_public_database_path()
             data_root = PUBLIC_DATA_ROOT
+            build_id = record_cache_build_id(db_path)
         else:
             # In LOCAL_MODE, use session database path
             db_path_str = session.get('current_database_path')
@@ -410,6 +447,7 @@ def load_database_entry():
                     return jsonify({"error": f"Failed to read database metadata: {db_info.get('error')}"}), 500
             except Exception as e:
                 return jsonify({"error": f"Invalid data_root in database metadata: {str(e)}"}), 500
+            build_id = record_cache_build_id(db_path, db_info)
         
         file_path = Path(data_root) / filename
         
@@ -441,8 +479,9 @@ def load_database_entry():
                 "error": f"Failed to save session data: {str(e)}. Session storage may be unavailable."
             }), 503
         
-        # Pre-cache the data for this session (using db_path as part of cache key)
-        load_cached_entry(entry_id, db_path, data_root)
+        # Pre-cache the data for this session (keyed by db_path and build
+        # generation so a rebuild cannot leave this entry stale)
+        load_cached_entry(entry_id, db_path, data_root, build_id)
         
         # Get the loaded record info
         loaded_record = modified_data["records"][0] if modified_data["records"] else {}

@@ -14,7 +14,10 @@ def get_database_info(db_file_path):
         db_file_path: Path to the database file (string or Path object)
         
     Returns:
-        Dictionary with database information or error
+        Dictionary with database information or error. ``build_id`` is the
+        preprocessing timestamp of this database and changes whenever the file
+        is rebuilt, which makes it usable as a generation token for caches of
+        data derived from it.
     """
     try:
         resolved_path = Path(db_file_path).resolve()
@@ -44,7 +47,24 @@ def get_database_info(db_file_path):
             cursor = conn.execute("SELECT value FROM metadata WHERE key = 'version'")
             version_row = cursor.fetchone()
             db_version = version_row[0] if version_row else None
-            
+
+            # Build generation token: rewritten by every preprocessing run, so a
+            # rebuild at the same path is distinguishable from the build it
+            # replaced. Callers use it to key caches of derived data.
+            build_id = None
+            for key in ("modified_date", "creation_date"):
+                cursor = conn.execute(
+                    "SELECT value FROM metadata WHERE key = ?", (key,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    build_id = row[0]
+                    break
+            if not build_id:
+                # A database predating the timestamp metadata still changes
+                # identity when rebuilt in place, so fall back to the file.
+                build_id = str(resolved_path.stat().st_mtime_ns)
+
             # Get index stats
             cursor = conn.execute("SELECT COUNT(*) FROM files")
             indexed_files = cursor.fetchone()[0]
@@ -58,6 +78,7 @@ def get_database_info(db_file_path):
                 "database_path": str(resolved_path),
                 "data_root": data_root,
                 "version": db_version,
+                "build_id": build_id,
                 "index_stats": {
                     "indexed_files": indexed_files,
                     "total_records": total_records
