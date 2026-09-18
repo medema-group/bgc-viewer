@@ -432,6 +432,79 @@ def test_search_full_text_is_lowercased_and_phrasable(
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
+        ("organism:Strepto*", 1),
+        ("organism:Strepto", 1),
+        ("pfam_name:Thioest*", 1),
+        ("pfam_name:Thioest", 1),
+        ("Strepto*", 1),
+    ],
+)
+def test_search_prefix_matches_on_full_text_fields(
+    corpus, tmp_path, query, expected
+):
+    target = _open(corpus, tmp_path)
+    assert search_protoclusters(target, query).total == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("organism:Streptomycez", 1),
+        ("pfam_name:Thioesteraz", 1),
+        ("Thioesteraz", 1),
+    ],
+)
+def test_search_full_text_fields_tolerate_one_character_typos(
+    corpus, tmp_path, query, expected
+):
+    target = _open(corpus, tmp_path)
+    assert search_protoclusters(target, query).total == expected
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "pfam:PF0051*",
+        "product:T1PK*",
+        "gene:spa*",
+        "locus:SPAU_*",
+    ],
+)
+def test_search_exact_fields_do_not_match_prefixes(corpus, tmp_path, query):
+    target = _open(corpus, tmp_path)
+    assert search_protoclusters(target, query).total == 0
+
+
+def test_typed_fuzzy_operator_matches_nothing(corpus, tmp_path):
+    """``term~N`` is not a fuzzy operator in the pinned tantivy binding.
+
+    The tilde and its digits stay part of the term text, so the term cannot match
+    even on a field that has fuzzy tolerance configured. Prefix and fuzzy matching
+    come only from the registry's ``prefix_matches`` and ``fuzzy_distance``, which
+    the query parser applies to every term built against the field.
+    """
+    target = _open(corpus, tmp_path)
+    assert search_protoclusters(target, "organism:Streptomyces~1").total == 0
+    assert search_protoclusters(target, "pfam:PF00513~1").total == 0
+
+
+def test_fuzzy_configuration_is_derived_from_the_registry(corpus, tmp_path):
+    target = _open(corpus, tmp_path)
+    assert target.fuzzy_fields == {
+        definition.name: (
+            definition.prefix_matches,
+            definition.fuzzy_distance,
+            True,
+        )
+        for definition in SEARCH_FIELD_REGISTRY
+        if definition.prefix_matches or definition.fuzzy_distance
+    }
+    assert set(target.fuzzy_fields) == {"organism", "pfam_name"}
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
         ("pfam:PF00512 AND pfam:PF00513", 1),
         ("pfam:PF00512 AND pfam:PF00999", 0),
         ("pfam:PF00512 OR pfam:PF00999", 2),

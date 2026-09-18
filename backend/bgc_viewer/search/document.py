@@ -28,6 +28,18 @@ class SearchFieldDefinition:
     default_search: bool
     boost: float
     required: bool
+    # Query-time tolerance. ``prefix_matches`` makes a term that is a prefix of an
+    # indexed term match, and ``fuzzy_distance`` is the maximum Levenshtein
+    # distance at which a term still matches, with a transposition of two
+    # neighbouring characters counting as one. Both are applied by the query
+    # parser rather than the index, so changing them does not alter the stored
+    # Tantivy schema and does not bump SEARCH_SCHEMA_VERSION.
+    #
+    # They are deliberately left off identifier fields such as ``pfam``, whose
+    # whole value is the lookup key: a prefix or typo-tolerant hit on an accession
+    # is not a meaningful answer.
+    prefix_matches: bool = False
+    fuzzy_distance: int = 0
 
 
 SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
@@ -61,6 +73,8 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         default_search=True,
         boost=1.0,
         required=False,
+        prefix_matches=True,
+        fuzzy_distance=1,
     ),
     SearchFieldDefinition(
         name="organism",
@@ -76,6 +90,8 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         default_search=True,
         boost=1.0,
         required=False,
+        prefix_matches=True,
+        fuzzy_distance=1,
     ),
     SearchFieldDefinition(
         name="gene",

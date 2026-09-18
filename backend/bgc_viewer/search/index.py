@@ -255,22 +255,37 @@ class RecordResults:
 class SearchIndex:
     """An open Tantivy index plus the query-time configuration it uses.
 
-    The public field names, default search fields, and boosts are all derived
-    from the registry so callers never touch internal schema details.
+    The public field names, default search fields, boosts, and per-field prefix
+    and fuzzy tolerance are all derived from the registry so callers never touch
+    internal schema details.
     """
 
     index: Index
     fields: tuple[str, ...]
     default_field_names: tuple[str, ...]
     field_boosts: dict[str, float]
+    fuzzy_fields: dict[str, tuple[bool, int, bool]]
 
     def searcher(self):
         return self.index.searcher()
 
 
-def _query_configuration() -> tuple[tuple[str, ...], tuple[str, ...], dict[str, float]]:
+def _query_configuration() -> tuple[
+    tuple[str, ...],
+    tuple[str, ...],
+    dict[str, float],
+    dict[str, tuple[bool, int, bool]],
+]:
+    """Project the registry onto the query parser's per-field options.
+
+    ``fuzzy_fields`` maps a field name onto the ``(prefix, distance,
+    transpose_cost_one)`` triple Tantivy applies to every term built against that
+    field. Only fields with prefix matching or a non-zero fuzzy distance appear,
+    so identifier fields such as ``pfam`` are matched strictly.
+    """
     default_fields: list[str] = []
     boosts: dict[str, float] = {}
+    fuzzy: dict[str, tuple[bool, int, bool]] = {}
     names: list[str] = []
     for definition in SEARCH_FIELD_REGISTRY:
         names.append(definition.name)
@@ -278,12 +293,18 @@ def _query_configuration() -> tuple[tuple[str, ...], tuple[str, ...], dict[str, 
             boosts[definition.name] = definition.boost
         if definition.default_search:
             default_fields.append(definition.name)
-    return tuple(names), tuple(default_fields), boosts
+        if definition.prefix_matches or definition.fuzzy_distance:
+            fuzzy[definition.name] = (
+                definition.prefix_matches,
+                definition.fuzzy_distance,
+                True,
+            )
+    return tuple(names), tuple(default_fields), boosts, fuzzy
 
 
 def _wrap(index: Index) -> SearchIndex:
-    names, default_fields, boosts = _query_configuration()
-    return SearchIndex(index, names, default_fields, boosts)
+    names, default_fields, boosts, fuzzy_fields = _query_configuration()
+    return SearchIndex(index, names, default_fields, boosts, fuzzy_fields)
 
 
 def _index_present(path: Path) -> bool:
@@ -400,6 +421,7 @@ def _parse_query(index: SearchIndex, query: str):
         query,
         default_field_names=list(index.default_field_names),
         field_boosts=index.field_boosts,
+        fuzzy_fields=index.fuzzy_fields,
         allow_regexes=False,
     )
     for error in errors:
