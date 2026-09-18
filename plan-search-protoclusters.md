@@ -482,8 +482,8 @@ Record index size, build throughput, and cold and warm query latency on represen
 
 Stage 2 begins only after the Python search API and query behavior are stable.
 
-> **Stage 2: in progress.** Steps 1-6 are complete; the schema endpoint,
-> Stage 2 tests, and the search-index contributor guide remain.
+> **Stage 2: in progress.** Steps 1-7 are complete; the Stage 2 test sweep
+> and the search-index contributor guide remain.
 >
 > - [x] 1. Integrate preprocessing
 > - [x] 2. Add a dedicated search endpoint
@@ -491,7 +491,7 @@ Stage 2 begins only after the Python search API and query behavior are stable.
 > - [x] 4. Manage reader lifecycle
 > - [x] 5. Signal rebuilds (the distinct-error half was already done in steps 2-4)
 > - [x] 6. Store generated examples in SQLite
-> - [ ] 7. Add the level-independent schema endpoint
+> - [x] 7. Add the level-independent schema endpoint
 > - [ ] 8. Test Stage 2
 > - [ ] 9. Document the search index and contributor recipes
 
@@ -805,6 +805,59 @@ index is missing, and 409 when the index is rebuilding or its schema is
 incompatible. The endpoint resolves the index only for this availability
 signaling; field metadata comes from the registry and examples come from
 SQLite, so the response never reads values from the index.
+
+> **Implemented.** Resolved ambiguities as follows.
+>
+> - **No-database status.** Step 7's literal "404 until a database with a
+>   search index is selected" conflicts with the step 5 contract, so the
+>   established contract wins: no database selected is `400 no_database`,
+>   exactly as `POST /api/search/<level>` behaves. The literal 404s are the
+>   missing-database-file (`missing_database`) and absent-index
+>   (`missing_index`) cases, and 409 covers `index_rebuilding`,
+>   `index_interrupted`, and `incompatible_schema`. One error contract for
+>   the whole search surface; `_open_search_index()` and the schema route
+>   share `_current_search_database()` in `backend/bgc_viewer/app.py`, so
+>   they cannot drift apart.
+> - **`examples` shape.** Bare runnable query strings, not
+>   `{template, query}` objects. The popup copies them; the template id is a
+>   build-time detail.
+> - **Unqualified flag key.** `unqualified`, matching the user-facing
+>   wording, rather than mirroring the registry's `default_search`.
+> - **Descriptions live in the registry.** `SearchFieldDefinition` gained a
+>   required `description` holding the short user-facing text. It was
+>   missing entirely, and both this endpoint and the step 9 generated field
+>   reference need it, so it belongs in the registry rather than a parallel
+>   map. It is plain prose with no RST markup: the string is rendered in a
+>   browser popup, where `` ``code`` `` would show literally. A description
+>   is not part of the Tantivy schema, so `SEARCH_SCHEMA_VERSION` is not
+>   bumped and no rebuild is required.
+> - **Kind projection.** `public_kind()` and `public_field_metadata()` in
+>   `document.py` map the registry onto the user-facing `exact` /
+>   `full_text` / `numeric` kind (analyzer for text fields, value type for
+>   numeric ones) and produce the ordered public projection, so the step 9
+>   docs generator reuses the same mapping instead of inventing its own. A
+>   text field with no analyzer raises rather than being silently classified.
+> - **Response assembly.** `SchemaResponse`, `read_example_queries()`, and
+>   `build_schema_response()` in `backend/bgc_viewer/search/api.py` keep the
+>   route thin and the contract framework-agnostic. Examples are read with
+>   `ORDER BY id`, which reproduces template order because preprocessing
+>   inserts them that way against the autoincrement key.
+> - **Missing example table.** A database with no `search_examples` table
+>   yields empty examples rather than a failed response: the field half is
+>   registry-derived and stays valid, so there is no reason to 500. (A
+>   database predating the table also fails the schema-version check with
+>   409 before this is reached.)
+> - **Availability check.** The route calls `guard_build_state()` then
+>   `open_index()` and discards the handle, which is what makes the
+>   `incompatible_schema` 409 reachable without reading anything from the
+>   index. A test stubs `open_index` with a non-index object and still gets a
+>   complete payload, proving no index values are read.
+>
+> Tests: `backend/bgc_viewer/tests/search/test_api.py` (projection,
+> example reads, endpoint shape, availability and error statuses) and
+> `backend/bgc_viewer/tests/search/test_reader_lifecycle.py`
+> (`TestSchemaEndpointLifecycle`: one handle per request, nothing retained,
+> nothing pinned on success or failure).
 
 ### 8. Test Stage 2
 

@@ -2,12 +2,15 @@
 
 Covers request parsing (:func:`parse_search_request`), the minimal
 :class:`SearchResponse` body built from the core result types, the structured
-error mapping, and the Flask ``POST /api/search/<level>`` routes.
+error mapping, the Flask ``POST /api/search/<level>`` routes, and the
+level-independent ``GET /api/search/schema`` endpoint.
 """
 
 import json
+import sqlite3
 
 import pytest
+import bgc_viewer.app as app_module
 from bgc_viewer.app import (
     MissingDatabaseError,
     NoDatabaseError,
@@ -15,18 +18,26 @@ from bgc_viewer.app import (
 )
 from bgc_viewer.search.api import (
     MAX_PAGE_SIZE,
+    QUERY_SYNTAX_URL,
     InvalidRequestError,
     SearchRequest,
     SearchResponse,
+    build_schema_response,
     error_response,
     parse_search_request,
+    read_example_queries,
 )
+from bgc_viewer.search.build_state import mark_building
 from bgc_viewer.search.document import (
     SEARCH_FIELD_REGISTRY,
+    SEARCH_SCHEMA_VERSION,
     Location,
     ProtoclusterSearchDocument,
+    SearchFieldDefinition,
     SearchFields,
     SourceFile,
+    public_field_metadata,
+    public_kind,
 )
 from bgc_viewer.search.index import (
     EmptyQueryError,
@@ -293,3 +304,316 @@ class TestSearchEndpoint:
         assert data["error"]["details"]["available_fields"] == sorted(
             definition.name for definition in SEARCH_FIELD_REGISTRY
         )
+
+
+# --- Public field projection -------------------------------------------------
+
+
+def _definition(**overrides) -> SearchFieldDefinition:
+    fields = dict(
+        name="go",
+        description="Gene Ontology term of the protocluster.",
+        attribute="go",
+        value_type="keyword",
+        cardinality="multi",
+        analyzer="exact",
+        returned=False,
+        default_search=True,
+        boost=2.0,
+        required=False,
+    )
+    fields.update(overrides)
+    return SearchFieldDefinition(**fields)
+
+
+class TestPublicFieldProjection:
+    def test_every_registered_field_is_projected_in_registry_order(self):
+        projected = public_field_metadata()
+        assert [info.name for info in projected] == [
+            definition.name for definition in SEARCH_FIELD_REGISTRY
+        ]
+
+    def test_kind_comes_from_the_analyzer_for_text_fields(self):
+        kinds = {info.name: info.kind for info in public_field_metadata()}
+        assert kinds["pfam"] == "exact"
+        assert kinds["product"] == "exact"
+        assert kinds["output_file"] == "exact"
+        assert kinds["organism"] == "full_text"
+        assert kinds["pfam_name"] == "full_text"
+
+    def test_kind_is_numeric_for_fields_without_an_analyzer(self):
+        kinds = {info.name: info.kind for info in public_field_metadata()}
+        for name in ("region", "protocluster", "start", "end"):
+            assert kinds[name] == "numeric", name
+
+    def test_unqualified_mirrors_the_registry_default_search_flag(self):
+        projected = {info.name: info for info in public_field_metadata()}
+        for definition in SEARCH_FIELD_REGISTRY:
+            assert projected[definition.name].unqualified == definition.default_search
+
+    def test_no_numeric_field_participates_in_unqualified_search(self):
+        assert [
+            info.name
+            for info in public_field_metadata()
+            if info.kind == "numeric" and info.unqualified
+        ] == []
+
+    def test_every_field_carries_a_non_empty_description(self):
+        empty = [
+            info.name
+            for info in public_field_metadata()
+            if not info.description.strip()
+        ]
+        assert empty == []
+
+    def test_public_kind_rejects_a_text_field_with_no_analyzer(self):
+        with pytest.raises(ValueError, match="no user-facing kind"):
+            public_kind(_definition(value_type="keyword", analyzer=None))
+
+
+# --- Example reads -----------------------------------------------------------
+
+
+def _example_queries(db_path) -> list[str]:
+    conn = sqlite3.connect(db_path)
+    try:
+        return [
+            row[0]
+            for row in conn.execute(
+                "SELECT query FROM search_examples ORDER BY id"
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+
+
+def _database_without_example_table(db_path) -> None:
+    """Create a database that has no ``search_examples`` table at all."""
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
+    conn.commit()
+    conn.close()
+
+
+class TestReadExampleQueries:
+    def test_reads_rows_in_the_order_preprocessing_wrote_them(self, test_database):
+        db_path, _ = test_database
+        assert list(read_example_queries(db_path)) == _example_queries(db_path)
+
+    def test_missing_table_yields_no_examples(self, temp_dir):
+        database = temp_dir / "attributes.db"
+        _database_without_example_table(database)
+        assert read_example_queries(database) == ()
+
+    def test_build_schema_response_pairs_registry_fields_with_stored_examples(
+        self, test_database
+    ):
+        db_path, _ = test_database
+        response = build_schema_response(db_path)
+        assert [info.name for info in response.fields] == [
+            definition.name for definition in SEARCH_FIELD_REGISTRY
+        ]
+        assert list(response.examples) == _example_queries(db_path)
+        assert response.query_syntax_url == QUERY_SYNTAX_URL
+
+
+# --- Schema endpoint ---------------------------------------------------------
+
+
+def _schema(search_client):
+    return search_client.get("/api/search/schema")
+
+
+SAMPLE_EXAMPLES = [
+    "PF00501",
+    "category:PKS",
+    '"Streptomyces coelicolor"',
+    "category:PKS AND product:polyketide",
+    'organism:"Streptomyces coelicolor" NOT product:polyketide',
+]
+
+
+class TestSchemaEndpoint:
+    def test_response_carries_exactly_fields_examples_and_syntax_url(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = _schema(search_client)
+        assert response.status_code == 200
+        assert set(json.loads(response.data)) == {
+            "fields",
+            "examples",
+            "query_syntax_url",
+        }
+
+    def test_field_objects_expose_only_the_public_keys(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        data = json.loads(_schema(search_client).data)
+        for field in data["fields"]:
+            assert set(field) == {"name", "kind", "unqualified", "description"}
+
+    def test_internal_registry_details_are_not_exposed(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        data = json.loads(_schema(search_client).data)
+        for field in data["fields"]:
+            for internal in ("boost", "cardinality", "stored", "returned", "analyzer"):
+                assert internal not in field, f"{internal} leaked via {field['name']}"
+
+    def test_fields_cover_the_whole_registry_in_order(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        data = json.loads(_schema(search_client).data)
+        assert [field["name"] for field in data["fields"]] == [
+            definition.name for definition in SEARCH_FIELD_REGISTRY
+        ]
+
+    def test_examples_are_the_generated_queries_in_template_order(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        data = json.loads(_schema(search_client).data)
+        assert data["examples"] == SAMPLE_EXAMPLES
+
+    def test_query_syntax_url_is_the_generic_latest_parser_link(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        data = json.loads(_schema(search_client).data)
+        assert data["query_syntax_url"] == (
+            "https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html"
+        )
+        assert "0.26" not in data["query_syntax_url"]
+
+    def test_response_carries_no_level(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        assert "level" not in json.loads(_schema(search_client).data)
+
+    def test_repeated_requests_are_identical(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        assert _schema(search_client).data == _schema(search_client).data
+
+    def test_post_is_not_allowed(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        assert search_client.post("/api/search/schema", json={}).status_code == 405
+
+    def test_the_index_is_opened_only_for_availability_signaling(
+        self, search_client, test_database, monkeypatch
+    ):
+        """A stub handle still yields a complete response: nothing is read from it."""
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        opened: list = []
+        monkeypatch.setattr(
+            app_module, "open_index", lambda path: opened.append(path) or object()
+        )
+
+        response = _schema(search_client)
+
+        assert response.status_code == 200
+        assert opened == [str(db_path.parent / "tantivy.index")]
+        data = json.loads(response.data)
+        assert len(data["fields"]) == len(SEARCH_FIELD_REGISTRY)
+        assert data["examples"] == SAMPLE_EXAMPLES
+
+    def test_no_database_selected_returns_400(self, search_client):
+        response = _schema(search_client)
+        assert response.status_code == 400
+        assert json.loads(response.data)["error"]["code"] == "no_database"
+
+    def test_missing_database_file_returns_404(self, search_client, temp_dir):
+        _select_database(search_client, temp_dir / "gone.db")
+        response = _schema(search_client)
+        assert response.status_code == 404
+        assert json.loads(response.data)["error"]["code"] == "missing_database"
+
+    def test_missing_index_returns_404(self, search_client, temp_dir):
+        database = temp_dir / "attributes.db"
+        database.write_text("")
+        _select_database(search_client, database)
+        response = _schema(search_client)
+        assert response.status_code == 404
+        assert json.loads(response.data)["error"]["code"] == "missing_index"
+
+    def test_incompatible_schema_returns_409(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        meta_path = db_path.parent / "tantivy.index" / "meta.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["payload"] = json.dumps(
+            {"search_schema_version": SEARCH_SCHEMA_VERSION + 1}
+        )
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+        response = _schema(search_client)
+        assert response.status_code == 409
+        assert json.loads(response.data)["error"]["code"] == "incompatible_schema"
+
+    def test_live_build_returns_409_rebuilding(
+        self, monkeypatch, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        monkeypatch.setitem(app_module.PREPROCESSING_STATUS, "is_running", True)
+        response = _schema(search_client)
+        assert response.status_code == 409
+        assert json.loads(response.data)["error"]["code"] == "index_rebuilding"
+
+    def test_stale_sentinel_returns_409_interrupted(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        mark_building(db_path.parent)
+        response = _schema(search_client)
+        assert response.status_code == 409
+        assert json.loads(response.data)["error"]["code"] == "index_interrupted"
+
+    def test_guard_runs_before_any_handle_is_opened(
+        self, search_client, test_database, monkeypatch
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        opened: list = []
+        monkeypatch.setattr(app_module, "open_index", lambda path: opened.append(path))
+        mark_building(db_path.parent)
+
+        assert _schema(search_client).status_code == 409
+        assert opened == []
+
+    def test_a_read_request_does_not_clear_a_stale_sentinel(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        mark_building(db_path.parent)
+        _schema(search_client)
+        from bgc_viewer.search.build_state import is_building
+
+        assert is_building(db_path.parent)
+
+    def test_fields_are_served_when_the_example_table_is_absent(
+        self, search_client, temp_dir
+    ):
+        """A database without examples still gets the full registry-driven fields."""
+        database = temp_dir / "attributes.db"
+        _database_without_example_table(database)
+        build_index(iter([_doc(1)]), temp_dir / "tantivy.index")
+        _select_database(search_client, database)
+
+        response = _schema(search_client)
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["examples"] == []
+        assert len(data["fields"]) == len(SEARCH_FIELD_REGISTRY)

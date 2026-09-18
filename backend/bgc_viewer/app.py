@@ -18,6 +18,7 @@ from .file_utils import match_location
 from .database import get_database_entries, get_database_info
 from .search.api import (
     SearchResponse,
+    build_schema_response,
     error_response,
     parse_search_request,
 )
@@ -919,6 +920,24 @@ def _build_is_live() -> bool:
     return bool(PREPROCESSING_STATUS.get('is_running'))
 
 
+def _current_search_database() -> Path:
+    """Resolve the database the current request should search.
+
+    Shared by the search endpoints and the schema endpoint so both agree on
+    which database is current and report an absent selection or a vanished
+    file with the same structured errors.
+    """
+    if PUBLIC_MODE:
+        return Path(get_public_database_path())
+
+    db_path = session.get('current_database_path')
+    if not db_path:
+        raise NoDatabaseError()
+    if not Path(db_path).exists():
+        raise MissingDatabaseError(db_path)
+    return Path(db_path)
+
+
 def _open_search_index():
     """Open a fresh handle on the current database's sibling search index.
 
@@ -936,15 +955,7 @@ def _open_search_index():
     Callers must treat the returned object as request-scoped and must not
     store it on the module, the ``app``, or any other longer-lived object.
     """
-    if PUBLIC_MODE:
-        db_path = get_public_database_path()
-    else:
-        db_path = session.get('current_database_path')
-        if not db_path:
-            raise NoDatabaseError()
-        if not Path(db_path).exists():
-            raise MissingDatabaseError(db_path)
-    output_dir = Path(db_path).parent
+    output_dir = _current_search_database().parent
     guard_build_state(output_dir, build_is_live=_build_is_live)
     return open_index(str(output_dir / "tantivy.index"))
 
@@ -991,6 +1002,26 @@ def search_record_endpoint():
     index = _open_search_index()
     results = search_record(index, req.query, offset=req.offset, limit=req.per_page)
     return jsonify(SearchResponse.from_results(results)), 200
+
+
+@app.route('/api/search/schema')
+@search_errors
+def search_schema_endpoint():
+    """Serve the level-independent search schema for the shared help popup.
+
+    Fields come from the registry and examples from the SQLite
+    ``search_examples`` table, so the payload is the same at every level. The
+    index is opened purely for availability signaling: opening it raises the
+    same ``missing_index``, ``incompatible_schema``, and ``corrupt_index``
+    errors a search request would, which is how the popup learns whether
+    advanced search is usable for the selected database. No values are read
+    from the index.
+    """
+    db_path = _current_search_database()
+    output_dir = db_path.parent
+    guard_build_state(output_dir, build_is_live=_build_is_live)
+    open_index(str(output_dir / "tantivy.index"))
+    return jsonify(build_schema_response(db_path)), 200
 
 
 # Preprocessing endpoint - only available in local mode

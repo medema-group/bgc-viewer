@@ -5,6 +5,9 @@ opens its own index, and nothing retains a reader, a file descriptor, or a
 memory mapping once the request returns. A rebuild deletes ``tantivy.index/``
 in place, so a cached handle would pin the deleted segments and keep serving
 the previous corpus after the same path is rebuilt from different files.
+
+The level-independent ``GET /api/search/schema`` endpoint opens a handle
+purely for availability signaling, so it is held to the same invariants.
 """
 
 from __future__ import annotations
@@ -287,6 +290,66 @@ class TestNothingPinnedAfterRequest:
         shutil.rmtree(index_dir)
 
         assert not index_dir.exists()
+        assert _pinned(index_dir) == set()
+
+
+class TestSchemaEndpointLifecycle:
+    """The schema endpoint opens a handle, so the same rules apply to it."""
+
+    def test_every_schema_request_opens_its_own_handle(
+        self, search_client, test_database, monkeypatch
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        opens: list = []
+        monkeypatch.setattr(app_module, "open_index", _counting_open(opens))
+
+        for _ in range(3):
+            assert search_client.get("/api/search/schema").status_code == 200
+
+        assert len(opens) == 3
+        assert len({id(handle) for handle in opens}) == 3
+
+    def test_no_handle_is_retained_after_schema_requests(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        for _ in range(2):
+            assert search_client.get("/api/search/schema").status_code == 200
+
+        gc.collect()
+        assert _retained_handles(vars(app_module)) == []
+        assert _retained_handles(vars(app)) == []
+
+    @linux_only
+    def test_successful_schema_request_leaves_nothing_pinned(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        index_dir = _index_dir(db_path)
+
+        assert search_client.get("/api/search/schema").status_code == 200
+
+        gc.collect()
+        assert _pinned(index_dir) == set()
+
+    @linux_only
+    def test_failed_schema_request_leaves_nothing_pinned(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        index_dir = _index_dir(db_path)
+        meta_path = index_dir / "meta.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["payload"] = json.dumps({"search_schema_version": 999})
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+        assert search_client.get("/api/search/schema").status_code == 409
+
+        gc.collect()
         assert _pinned(index_dir) == set()
 
 

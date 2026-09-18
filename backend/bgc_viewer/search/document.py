@@ -10,10 +10,16 @@ FieldValueType = Literal["text", "keyword", "numeric"]
 FieldCardinality = Literal["single", "multi"]
 FieldAnalyzer = Literal["full_text", "exact"]
 
+# User-facing field kind. Derived from the analyzer for text fields and from
+# the value type for numeric fields, so the help popup can tell a searcher
+# whether a field matches exactly, as full text, or as a number.
+FieldKind = Literal["exact", "full_text", "numeric"]
+
 
 @dataclass(frozen=True)
 class SearchFieldDefinition:
     name: str
+    description: str
     attribute: str
     value_type: FieldValueType
     cardinality: FieldCardinality
@@ -27,6 +33,11 @@ class SearchFieldDefinition:
 SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     SearchFieldDefinition(
         name="pfam",
+        description=(
+            "PFAM accession of a PFAM_domain overlapping the protocluster, "
+            "with the version suffix removed, so PF00512.28 is searched as "
+            "PF00512."
+        ),
         attribute="pfam",
         value_type="keyword",
         cardinality="multi",
@@ -38,6 +49,10 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="pfam_name",
+        description=(
+            "Description of a PFAM_domain overlapping the protocluster, from "
+            "the domain's description qualifier."
+        ),
         attribute="pfam_name",
         value_type="text",
         cardinality="multi",
@@ -49,6 +64,10 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="organism",
+        description=(
+            "Organism of the parent record, from the organism qualifier of its "
+            "first source feature; empty when the record declares none."
+        ),
         attribute="organism",
         value_type="text",
         cardinality="single",
@@ -60,6 +79,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="gene",
+        description="Gene name of a gene feature overlapping the protocluster.",
         attribute="gene",
         value_type="keyword",
         cardinality="multi",
@@ -71,6 +91,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="locus",
+        description=("Locus tag of a gene feature overlapping the protocluster."),
         attribute="locus",
         value_type="keyword",
         cardinality="multi",
@@ -82,6 +103,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="product",
+        description="Product of the protocluster, from its own product qualifier.",
         attribute="product",
         value_type="keyword",
         cardinality="single",
@@ -93,6 +115,10 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="category",
+        description=(
+            "Product category of the protocluster, from its own "
+            "product_category qualifier."
+        ),
         attribute="category",
         value_type="keyword",
         cardinality="single",
@@ -104,6 +130,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="record",
+        description="antiSMASH record ID the protocluster belongs to.",
         attribute="record_id",
         value_type="keyword",
         cardinality="single",
@@ -115,6 +142,10 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="region",
+        description=(
+            "Region number of the smallest region feature containing the "
+            "protocluster."
+        ),
         attribute="region_number",
         value_type="numeric",
         cardinality="single",
@@ -126,6 +157,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="protocluster",
+        description="Protocluster number of the protocluster itself.",
         attribute="protocluster_number",
         value_type="numeric",
         cardinality="single",
@@ -137,6 +169,10 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="start",
+        description=(
+            "Lowest coordinate of the protocluster location, across every part "
+            "of a compound location."
+        ),
         attribute="start",
         value_type="numeric",
         cardinality="single",
@@ -148,6 +184,10 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="end",
+        description=(
+            "Highest coordinate of the protocluster location, across every "
+            "part of a compound location."
+        ),
         attribute="end",
         value_type="numeric",
         cardinality="single",
@@ -159,6 +199,7 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="output_file",
+        description="Basename of the antiSMASH JSON file the protocluster was indexed from.",
         attribute="output_file",
         value_type="keyword",
         cardinality="single",
@@ -170,6 +211,10 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="input_file",
+        description=(
+            "Input sequence filename antiSMASH reported for the source JSON; "
+            "empty when absent."
+        ),
         attribute="input_file",
         value_type="keyword",
         cardinality="single",
@@ -186,6 +231,51 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
 # storage-related decision: it selects which stored fields come back in ordinary
 # search hits. PFAMs, PFAM names, genes, and locus tags are stored but are not
 # returned in ordinary hits.
+
+
+def public_kind(definition: SearchFieldDefinition) -> FieldKind:
+    """Map a registry entry onto the user-facing kind of a searchable field.
+
+    Text fields report their analyzer; numeric fields have no analyzer and are
+    reported by value type. A field that is neither is a registry error, so it
+    raises rather than being silently classified.
+    """
+    if definition.value_type == "numeric":
+        return "numeric"
+    if definition.analyzer == "exact":
+        return "exact"
+    if definition.analyzer == "full_text":
+        return "full_text"
+    raise ValueError(f"Field {definition.name} has no user-facing kind")
+
+
+@dataclass(frozen=True)
+class PublicFieldInfo:
+    """Public projection of one registry entry, as served to searchers.
+
+    Cardinality and boosts are deliberately absent: they are internal indexing
+    details. There is no storage flag because every registered field is stored;
+    ``unqualified`` reports whether an unqualified term searches the field.
+    """
+
+    name: str
+    kind: FieldKind
+    unqualified: bool
+    description: str
+
+
+def public_field_metadata() -> tuple[PublicFieldInfo, ...]:
+    """Project the registry onto public field metadata, in registry order."""
+    return tuple(
+        PublicFieldInfo(
+            name=definition.name,
+            kind=public_kind(definition),
+            unqualified=definition.default_search,
+            description=definition.description,
+        )
+        for definition in SEARCH_FIELD_REGISTRY
+    )
+
 
 ExampleValueFilter = Literal["any", "single_word", "multi_word"]
 

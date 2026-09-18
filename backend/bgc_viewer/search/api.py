@@ -3,17 +3,21 @@
 This module owns the framework-agnostic pieces of the search HTTP layer:
 parsing and validating the JSON request body into a :class:`SearchRequest`,
 building the minimal :class:`SearchResponse` from the core
-:mod:`bgc_viewer.search.index` result types, and mapping structured search
-errors onto HTTP status codes. The Flask routes stay thin: each resolves its
-index, calls its own ``search_*`` function, wraps the result in a
-:class:`SearchResponse`, and returns it through ``jsonify``.
+:mod:`bgc_viewer.search.index` result types, assembling the level-independent
+:class:`SchemaResponse` from the field registry and the SQLite example table,
+and mapping structured search errors onto HTTP status codes. The Flask routes
+stay thin: each resolves its index, calls its own ``search_*`` function, wraps
+the result in a response dataclass, and returns it through ``jsonify``.
 """
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
+from os import PathLike
 from typing import Any
 
+from .document import PublicFieldInfo, public_field_metadata
 from .index import (
     RecordHit,
     RecordResults,
@@ -27,6 +31,13 @@ from .index import (
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
+
+# Generic link to the Tantivy query-language documentation. It points at the
+# ``latest`` docs rather than a version-tagged URL so the user-facing response
+# never reveals which Tantivy version backs the index.
+QUERY_SYNTAX_URL = (
+    "https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html"
+)
 
 
 class InvalidRequestError(SearchError):
@@ -94,6 +105,49 @@ class SearchResponse:
         cls, results: SearchResults | RegionResults | RecordResults
     ) -> "SearchResponse":
         return cls(hits=results.hits, total=results.total)
+
+
+@dataclass(frozen=True)
+class SchemaResponse:
+    """Level-independent search schema served to the shared help popup.
+
+    Searchable fields and examples are identical at every level because the
+    level changes only the hit shape and what happens when a hit is selected,
+    so the payload carries no level. ``fields`` is projected from the registry
+    and ``examples`` is read from SQLite; neither reads values from the index.
+    """
+
+    fields: tuple[PublicFieldInfo, ...]
+    examples: tuple[str, ...]
+    query_syntax_url: str
+
+
+def read_example_queries(db_path: str | PathLike[str]) -> tuple[str, ...]:
+    """Read generated example queries from a database in template order.
+
+    Preprocessing inserts the rows in template order against an autoincrement
+    primary key, so ordering by ``id`` reproduces the declared template order.
+    A database without a ``search_examples`` table simply has no examples:
+    the field half of the schema comes from the registry and stays valid, so
+    this yields an empty tuple instead of failing the whole response.
+    """
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute("SELECT query FROM search_examples ORDER BY id").fetchall()
+    except sqlite3.OperationalError:
+        return ()
+    finally:
+        conn.close()
+    return tuple(row[0] for row in rows)
+
+
+def build_schema_response(db_path: str | PathLike[str]) -> SchemaResponse:
+    """Assemble the schema response from the registry and the example table."""
+    return SchemaResponse(
+        fields=public_field_metadata(),
+        examples=read_example_queries(db_path),
+        query_syntax_url=QUERY_SYNTAX_URL,
+    )
 
 
 # Structured search error code -> HTTP status.
