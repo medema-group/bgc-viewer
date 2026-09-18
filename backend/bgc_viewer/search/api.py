@@ -2,11 +2,11 @@
 
 This module owns the framework-agnostic pieces of the search HTTP layer:
 parsing and validating the JSON request body into a :class:`SearchRequest`,
-building the per-level response dataclasses that wrap the core
-:mod:`bgc_viewer.search.index` result types with the pagination envelope, and
-mapping structured search errors onto HTTP status codes. The Flask routes stay
-thin: each resolves its index, calls its own ``search_*`` function, wraps the
-result in the matching response dataclass, and returns it through ``jsonify``.
+building the minimal :class:`SearchResponse` from the core
+:mod:`bgc_viewer.search.index` result types, and mapping structured search
+errors onto HTTP status codes. The Flask routes stay thin: each resolves its
+index, calls its own ``search_*`` function, wraps the result in a
+:class:`SearchResponse`, and returns it through ``jsonify``.
 """
 
 from __future__ import annotations
@@ -15,9 +15,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from .index import (
+    RecordHit,
     RecordResults,
+    RegionHit,
     RegionResults,
     SearchError,
+    SearchHit,
     SearchResults,
     UnknownFieldError,
 )
@@ -73,83 +76,24 @@ def parse_search_request(body: Any) -> SearchRequest:
     return SearchRequest(query=query, page=page, per_page=min(per_page, MAX_PAGE_SIZE))
 
 
-def _total_pages(total: int, per_page: int) -> int:
-    return (total + per_page - 1) // per_page if total else 0
-
-
 @dataclass(frozen=True)
-class ProtoclusterResponse(SearchResults):
-    """A page of protocluster hits wrapped with the HTTP pagination envelope."""
+class SearchResponse:
+    """The minimal search response body: ranked hits plus the total match count.
 
-    level: str = "protocluster"
-    page: int = 1
-    per_page: int = DEFAULT_PAGE_SIZE
-    total_pages: int = 0
+    Request parameters (query, page, per-page) are deliberately not echoed
+    back; the client already knows them. ``total`` is the number of distinct
+    matching units at the selected level, so the client can derive page
+    counts itself from its own ``per_page``.
+    """
+
+    hits: tuple[SearchHit | RegionHit | RecordHit, ...]
+    total: int
 
     @classmethod
     def from_results(
-        cls, results: SearchResults, request: SearchRequest
-    ) -> "ProtoclusterResponse":
-        return cls(
-            query=results.query,
-            hits=results.hits,
-            total=results.total,
-            offset=results.offset,
-            limit=results.limit,
-            page=request.page,
-            per_page=request.per_page,
-            total_pages=_total_pages(results.total, request.per_page),
-        )
-
-
-@dataclass(frozen=True)
-class RegionResponse(RegionResults):
-    """A page of unique regions wrapped with the HTTP pagination envelope."""
-
-    level: str = "region"
-    page: int = 1
-    per_page: int = DEFAULT_PAGE_SIZE
-    total_pages: int = 0
-
-    @classmethod
-    def from_results(
-        cls, results: RegionResults, request: SearchRequest
-    ) -> "RegionResponse":
-        return cls(
-            query=results.query,
-            hits=results.hits,
-            total=results.total,
-            offset=results.offset,
-            limit=results.limit,
-            page=request.page,
-            per_page=request.per_page,
-            total_pages=_total_pages(results.total, request.per_page),
-        )
-
-
-@dataclass(frozen=True)
-class RecordResponse(RecordResults):
-    """A page of unique records wrapped with the HTTP pagination envelope."""
-
-    level: str = "record"
-    page: int = 1
-    per_page: int = DEFAULT_PAGE_SIZE
-    total_pages: int = 0
-
-    @classmethod
-    def from_results(
-        cls, results: RecordResults, request: SearchRequest
-    ) -> "RecordResponse":
-        return cls(
-            query=results.query,
-            hits=results.hits,
-            total=results.total,
-            offset=results.offset,
-            limit=results.limit,
-            page=request.page,
-            per_page=request.per_page,
-            total_pages=_total_pages(results.total, request.per_page),
-        )
+        cls, results: SearchResults | RegionResults | RecordResults
+    ) -> "SearchResponse":
+        return cls(hits=results.hits, total=results.total)
 
 
 # Structured search error code -> HTTP status.

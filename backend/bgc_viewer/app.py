@@ -17,9 +17,7 @@ from .data_loader import load_specific_record
 from .file_utils import match_location
 from .database import get_database_entries, get_database_info
 from .search.api import (
-    ProtoclusterResponse,
-    RecordResponse,
-    RegionResponse,
+    SearchResponse,
     error_response,
     parse_search_request,
 )
@@ -947,7 +945,7 @@ def search_protocluster_endpoint():
     index = _open_search_index()
     req = parse_search_request(request.get_json(silent=True))
     results = search_protoclusters(index, req.query, offset=req.offset, limit=req.per_page)
-    return jsonify(ProtoclusterResponse.from_results(results, req)), 200
+    return jsonify(SearchResponse.from_results(results)), 200
 
 
 @app.route('/api/search/region', methods=['POST'])
@@ -957,7 +955,7 @@ def search_region_endpoint():
     index = _open_search_index()
     req = parse_search_request(request.get_json(silent=True))
     results = search_region(index, req.query, offset=req.offset, limit=req.per_page)
-    return jsonify(RegionResponse.from_results(results, req)), 200
+    return jsonify(SearchResponse.from_results(results)), 200
 
 
 @app.route('/api/search/record', methods=['POST'])
@@ -967,7 +965,7 @@ def search_record_endpoint():
     index = _open_search_index()
     req = parse_search_request(request.get_json(silent=True))
     results = search_record(index, req.query, offset=req.offset, limit=req.per_page)
-    return jsonify(RecordResponse.from_results(results, req)), 200
+    return jsonify(SearchResponse.from_results(results)), 200
 
 
 # Preprocessing endpoint - only available in local mode

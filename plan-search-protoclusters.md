@@ -513,18 +513,18 @@ Each endpoint calls its own core function directly (no shared search funnel):
 `protocluster` calls `search_protoclusters`, `region` calls `search_region`,
 and `record` calls `search_record`. Region and record hits collapse matching
 protoclusters to unique groups, each scored by its best-matching protocluster.
-Each endpoint returns a jsonified response dataclass that subclasses the
-matching core result type and adds the pagination envelope:
-`ProtoclusterResponse(SearchResults)`, `RegionResponse(RegionResults)`, and
-`RecordResponse(RecordResults)`. There is no dedicated unknown-level handler:
-an unrecognized level path is not a registered route, so the framework's
-default not-found/method-not-allowed response is returned (POST to an unknown
-level yields 405 because the SPA fallback only accepts GET).
+Each endpoint returns a jsonified `SearchResponse` dataclass carrying only the
+minimal body: the `hits` array and the `total` match count. Request
+parameters are not echoed back; the client already knows them and derives
+page counts itself from its own `per_page`. There is no dedicated
+unknown-level handler: an unrecognized level path is not a registered route,
+so the framework's default not-found/method-not-allowed response is returned
+(POST to an unknown level yields 405 because the SPA fallback only accepts
+GET).
 
-Every successful response contains the common fields `query`, `total`,
-`total_pages`, `page`, `per_page`, `offset`, `limit`, and an echoed `level`,
-plus a `hits` array whose per-hit shape depends on the selected level
-(serialized directly from the result dataclasses via `jsonify`):
+Every successful response contains exactly the fields `hits` and `total`,
+where the per-hit shape inside `hits` depends on the selected level
+(serialized directly from the hit dataclasses via `jsonify`):
 
 - `protocluster`: `{"score": ..., "fields": {...}}`, where `fields` holds the
   stored identity and display values: `record`, `region`, `protocluster`,
@@ -533,9 +533,9 @@ plus a `hits` array whose per-hit shape depends on the selected level
 - `region`: flat `{"score", "record", "region", "output_file", "input_file"}`.
 - `record`: flat `{"score", "record", "output_file", "input_file"}`.
 
-Use a default page size of 20 and a maximum of 100. `total` and `total_pages`
-reflect the distinct units at the selected level (protoclusters, regions, or
-records), not the raw matching-document count.
+Use a default page size of 20 and a maximum of 100. `total` reflects the
+distinct units at the selected level (protoclusters, regions, or records),
+not the raw matching-document count.
 
 > **Caveat (source path).** The "source path" in the per-level hit shapes above
 > is currently satisfied by the stored `output_file` (JSON basename) and

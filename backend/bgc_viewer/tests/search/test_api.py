@@ -1,8 +1,8 @@
 """Tests for the protocluster search HTTP layer.
 
-Covers request parsing (:func:`parse_search_request`), the per-level response
-dataclasses that wrap the core result types with the pagination envelope, the
-structured error mapping, and the Flask ``POST /api/search/<level>`` routes.
+Covers request parsing (:func:`parse_search_request`), the minimal
+:class:`SearchResponse` body built from the core result types, the structured
+error mapping, and the Flask ``POST /api/search/<level>`` routes.
 """
 
 import json
@@ -15,12 +15,9 @@ from bgc_viewer.app import (
 )
 from bgc_viewer.search.api import (
     MAX_PAGE_SIZE,
-    DEFAULT_PAGE_SIZE,
     InvalidRequestError,
-    ProtoclusterResponse,
-    RecordResponse,
-    RegionResponse,
     SearchRequest,
+    SearchResponse,
     error_response,
     parse_search_request,
 )
@@ -129,34 +126,23 @@ class TestParseSearchRequest:
 
 
 class TestResponseFromResults:
-    def test_protocluster_response_wraps_results_with_envelope(self, index_dir):
-        request = SearchRequest(query="pfam:shared", page=1, per_page=2)
+    def test_response_carries_only_hits_and_total(self, index_dir):
         results = search_protoclusters(
             open_index(index_dir), "pfam:shared", offset=0, limit=2
         )
-        response = ProtoclusterResponse.from_results(results, request)
-        assert response.level == "protocluster"
-        assert response.query == "pfam:shared"
+        response = SearchResponse.from_results(results)
         assert response.total == 4
-        assert response.total_pages == 2
-        assert response.page == 1
-        assert response.per_page == 2
         assert len(response.hits) == 2
 
-    def test_region_response_total_pages_math(self, index_dir):
-        request = SearchRequest(query="pfam:shared", page=1, per_page=2)
+    def test_region_response_total_counts_distinct_regions(self, index_dir):
         results = search_region(open_index(index_dir), "pfam:shared", offset=0, limit=2)
-        response = RegionResponse.from_results(results, request)
-        assert response.level == "region"
+        response = SearchResponse.from_results(results)
         assert response.total == 3
-        assert response.total_pages == 2
 
-    def test_record_response_zero_total_reports_zero_pages(self, index_dir):
-        request = SearchRequest(query="pfam:none", page=1, per_page=20)
+    def test_record_response_zero_total_reports_no_hits(self, index_dir):
         results = search_record(open_index(index_dir), "pfam:none", offset=0, limit=20)
-        response = RecordResponse.from_results(results, request)
+        response = SearchResponse.from_results(results)
         assert response.total == 0
-        assert response.total_pages == 0
         assert response.hits == ()
 
 
@@ -211,18 +197,7 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {
-            "query",
-            "level",
-            "page",
-            "per_page",
-            "total",
-            "total_pages",
-            "offset",
-            "limit",
-            "hits",
-        }
-        assert data["level"] == "protocluster"
+        assert set(data) == {"hits", "total"}
         assert data["total"] == 2
         assert set(data["hits"][0]) == {"score", "fields"}
         assert data["hits"][0]["fields"]["record"] in {"test_record_1", "test_record_2"}
@@ -235,7 +210,7 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert data["level"] == "region"
+        assert set(data) == {"hits", "total"}
         assert data["total"] == 2
         assert set(data["hits"][0]) == {
             "score",
@@ -253,11 +228,11 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert data["level"] == "record"
+        assert set(data) == {"hits", "total"}
         assert data["total"] == 2
         assert set(data["hits"][0]) == {"score", "record", "output_file", "input_file"}
 
-    def test_pagination_flows_through_response(self, search_client, test_database):
+    def test_pagination_limits_hits_without_echoing_request(self, search_client, test_database):
         db_path, _ = test_database
         _select_database(search_client, db_path)
         response = search_client.post(
@@ -265,11 +240,8 @@ class TestSearchEndpoint:
             json={"query": "pfam:PF00501", "page": 1, "per_page": 1},
         )
         data = json.loads(response.data)
-        assert data["page"] == 1
-        assert data["per_page"] == 1
+        assert set(data) == {"hits", "total"}
         assert data["total"] == 2
-        assert data["total_pages"] == 2
-        assert data["offset"] == 0
         assert len(data["hits"]) == 1
 
     def test_unknown_level_is_not_a_route(self, search_client, test_database):
