@@ -472,15 +472,14 @@ Record index size, build throughput, and cold and warm query latency on represen
 
 Stage 2 begins only after the Python search API and query behavior are stable.
 
-> **Stage 2: in progress.** Steps 1-3 are complete; reader lifecycle, rebuild
-> signaling, SQLite-backed examples, the schema endpoint, and Stage 2 tests
-> remain.
+> **Stage 2: in progress.** Steps 1-5 are complete; SQLite-backed examples,
+> the schema endpoint, and Stage 2 tests remain.
 >
 > - [x] 1. Integrate preprocessing
 > - [x] 2. Add a dedicated search endpoint
 > - [x] 3. Return self-contained results
-> - [ ] 4. Manage reader lifecycle
-> - [ ] 5. Signal rebuilds and report distinct errors
+> - [x] 4. Manage reader lifecycle
+> - [x] 5. Signal rebuilds (the distinct-error half was already done in steps 2-4)
 > - [ ] 6. Store generated examples in SQLite
 > - [ ] 7. Add the level-independent schema endpoint
 > - [ ] 8. Test Stage 2
@@ -557,42 +556,119 @@ hit.
 
 ### 4. Manage reader lifecycle
 
-Do not cache Tantivy readers. Each search request opens the index, creates a
-searcher held in Flask's `g` for the request duration, and discards it at
-request end. At the expected corpus sizes the per-request open cost is
-negligible, and readers automatically pick up a completed in-place rebuild
-without explicit invalidation. SQLite record browsing must continue to work
-when the derived Tantivy index is unavailable or being rebuilt.
+Do not cache Tantivy readers or `SearchIndex` handles across requests. Each
+search request resolves the current database path, opens its sibling
+`tantivy.index/`, and releases the handle when the request returns. No
+module-level or `app`-level index object is permitted.
 
-### 5. Signal rebuilds and report distinct errors
+The frontend blocking popup is a client-side courtesy, not a server-side
+guarantee, so this step stays necessary even though the UI blocks searching
+during a run. Other browser tabs and other users of the same local-mode
+server, direct API clients, and the window between a page refresh and the
+next status poll can all reach the search endpoints. Step 5 rejects those
+requests with `409 index_rebuilding`; this step keeps the process correct
+for the requests that are actually served, and for every request when no
+rebuild is running at all.
 
-A request arriving during a rebuild is detected through the in-memory
-preprocessing flag or the `.building` sentinel and returns HTTP 409 with code
-`index_rebuilding`; the sentinel lets a restarted server distinguish an
-interrupted build from a valid pair.
+Opening per request is a correctness requirement under the delete-in-place
+rebuild, not only a simplification:
 
-Report distinct errors for:
+- A cached reader pins the deleted segment files through open descriptors on
+  POSIX, leaking disk and memory while serving a corpus whose directory is
+  gone, and can make the rebuild's delete fail outright on Windows.
+- A reader cached by path can outlive the corpus it was built from and keep
+  serving the previous database after the same path is rebuilt from a
+  different folder.
+- Local mode has one index path per selected database, so a reader cache is
+  a per-path invalidation and memory-growth surface with no offsetting gain.
 
-- Invalid query syntax
-- Index currently rebuilding (retryable)
-- Missing index
-- Corrupt index
-- Incompatible schema version
+Because no reader outlives its request, a completed rebuild is visible to
+the next request by construction; there is no long-lived reader to
+invalidate. The per-request cost is negligible: opening the demo index
+(41 protocluster documents from 60 MB of source JSON) measures 0.2 ms, and
+open plus a paginated search measures 0.2 ms in total. Open cost tracks
+Tantivy segment and metadata size, not corpus size, because `open_index`
+reads `meta.json` and the index metadata rather than documents.
 
-Return HTTP 400 for invalid syntax with a stable envelope:
+Do not hold the searcher in Flask's `g`. Each endpoint opens the index once
+and passes it directly to its core function, so a request-scoped holder
+adds a teardown path without benefit.
 
-```json
-{
-	"error": {
-		"code": "unknown_field",
-		"message": "Unknown field: go",
-		"details": {"available_fields": ["pfam", "organism"]}
-	}
-}
-```
+SQLite record browsing must continue to work when the derived Tantivy index
+is missing, unreadable, or being rebuilt. The record list never depends on
+an index existing, independently of whether the popup happens to be visible.
 
-`details` is omitted when unavailable. Empty frontend/backend queries use
-existing SQLite record browsing and are not sent to Tantivy.
+> **Implemented.** Each endpoint validates its request body before opening
+> any handle, so a malformed request never touches the index on disk, and
+> `_open_search_index()` in `backend/bgc_viewer/app.py` documents the
+> request-scoped contract. `backend/bgc_viewer/tests/search/test_reader_lifecycle.py`
+> locks the invariant in: one distinct handle per request at every level, no
+> handle reachable from the `app` or module namespace including inside
+> containers, no descriptor or memory mapping left under the index directory
+> after a successful or failed request, and an in-place rebuild visible to
+> the next request with no invalidation. Verified against a deliberately
+> cached reader, where 11 of those tests fail, including the stale-read case
+> and deleted segments pinned as `*.store (deleted)` mappings.
+
+### 5. Signal rebuilds
+
+The distinct-error half was delivered by steps 2-4: every search error already
+uses the stable `{"error": {"code", "message", "details"}}` envelope built by
+`error_payload` and mapped by `_ERROR_STATUS` in
+`backend/bgc_viewer/search/api.py`.
+
+| Condition | Code | HTTP |
+| --- | --- | --- |
+| Malformed request body | `invalid_request` | 400 |
+| Empty query | `empty_query` | 400 |
+| Unknown field | `unknown_field`, with `details.available_fields` | 400 |
+| Invalid syntax | `invalid_query` | 400 |
+| No database selected | `no_database` | 400 |
+| Database file gone | `missing_database` | 404 |
+| Index absent | `missing_index` | 404 |
+| Index corrupt | `corrupt_index` | 500 |
+| Schema version mismatch | `incompatible_schema` | 409 |
+
+Empty frontend and backend queries use the existing SQLite record browsing and
+are never sent to Tantivy.
+
+What remains is the rebuild signal, which the frontend blocking popup does not
+replace. A request arriving mid-build reaches `open_index` before
+`meta.json` exists, so it gets `404 missing_index`, identical to "never
+preprocessed". The popup cannot cover: a page refresh, which discards the
+client-side state Stage 3 needs to re-attach to a running build; other tabs,
+browsers, users, and direct API callers of the same local-mode server; the
+loss of retryability, since "go preprocess" and "retry in a minute" look the
+same; and interrupted runs, since the cleanup in `preprocessing.py` only runs
+for handled exceptions -- under a kill or power loss the partial index
+survives while the in-memory flag resets to false on restart, leaving a pair
+that looks preprocessed but has no usable index. Rarity makes the blocking
+cheap, not the detection redundant.
+
+`backend/bgc_viewer/search/build_state.py` owns the `.building` sentinel in
+the preprocessing output directory, the `building()` context manager that
+`preprocess_antismash_files()` wraps its run in, and `guard_build_state()`,
+which `_open_search_index()` calls before opening a handle. Two choices are
+worth recording because they are easy to undo by accident:
+
+- The context manager has no `finally` cleanup on purpose. Clearing the
+  sentinel after a failure would present a half-built pair as trustworthy.
+- Liveness comes from the in-process flag, never from the sentinel, so a
+  stale sentinel means the previous run was interrupted and is reported as
+  the non-retryable `index_interrupted`. Reporting `index_rebuilding`
+  instead would block search forever on a build that is not running. This
+  assumes local mode runs one process; a multi-process deployment would need
+  a live process identity in the sentinel, which is out of scope.
+
+Constraints on later steps:
+
+- Step 6 must keep the `with` block closing after the `search_examples` rows
+  are written, so a present sentinel always means the pair is not yet
+  trustworthy.
+- Step 7 shares `guard_build_state()` for the schema endpoint's `409`.
+- Stage 3 must not map `index_interrupted` to the blocking popup.
+
+Tests: `backend/bgc_viewer/tests/search/test_build_state.py`.
 
 ### 6. Store generated examples in SQLite
 
@@ -681,7 +757,8 @@ Add backend tests for:
 
 - In-place rebuild deletion, failure cleanup, and sentinel handling
 - Record-data LRU cache invalidation after rebuild
-- Reader open-per-request behavior across an in-place rebuild
+- Reader open-per-request behavior across an in-place rebuild, including that
+  no open descriptor pins a deleted index directory
 - JSON search-request parsing
 - Ranked pagination
 - Self-contained result metadata and stable ranking order
@@ -849,8 +926,10 @@ Relevant documentation locations include:
 - Each output directory has one fixed sibling `tantivy.index/`; a rebuild
 	deletes the previous database and index in place before building, guarded by
 	an in-memory flag and a `.building` sentinel. A failed build leaves neither
-	artifact, and rerunning preprocessing is the recovery procedure. No
-	cross-artifact pairing metadata is stored beyond the search schema version.
+	artifact, and rerunning preprocessing is the recovery procedure. A
+	sentinel left behind with no build running means the run was interrupted:
+	`index_interrupted`, never cleared automatically. No cross-artifact
+	pairing metadata is stored beyond the search schema version.
 - Search uses `POST /api/search/<level>` with the granularity in the URL path,
   returns compact self-contained summaries, and does not report matched field
   names.
@@ -870,6 +949,7 @@ Relevant documentation locations include:
   links to the Tantivy `QueryParser` query-language documentation; cardinality,
   boosts, and storage flags stay internal.
 - The backend opens a fresh Tantivy reader per search request instead of caching
-	readers, and the frontend shows a modal blocking popup for the duration of a
-	rebuild.
+	readers, holds no reader or index handle between requests, and uses no
+	request-scoped `g` holder; the frontend shows a modal blocking popup for
+	the duration of a rebuild.
 - Incremental indexing, live writes, and advanced search for browser-local providers are out of scope for the initial implementation.

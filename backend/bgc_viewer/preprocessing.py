@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime
 
+from .search.build_state import building
 from .search.extraction import extract_documents
 from .search.index import build_index
 
@@ -298,6 +299,13 @@ def preprocess_antismash_files(
     """
     Preprocess antiSMASH JSON files and store attributes in SQLite database.
 
+    The whole run happens inside a :func:`~bgc_viewer.search.build_state.building`
+    block, so the output directory is marked as building before the destructive
+    delete inside ``create_attributes_database()`` and stays marked until the
+    database and its sibling search index are both complete. A run that raises,
+    and a run killed outright, both leave the marker behind so readers report
+    the half-built pair as interrupted rather than as never preprocessed.
+
     Args:
         input_directory: Directory containing JSON files to process
         index_path: Full path to the index database file
@@ -307,8 +315,6 @@ def preprocess_antismash_files(
     Returns:
         Dict with processing statistics
     """
-    input_path = Path(input_directory)
-
     # Set up database path
     db_path = Path(index_path)
     # Ensure the directory exists
@@ -316,6 +322,25 @@ def preprocess_antismash_files(
     # Ensure .db extension
     if not db_path.suffix == ".db":
         db_path = db_path.with_suffix(".db")
+
+    # The block must close only once the pair is fully built. When step 6 lands,
+    # keep it closing after the generated search examples are written so a
+    # present sentinel always means the pair is not yet trustworthy.
+    with building(db_path.parent):
+        return _build_pair(input_directory, db_path, progress_callback, json_files)
+
+
+def _build_pair(
+    input_directory: str,
+    db_path: Path,
+    progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    json_files: Optional[List[Path]] = None,
+) -> Dict[str, Any]:
+    """Build the SQLite database and its sibling search index at ``db_path``.
+
+    The caller owns the build sentinel; this performs the destructive work.
+    """
+    input_path = Path(input_directory)
 
     # Create database at the specified path
     conn = create_attributes_database(db_path)

@@ -107,6 +107,8 @@ _ERROR_STATUS: dict[str, int] = {
     "missing_index": 404,
     "incompatible_schema": 409,
     "corrupt_index": 500,
+    "index_rebuilding": 409,
+    "index_interrupted": 409,
 }
 
 

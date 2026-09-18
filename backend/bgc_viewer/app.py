@@ -21,6 +21,7 @@ from .search.api import (
     error_response,
     parse_search_request,
 )
+from .search.build_state import guard_build_state
 from .search.index import (
     SearchError,
     open_index,
@@ -907,11 +908,33 @@ class MissingDatabaseError(SearchError):
         super().__init__(f"Database file does not exist: {path}")
 
 
-def _open_search_index():
-    """Resolve the current database's sibling index and open it for querying.
+def _build_is_live() -> bool:
+    """Whether this process is running a preprocessing build right now.
 
-    Raises :class:`NoDatabaseError`/:class:`MissingDatabaseError` for local-mode
-    session problems and the structured ``open_index`` errors otherwise.
+    Public mode never preprocesses, so no build can be live there and the
+    status dict is not defined.
+    """
+    if PUBLIC_MODE:
+        return False
+    return bool(PREPROCESSING_STATUS.get('is_running'))
+
+
+def _open_search_index():
+    """Open a fresh handle on the current database's sibling search index.
+
+    The handle is never cached. Every search request opens its own
+    :class:`~bgc_viewer.search.index.SearchIndex`, and nothing may retain it
+    past the request that created it: a live handle keeps the index memory
+    mappings and the Tantivy meta lock pinned, so a cached reader would keep
+    the deleted segments of an in-place rebuild alive and keep serving the
+    previous corpus after the same path is rebuilt from different files.
+
+    The build state is checked before anything is opened, so a request that
+    lands inside the delete-and-rebuild window is rejected as rebuilding or
+    interrupted instead of reaching a half-written or absent index.
+
+    Callers must treat the returned object as request-scoped and must not
+    store it on the module, the ``app``, or any other longer-lived object.
     """
     if PUBLIC_MODE:
         db_path = get_public_database_path()
@@ -921,7 +944,9 @@ def _open_search_index():
             raise NoDatabaseError()
         if not Path(db_path).exists():
             raise MissingDatabaseError(db_path)
-    return open_index(str(Path(db_path).parent / "tantivy.index"))
+    output_dir = Path(db_path).parent
+    guard_build_state(output_dir, build_is_live=_build_is_live)
+    return open_index(str(output_dir / "tantivy.index"))
 
 
 def search_errors(view):
@@ -942,8 +967,8 @@ def search_errors(view):
 @search_errors
 def search_protocluster_endpoint():
     """Search the embedded index, returning one self-contained hit per protocluster."""
-    index = _open_search_index()
     req = parse_search_request(request.get_json(silent=True))
+    index = _open_search_index()
     results = search_protoclusters(index, req.query, offset=req.offset, limit=req.per_page)
     return jsonify(SearchResponse.from_results(results)), 200
 
@@ -952,8 +977,8 @@ def search_protocluster_endpoint():
 @search_errors
 def search_region_endpoint():
     """Search the embedded index, collapsing matches to unique scored regions."""
-    index = _open_search_index()
     req = parse_search_request(request.get_json(silent=True))
+    index = _open_search_index()
     results = search_region(index, req.query, offset=req.offset, limit=req.per_page)
     return jsonify(SearchResponse.from_results(results)), 200
 
@@ -962,8 +987,8 @@ def search_region_endpoint():
 @search_errors
 def search_record_endpoint():
     """Search the embedded index, collapsing matches to unique scored records."""
-    index = _open_search_index()
     req = parse_search_request(request.get_json(silent=True))
+    index = _open_search_index()
     results = search_record(index, req.query, offset=req.offset, limit=req.per_page)
     return jsonify(SearchResponse.from_results(results)), 200
 
