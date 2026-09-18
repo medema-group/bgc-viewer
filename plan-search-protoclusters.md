@@ -199,20 +199,29 @@ version checks through the indexer or field extractors.
 
 ### Contributor recipes
 
-Add a short contributor guide with these checklists.
+Add a short contributor guide with these checklists. Stage 2 step 9 delivers
+it as `docs/guide/development/search-index.md`.
 
 To add a field such as `go`:
 
-1. Add one typed field definition to the registry in `document.py`, choosing
-	cardinality, analyzer, storage, and default-search behavior and writing
-	its user-facing description.
+1. Add one typed field definition to the registry in `document.py`: the
+	public name, value type, cardinality, analyzer, whether the field is
+	returned in ordinary hits, whether unqualified queries search it, its
+	static query-time boost, whether it is required or optional in a
+	canonical document, and its user-facing description. Field definitions
+	carry no storage flag because every registered field is stored; the
+	only storage-related decision is whether the value comes back in an
+	ordinary hit.
 2. Add extraction for that canonical field to each source adapter that can
 	provide it. Missing optional data produces an empty value, not a failed file.
 3. Add a minimal fixture containing two protoclusters that differ only in the
 	new field.
 4. Add exact/full-text, Boolean, unqualified-search, and missing-value tests as
 	appropriate for the field definition.
-5. Add the field and examples to the generated or checked documentation.
+5. Confirm the field appears in the generated field reference in
+	`docs/guide/development/search-index.md` (Stage 2 step 9). The reference is
+	generated from the registry, so a new field needs no hand-written entry;
+	add only the query examples the guide keeps by hand.
 6. Bump the search schema version and rebuild test indexes.
 
 To support a changed antiSMASH major version:
@@ -229,7 +238,8 @@ To support a changed antiSMASH major version:
 The contributor guide should name the concrete registry, adapter, fixture, and
 test paths once they are created. A CI test must ensure every registered field
 has valid schema options, is accepted by the `tantivy` schema builder, has a
-non-empty description, and appears in the field documentation.
+non-empty description, and appears in the field documentation. Stage 2 step 9
+delivers both.
 
 Use this proposed layout so ownership is easy to discover:
 
@@ -473,7 +483,8 @@ Record index size, build throughput, and cold and warm query latency on represen
 Stage 2 begins only after the Python search API and query behavior are stable.
 
 > **Stage 2: in progress.** Steps 1-5 are complete; SQLite-backed examples,
-> the schema endpoint, and Stage 2 tests remain.
+> the schema endpoint, Stage 2 tests, and the search-index contributor guide
+> remain.
 >
 > - [x] 1. Integrate preprocessing
 > - [x] 2. Add a dedicated search endpoint
@@ -483,6 +494,7 @@ Stage 2 begins only after the Python search API and query behavior are stable.
 > - [ ] 6. Store generated examples in SQLite
 > - [ ] 7. Add the level-independent schema endpoint
 > - [ ] 8. Test Stage 2
+> - [ ] 9. Document the search index and contributor recipes
 
 ### 1. Integrate preprocessing
 
@@ -736,8 +748,9 @@ The response contains:
   field participates in unqualified search, and a short `description` of what
   the field holds and where its values come from, for example `product` holds
   the protocluster's product string and `pfam` holds the PFAM accession of a
-  domain overlapping the protocluster. Cardinality, boosts, and storage flags
-  are internal details and are not exposed.
+  domain overlapping the protocluster. Cardinality and boosts are internal
+  details and are not exposed, and there is no storage flag to expose because
+  every registered field is stored.
 - `examples`: the runnable example queries read from the SQLite
   `search_examples` table, in template order.
 - `query_syntax_url`: a generic link to the Tantivy query-language
@@ -767,8 +780,50 @@ Add backend tests for:
 - Existing record browsing without a search index
 - SQLite example collection and template generation during preprocessing
 - Schema endpoint availability, field metadata, and SQLite-backed examples
+- Registry and documentation consistency, delivered with step 9
 
-Stage 2 is complete when protocluster searches work through Flask without frontend changes.
+Stage 2 is complete when protocluster searches work through Flask without
+frontend changes and the search-index guide exists.
+
+### 9. Document the search index and contributor recipes
+
+Write `docs/guide/development/search-index.md` as the single reference for the
+search index, and link it from `CONTRIBUTING.md`. This step delivers the
+contributor-facing half of the `Extension Architecture` and `Documentation`
+sections with concrete paths filled in, so adding a field is a documented,
+ordered procedure rather than something inferred from the source.
+
+The guide contains:
+
+- A user-facing query reference: the available public fields, exact versus
+  analyzed behavior, case-sensitive exact fields and case-insensitive analyzed
+  fields, Boolean precedence, parentheses, phrase quoting and escaping,
+  unqualified search behavior, native Tantivy syntax including implicit `OR`
+  and disabled regex queries, PFAM version normalization, query error
+  responses, backend-only availability of the advanced syntax, and
+  representative query examples.
+- A field reference generated from the registry in
+  `backend/bgc_viewer/search/document.py`: public name, user-facing kind,
+  description, and whether the field participates in unqualified search.
+  Generate it from the registry rather than hand-writing it, and commit the
+  generated output so the docs are reviewable in the diff.
+- Search index rebuild requirements: which changes bump
+  `SEARCH_SCHEMA_VERSION`, that a rebuild deletes and recreates the database
+  and `tantivy.index/` in place, and that rerunning preprocessing is the
+  recovery procedure after a failed build.
+- The contributor checklists from `Extension Architecture`, naming the real
+  registry, adapter, fixture, and test paths now that they exist, for adding a
+  field and for supporting a changed antiSMASH major version.
+- A compatibility matrix listing each tested antiSMASH version and the adapter
+  selected for it, including the v8 compatibility fallback.
+
+Add the CI guard for this step as
+`backend/bgc_viewer/tests/search/test_field_registry_docs.py`, asserting that
+every registered field has valid schema options, is accepted by the `tantivy`
+schema builder, has a non-empty description, and appears in the generated
+field reference. The test belongs with this step rather than step 8 because it
+fails on registry and documentation drift, not on search behavior, and it is
+the mechanism that keeps the guide from going stale after the step closes.
 
 ## Stage 3: Frontend Search and Navigation
 
@@ -877,7 +932,9 @@ Relevant documentation locations include:
 
 - `docs/guide/api/database.md`
 - `docs/guide/development/database-schema.md`
-- `CONTRIBUTING.md` or a focused search-index contributor guide linked from it
+- `docs/guide/development/search-index.md`, the focused search-index
+  contributor guide delivered by Stage 2 step 9 and linked from
+  `CONTRIBUTING.md`
 
 ## Final Decisions
 
@@ -946,8 +1003,9 @@ Relevant documentation locations include:
   the available fields separately.
 - The schema endpoint exposes each field's user-facing kind (`exact`,
   `full_text`, or `numeric`), a short description of what the field holds, and
-  links to the Tantivy `QueryParser` query-language documentation; cardinality,
-  boosts, and storage flags stay internal.
+  links to the Tantivy `QueryParser` query-language documentation; cardinality
+  and boosts stay internal, and there is no storage flag because every
+  registered field is stored.
 - The backend opens a fresh Tantivy reader per search request instead of caching
 	readers, holds no reader or index handle between requests, and uses no
 	request-scoped `g` holder; the frontend shows a modal blocking popup for
