@@ -66,16 +66,8 @@ uv run mypy bgc_viewer/
 ### Search Index
 
 Protocluster search runs on an embedded Tantivy index built from antiSMASH JSON
-during preprocessing, alongside the authoritative SQLite database. The
-field registry in `backend/bgc_viewer/search/document.py` is the single source
-of truth for which fields are searchable and how they behave.
-
-Before adding a search field, changing query behavior, or supporting a new
-antiSMASH version, read the
-[search index guide](docs/guide/development/search-index.md). It covers the
-query language, index rebuild requirements, the antiSMASH compatibility matrix,
-and ordered contributor checklists. The registry itself is guarded by
-`backend/bgc_viewer/tests/search/test_field_registry_docs.py`.
+during preprocessing, alongside the authoritative SQLite database. 
+See [search index guide](docs/guide/development/search-index.md) for more information.
 
 ### Commit Messages
 
