@@ -37,10 +37,7 @@ The request body carries no level: the URL path is authoritative.
 
 **Response:**
 
-A successful response contains exactly `hits` and `total`. Request parameters
-are not echoed back; the client already knows them and derives page counts
-from its own `per_page`. `total` is the number of distinct units at the
-selected level, not the raw matching-document count.
+A successful response contains exactly `hits` and `total`.
 
 `protocluster` returns one hit per matching protocluster, with the stored
 identity and display values:
@@ -122,18 +119,11 @@ hits.forEach((hit) => {
 });
 ```
 
-Results are ordered by Tantivy relevance score. Equal scores resolve in
-deterministic index-insertion order, so paging across page boundaries
-preserves the same order as the full result set.
-
 ## Search schema
 
 **Endpoint:** `GET /api/search/schema`
 
-Level-independent metadata for the shared search help popup. Searchable fields
-and examples are identical at every level, because the level changes only the
-hit shape and what happens when a hit is selected, so the URL carries no
-level and the response carries no level.
+Searchable fields and examples for search help popup.
 
 **Response:**
 
@@ -164,20 +154,29 @@ level and the response carries no level.
 }
 ```
 
-- `fields` — public field metadata derived from the field registry: the public
-  `name`, a user-facing `kind` of `exact`, `full_text`, or `numeric`, whether
-  an unqualified term searches the field (`unqualified`), and a short
-  `description` of what the field holds and where its values come from.
-  Cardinality and boosts are internal indexing details and are not exposed,
-  and there is no storage flag because every registered field is stored.
+- `fields` — one object per searchable field, in registry order, derived from
+  the field registry. Each field object has exactly four keys:
+
+  - `name` — the public field name, used as the prefix of a qualified query
+    term: `pfam:PF00512` searches the field named `pfam`.
+  - `kind` — how the field matches queries:
+    - `exact` — the whole value is indexed as a single token with no case
+      folding, so a term must equal the stored value exactly,
+      case-sensitively.
+    - `full_text` — the value is tokenized into words with lowercase
+      normalization, so matching is case-insensitive and phrase queries
+      work.
+    - `numeric` — the value is stored as an integer and matched as a
+      number.
+  - `unqualified` — whether a bare term with no `field:` prefix is
+    searched against this field. Numeric fields are never unqualified.
+  - `description` — a short plain-prose description of what the field
+    holds and where its values come from. The search help popup renders it
+    verbatim.
 - `examples` — runnable example queries generated during preprocessing from
   values in the built index and read back from SQLite, in template order.
 - `query_syntax_url` — a generic link to the Tantivy query-language
-  documentation. The Tantivy library version is not exposed in this response.
-
-The endpoint resolves the index only to signal availability. Field metadata
-comes from the registry and examples come from SQLite, so the response never
-reads values from the index.
+  documentation.
 
 ## Errors
 
@@ -207,22 +206,7 @@ Every search error uses the same envelope:
 | Interrupted build | `index_interrupted` | 409 |
 | Schema version mismatch | `incompatible_schema` | 409 |
 
-An unrecognized level is not a registered route, so the framework's default
-response is returned: a `POST` to an unknown level yields `405`, because the
-single-page-app fallback only accepts `GET`.
-
 A request that arrives mid-rebuild is rejected with `index_rebuilding` rather
 than being served a partial index. `index_interrupted` means a previous build
 was interrupted and left a sentinel behind; it is not retryable and requires
 rerunning preprocessing.
-
-## Notes
-
-- Each request opens its own index handle and releases it when the response
-  returns. No index object is cached between requests, so a completed rebuild
-  is visible to the next request by construction.
-- SQLite record browsing through `GET /api/database-entries` does not depend
-  on a search index existing, and keeps working while the index is missing or
-  being rebuilt.
-- Advanced search applies to preprocessed backend datasets only. Files loaded
-  directly into the browser keep their existing basic search behavior.
