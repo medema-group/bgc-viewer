@@ -159,7 +159,13 @@ def test_extracts_from_data_without_reading_a_file():
         ],
     }
 
-    [document] = extract(source, "memory/sample.json")
+    source_file = SourceFile(
+        antismash_version=source["version"],
+        source_path="memory/sample.json",
+        output_file="sample.json",
+        input_file=source["input_file"],
+    )
+    [document] = extract(source["records"], source_file)
 
     assert document.source == SourceFile(
         antismash_version="8.0.2",
@@ -196,7 +202,13 @@ def test_compatible_unknown_major_version_uses_v8_adapter():
         ],
     }
 
-    [document] = extract(source, "memory/sample.json")
+    source_file = SourceFile(
+        antismash_version=source["version"],
+        source_path="memory/sample.json",
+        output_file="sample.json",
+        input_file="",
+    )
+    [document] = extract(source["records"], source_file)
 
     assert document.source.antismash_version == "9.0.0"
 
@@ -204,8 +216,14 @@ def test_compatible_unknown_major_version_uses_v8_adapter():
 def test_incompatible_version_error_identifies_adapter_and_source():
     source = {"version": "7.1.0", "records": "incompatible"}
 
+    source_file = SourceFile(
+        antismash_version=source["version"],
+        source_path="memory/sample.json",
+        output_file="sample.json",
+        input_file="",
+    )
     with pytest.raises(ExtractionError) as caught:
-        list(extract(source, "memory/sample.json"))
+        list(extract(source["records"], source_file))
 
     message = str(caught.value)
     assert "memory/sample.json (antiSMASH 7.1.0)" in message

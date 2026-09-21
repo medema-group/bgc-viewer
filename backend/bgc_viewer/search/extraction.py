@@ -444,10 +444,6 @@ def _run_adapter(
         ) from error
 
 
-def _iter_records(value: object) -> Iterator[object]:
-    yield from _items(value, "records")
-
-
 _MISSING = object()
 
 
@@ -468,22 +464,30 @@ def _read_file_metadata(source_path: Path) -> tuple[str, str]:
 
 
 def extract(
-    data: object,
-    source_path: str,
+    records: Iterable[object],
+    source: SourceFile,
     *,
     warning_threshold: int = 100,
+    identities: dict[tuple[str, str, int, int], SourceFile] | None = None,
 ) -> Iterator[ProtoclusterSearchDocument]:
-    """Extract search documents from decoded antiSMASH JSON data."""
+    """Extract search documents from already-decoded antiSMASH record objects.
+
+    This entry point performs no file I/O: callers supply the decoded
+    ``records`` iterable and a fully-populated :class:`SourceFile`, so the
+    same core serves in-memory callers and the streaming file path in
+    :func:`extract_documents`. The ``identities`` mapping is threaded
+    through so :func:`extract_documents` can detect duplicate biological
+    identities across files; when omitted, each call tracks its own.
+    """
     if warning_threshold < 1:
         raise ValueError("warning_threshold must be at least 1")
-    obj = _mapping(data, source_path)
-    version = _text(obj.get("version"), "version")
-    adapter = _select_adapter(version)
-    input_file_value = obj.get("input_file", "")
-    input_file = input_file_value.strip() if isinstance(input_file_value, str) else ""
-    source = SourceFile(version, source_path, Path(source_path).name, input_file)
+    adapter = _select_adapter(source.antismash_version)
     yield from _run_adapter(
-        adapter, _iter_records(obj.get("records")), source, warning_threshold, {}
+        adapter,
+        records,
+        source,
+        warning_threshold,
+        identities if identities is not None else {},
     )
 
 
@@ -507,12 +511,14 @@ def extract_documents(
             ) from error
 
         version, input_file = _read_file_metadata(source_path)
-        adapter = _select_adapter(version)
         source = SourceFile(
             version, relative_path, Path(relative_path).name, input_file
         )
         with source_path.open("rb") as handle:
             records = ijson.items(handle, "records.item")
-            yield from _run_adapter(
-                adapter, records, source, warning_threshold, identities
+            yield from extract(
+                records,
+                source,
+                warning_threshold=warning_threshold,
+                identities=identities,
             )

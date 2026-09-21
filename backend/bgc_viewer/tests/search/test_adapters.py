@@ -27,7 +27,13 @@ EQUIVALENT = {
 
 def _load(path: Path, source_path: str) -> list[ProtoclusterSearchDocument]:
     data = json.loads(path.read_text())
-    return list(extract(data, source_path))
+    source = SourceFile(
+        antismash_version=data["version"],
+        source_path=source_path,
+        output_file=Path(source_path).name,
+        input_file=data.get("input_file", ""),
+    )
+    return list(extract(data["records"], source))
 
 
 def _equivalent_document(
@@ -165,8 +171,14 @@ def test_additional_8x_fixture_multiple_records_regions_and_circular_locations()
 def test_incompatible_7x_structure_reports_adapter_and_source():
     source = {"version": "7.1.0", "records": {"not": "a list"}}
 
+    source_file = SourceFile(
+        antismash_version=source["version"],
+        source_path="memory/sample.json",
+        output_file="sample.json",
+        input_file="",
+    )
     with pytest.raises(ExtractionError) as caught:
-        list(extract(source, "memory/sample.json"))
+        list(extract(source["records"], source_file))
 
     message = str(caught.value)
     assert "memory/sample.json (antiSMASH 7.1.0)" in message
