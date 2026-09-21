@@ -2,18 +2,20 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import Literal, Mapping
+from typing import Callable, Literal, Mapping
 
-SEARCH_SCHEMA_VERSION = 3
+SEARCH_SCHEMA_VERSION = 4
 
 FieldValueType = Literal["text", "keyword", "numeric"]
 FieldCardinality = Literal["single", "multi"]
-FieldAnalyzer = Literal["full_text", "exact"]
+FieldAnalyzer = Literal["full_text", "exact", "path"]
 
 # User-facing field kind. Derived from the analyzer for text fields and from
 # the value type for numeric fields, so the help popup can tell a searcher
-# whether a field matches exactly, as full text, or as a number.
-FieldKind = Literal["exact", "full_text", "numeric"]
+# whether a field matches exactly, as full text, as a path, or as a number.
+# A ``path`` field keeps its whole value searchable while also splitting on
+# ``/`` and ``.``, so a file path matches by directory, stem, or extension.
+FieldKind = Literal["exact", "full_text", "path", "numeric"]
 
 
 @dataclass(frozen=True)
@@ -213,12 +215,15 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         name="output_file",
         description=(
             "Path of the antiSMASH JSON file the protocluster was indexed "
-            "from, relative to the source directory that was indexed."
+            "from, relative to the source directory that was indexed. "
+            "Searched as a path: the whole value matches, and it also splits "
+            "on / and ., so a directory, the file stem, or the extension "
+            "each match on their own."
         ),
         attribute="output_file",
         value_type="keyword",
         cardinality="single",
-        analyzer="exact",
+        analyzer="path",
         returned=True,
         default_search=True,
         boost=2.0,
@@ -228,12 +233,14 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
         name="input_file",
         description=(
             "Input sequence filename antiSMASH reported for the source JSON; "
-            "empty when absent."
+            "empty when absent. Searched as a path: the whole value matches, "
+            "and it also splits on / and ., so a directory, the file stem, "
+            "or the extension each match on their own."
         ),
         attribute="input_file",
         value_type="keyword",
         cardinality="single",
-        analyzer="exact",
+        analyzer="path",
         returned=True,
         default_search=True,
         boost=2.0,
@@ -261,6 +268,8 @@ def public_kind(definition: SearchFieldDefinition) -> FieldKind:
         return "exact"
     if definition.analyzer == "full_text":
         return "full_text"
+    if definition.analyzer == "path":
+        return "path"
     raise ValueError(f"Field {definition.name} has no user-facing kind")
 
 
@@ -292,9 +301,36 @@ def public_field_metadata() -> tuple[PublicFieldInfo, ...]:
     )
 
 
-ExampleValueFilter = Literal["any", "single_word", "multi_word"]
+ExampleValueFilter = Literal["any", "single_word", "multi_word", "path_prefix"]
 
 _BARE_SAFE_PATTERN = re.compile(r"\w+", re.ASCII)
+
+# The characters a ``path`` field splits on: the directory separator and the
+# extension separator. Declared here, rather than in the index module that
+# builds the Tantivy tokenizer from them, so the example templates can strip
+# a file extension the same way the index splits it and stay in step with it.
+# Both must be safe to list inside a regex character class.
+PATH_SEPARATORS = "/."
+PATH_TOKENIZER_PATTERN = f"[^{PATH_SEPARATORS}]+"
+
+
+def _path_components(value: str) -> list[str]:
+    """The non-empty components a ``path`` field tokenizes ``value`` into."""
+    return [part for part in re.split(f"[{PATH_SEPARATORS}]", value) if part]
+
+
+def strip_path_extension(value: str) -> str:
+    """Drop the file extension, i.e. the last separator-delimited component.
+
+    ``nested/NC_003888.3.json`` becomes ``nested/NC_003888.3`` and
+    ``Y16952.json`` becomes ``Y16952``. A value with no separator is
+    returned unchanged.
+    """
+    for index in range(len(value) - 1, -1, -1):
+        if value[index] in PATH_SEPARATORS:
+            return value[:index]
+    return value
+
 
 # Characters Tantivy's query parser must not see inside a bare term. Mirrors
 # ``ESCAPE_IN_WORD`` in tantivy-query-grammar, plus whitespace and a leading
@@ -346,6 +382,11 @@ def _passes_value_filter(value: str, value_filter: ExampleValueFilter) -> bool:
         return bool(_BARE_SAFE_PATTERN.fullmatch(value))
     if value_filter == "multi_word":
         return len(value.split()) >= 2
+    if value_filter == "path_prefix":
+        # A ``"a b"*`` prefix only parses when the quoted text tokenizes to at
+        # least two terms, so the extension-stripped path must keep at least
+        # two components -- a directory plus a stem, or a dotted stem.
+        return len(_path_components(value)) >= 2
     return True
 
 
@@ -355,21 +396,27 @@ class ExampleSlot:
 
     ``candidates`` lists public field names in priority order; an empty tuple
     means every field that participates in unqualified search. ``value_filter``
-    narrows which collected values the slot accepts, and ``quoted`` renders the
-    value inside double quotes (for phrase templates) instead of the
-    quote-when-needed rendering used for bare terms.
+    narrows which collected values the slot accepts, ``transform`` rewrites the
+    selected value before it is filtered and rendered (used to drop a file
+    extension for a path prefix), and ``quoted`` renders the value inside
+    double quotes (for phrase templates) instead of the quote-when-needed
+    rendering used for bare terms.
     """
 
     name: str
     candidates: tuple[str, ...]
     value_filter: ExampleValueFilter
     quoted: bool = False
+    transform: Callable[[str], str] | None = None
 
     def select(self, values: Mapping[str, str]) -> tuple[str, str] | None:
         """Return the ``(field, value)`` this slot resolves to, or ``None``."""
         candidates = self.candidates or _default_search_field_names()
         for name in candidates:
-            value = values.get(name)
+            collected = values.get(name)
+            if not collected:
+                continue
+            value = self.transform(collected) if self.transform else collected
             if value and _passes_value_filter(value, self.value_filter):
                 return name, value
         return None
@@ -434,6 +481,22 @@ EXAMPLE_TEMPLATE_REGISTRY: tuple[ExampleTemplate, ...] = (
                 candidates=("organism", "pfam_name"),
                 value_filter="multi_word",
                 quoted=True,
+            ),
+        ),
+    ),
+    ExampleTemplate(
+        template_id="path_prefix",
+        # The extension is dropped from the collected path and the trailing
+        # ``*`` makes the last component a prefix, so a searcher can match a
+        # file by its stem without typing the (usually ``json``) extension.
+        pattern='{path_field}:"{path_value}"*',
+        slots=(
+            ExampleSlot(
+                name="path",
+                candidates=("output_file", "input_file"),
+                value_filter="path_prefix",
+                quoted=True,
+                transform=strip_path_extension,
             ),
         ),
     ),

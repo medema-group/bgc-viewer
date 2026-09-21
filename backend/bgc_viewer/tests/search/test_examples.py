@@ -61,6 +61,7 @@ def test_registry_has_the_declared_templates_in_order():
         "unqualified_word",
         "fielded_word",
         "quoted_phrase",
+        "path_prefix",
         "and_fields",
         "negation",
     ]
@@ -148,6 +149,39 @@ def test_quoted_slot_escapes_embedded_quotes_and_backslashes():
     assert query == '"He said \\"hi\\" \\\\ ok"'
 
 
+def test_path_prefix_strips_extension_and_adds_wildcard():
+    # The usual json extension is dropped and the last component becomes a prefix.
+    query = _template("path_prefix").instantiate({"output_file": "NC_003888.3.json"})
+    assert query == 'output_file:"NC_003888.3"*'
+
+
+def test_path_prefix_keeps_directory_and_strips_extension():
+    query = _template("path_prefix").instantiate(
+        {"output_file": "nested/NC_003888.3.json"}
+    )
+    assert query == 'output_file:"nested/NC_003888.3"*'
+
+
+def test_path_prefix_prefers_output_file_then_input_file():
+    both = {"output_file": "NC_003888.3.json", "input_file": "nested/NC_003888.gbk"}
+    assert _template("path_prefix").instantiate(both) == 'output_file:"NC_003888.3"*'
+    only_input = {"input_file": "nested/NC_003888.gbk"}
+    assert (
+        _template("path_prefix").instantiate(only_input)
+        == 'input_file:"nested/NC_003888"*'
+    )
+
+
+def test_path_prefix_omitted_when_stripped_path_is_a_single_component():
+    # A bare stem like Y16952.json strips to Y16952, which tokenizes to one
+    # term and cannot form a two-term prefix phrase, so the template is skipped.
+    assert _template("path_prefix").instantiate({"output_file": "Y16952.json"}) is None
+
+
+def test_path_prefix_omitted_without_a_path_value():
+    assert _template("path_prefix").instantiate({"organism": "Org"}) is None
+
+
 def test_template_omitted_when_a_required_value_is_missing():
     assert _template("and_fields").instantiate({"category": "PKS"}) is None
     assert _template("negation").instantiate({"product": "NRP"}) is None
@@ -162,12 +196,14 @@ def test_generate_example_queries_returns_rows_in_template_order():
         "organism": "Streptomyces coelicolor",
         "category": "PKS",
         "product": "NRP",
+        "output_file": "NC_003888.3.json",
     }
     rows = generate_example_queries(values)
     assert [template_id for template_id, _ in rows] == [
         "unqualified_word",
         "fielded_word",
         "quoted_phrase",
+        "path_prefix",
         "and_fields",
         "negation",
     ]

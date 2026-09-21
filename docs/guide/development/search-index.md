@@ -48,7 +48,10 @@ Every entry is a `SearchFieldDefinition`. Only `name` and
   `single` empty string is not indexed at all.
 - `analyzer` — `exact` maps to Tantivy's `raw` tokenizer (whole value,
   no case folding) and `full_text` to the `default` tokenizer (word
-  segmentation, lowercase, indexed positions). Only numeric fields carry
+  segmentation, lowercase, indexed positions). `path` maps to a custom
+  tokenizer registered on every index that splits on `/` and `.`, so a
+  file path is searchable by directory, stem, or extension while the
+  whole value still matches as a phrase. Only numeric fields carry
   `None`.
 - `returned` — every registered field is stored so its value can be read
   back for example collection and diagnostics; `returned` selects which
@@ -87,6 +90,40 @@ and phrase queries work.
 product:T1PKS         matches  product:t1pks  does not
 organism:AMYCOLATOPSIS matches  organism:amycolatopsis matches
 ```
+
+### Path fields
+
+The file fields (`output_file`, `input_file`) use a custom `path` analyzer: a
+regular-expression tokenizer that matches the runs *between* `/` and `.`, so
+`nested/NC_003888.3.json` indexes as the terms `nested`, `NC_003888`, `3`,
+and `json`. Like the `raw` analyzer it replaces, it does no case folding, so
+matching stays case-sensitive.
+
+Because the whole value is a sequence of adjacent tokens, a quoted phrase over
+the whole path still matches exactly, and each component matches on its own:
+
+```text
+output_file:"nested/NC_003888.3.json"   matches only that file
+output_file:nested                       matches the directory component
+output_file:NC_003888.3                 matches the stem in any directory
+output_file:json                        matches every JSON file
+```
+
+A prefix on a multi-token phrase narrows the last component, so a searcher can
+drop the (usually `json`) extension and match a file by its stem:
+
+```text
+output_file:"NC_003888.3"*              matches NC_003888.3.json
+output_file:"nested/NC_003888"*         matches nested/NC_003888.3.json
+```
+
+The generated `path_prefix` example does exactly this: it strips the extension
+from the collected path and appends `*`. It is skipped when the stripped path
+would leave only a single component (e.g. `Y16952.json` → `Y16952`), because a
+prefix phrase needs at least two terms.
+
+A single bare component is still matched whole, not as a prefix, exactly as in
+the exact and full-text cases: `output_file:nested*` matches nothing.
 
 ### No single-word prefix or typo tolerance
 

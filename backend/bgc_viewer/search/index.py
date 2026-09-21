@@ -15,21 +15,62 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, cast
 
-from tantivy import Document, DocAddress, Index, Schema, SchemaBuilder
+from tantivy import (
+    Document,
+    DocAddress,
+    Index,
+    Schema,
+    SchemaBuilder,
+    TextAnalyzerBuilder,
+    Tokenizer,
+)
 from tantivy import query_parser_error as parser_errors  # type: ignore[attr-defined]
 
 from .document import (
+    PATH_TOKENIZER_PATTERN,
     ProtoclusterSearchDocument,
     SEARCH_FIELD_REGISTRY,
     SEARCH_SCHEMA_VERSION,
     SearchFieldDefinition,
 )
 
-# Registry analyzer name -> Tantivy built-in analyzer name.
+# The custom ``path`` analyzer matches the runs *between* separators rather
+# than the separators themselves, so ``nested/NC_003888.3.json`` tokenizes
+# to ``nested``, ``NC_003888``, ``3``, ``json``. Splitting on ``/`` (the
+# directory separator) and ``.`` (the extension separator) keeps each path
+# component and the file stem searchable as its own term. The pattern lives in
+# ``document.py`` so the example templates strip an extension the same way.
+_PATH_TOKENIZER_NAME = "path"
+
+# Registry analyzer name -> Tantivy tokenizer name.
 # ``exact`` uses the ``raw`` analyzer: one whole-value token with no case
 # normalization. ``full_text`` uses Tantivy's ``default`` analyzer: Unicode
 # word segmentation with lowercase normalization and indexed positions.
-_ANALYZERS: dict[str, str] = {"exact": "raw", "full_text": "default"}
+# ``path`` uses a custom analyzer registered on every Index (see
+# ``_register_custom_tokenizers``): it splits on ``/`` and ``.``, so a file
+# path is searchable by directory, stem, or extension while the whole value
+# still matches as a phrase.
+_ANALYZERS: dict[str, str] = {
+    "exact": "raw",
+    "full_text": "default",
+    "path": _PATH_TOKENIZER_NAME,
+}
+
+
+def _register_custom_tokenizers(index: Index) -> None:
+    """Register the custom analyzers the schema references by name.
+
+    Tantivy records only the tokenizer *name* in the schema, so every Index
+    that reads or writes a ``path`` field -- whether freshly built or
+    reopened from disk -- must register the analyzer under that name before
+    the field is used, or query parsing fails with ``tokenizer 'path' is
+    unknown``.
+    """
+    index.register_tokenizer(
+        _PATH_TOKENIZER_NAME,
+        TextAnalyzerBuilder(Tokenizer.regex(PATH_TOKENIZER_PATTERN)).build(),
+    )
+
 
 _SCHEMA_VERSION_KEY = "search_schema_version"
 _META_FILE = "meta.json"
@@ -61,7 +102,11 @@ def _add_field(builder: SchemaBuilder, definition: SearchFieldDefinition) -> Non
         definition.name,
         stored=True,
         tokenizer_name=tokenizer,
-        index_option="position" if definition.analyzer == "full_text" else "freq",
+        # Positions are needed wherever a query may span more than one token:
+        # full-text phrases and, for path fields, the whole-value phrase and
+        # the ``"a b"*`` prefix. A bare ``exact`` field is a single token,
+        # so ``freq`` is enough there.
+        index_option="freq" if definition.analyzer == "exact" else "position",
     )
 
 
@@ -118,6 +163,7 @@ def build_index(
         index = Index(build_schema(), path=str(index_dir))
     else:
         index = Index(build_schema())
+    _register_custom_tokenizers(index)
 
     writer = index.writer(num_threads=1)
     try:
@@ -339,6 +385,7 @@ def open_index(index_path: str | PathLike[str]) -> SearchIndex:
         ) from error
     except OSError as error:
         raise IndexCorruptError(f"Search index at {path} is corrupt") from error
+    _register_custom_tokenizers(index)
 
     stored_version = _read_schema_version(path)
     if stored_version != SEARCH_SCHEMA_VERSION:

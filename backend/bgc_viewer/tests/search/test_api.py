@@ -495,7 +495,8 @@ class TestPublicFieldProjection:
         kinds = {info.name: info.kind for info in public_field_metadata()}
         assert kinds["pfam"] == "exact"
         assert kinds["product"] == "exact"
-        assert kinds["output_file"] == "exact"
+        assert kinds["output_file"] == "path"
+        assert kinds["input_file"] == "path"
         assert kinds["organism"] == "full_text"
         assert kinds["pfam_name"] == "full_text"
 

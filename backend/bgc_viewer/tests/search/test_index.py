@@ -47,9 +47,10 @@ def _doc(
     gene: tuple[str, ...] = (),
     locus: tuple[str, ...] = (),
     input_file: str = "rec.gbk",
+    output_file: str = "rec.json",
 ) -> ProtoclusterSearchDocument:
     return ProtoclusterSearchDocument(
-        source=SourceFile("8.0.2", "rec.json", input_file),
+        source=SourceFile("8.0.2", output_file, input_file),
         search_fields=SearchFields(
             record_id=record_id,
             region_number=region_number,
@@ -139,6 +140,22 @@ def test_schema_is_derived_from_registry_not_hardcoded(tmp_path):
                 "type": "text",
                 "stored": True,
                 "indexing": {"tokenizer": "default", "record": "position"},
+            },
+        ),
+        (
+            "output_file",
+            {
+                "type": "text",
+                "stored": True,
+                "indexing": {"tokenizer": "path", "record": "position"},
+            },
+        ),
+        (
+            "input_file",
+            {
+                "type": "text",
+                "stored": True,
+                "indexing": {"tokenizer": "path", "record": "position"},
             },
         ),
         ("region", {"type": "i64", "stored": True}),
@@ -484,6 +501,60 @@ def test_search_plain_terms_are_not_typo_tolerated(corpus, tmp_path, query):
 def test_search_exact_fields_do_not_match_prefixes(corpus, tmp_path, query):
     target = _open(corpus, tmp_path)
     assert search_protoclusters(target, query).total == 0
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        # Whole value as a phrase matches exactly one document.
+        ('output_file:"nested/NC_003888.3.json"', 1),
+        # Each path component is its own term: directory, stem, and extension.
+        ("output_file:nested", 1),
+        ("output_file:NC_003888.3", 2),
+        ("output_file:NC_003888.3.json", 2),
+        ("output_file:json", 3),
+        # Prefix on a multi-token phrase narrows the last component.
+        ('output_file:"nested/NC_003888"*', 1),
+        # The path analyzer is case-sensitive, like the raw analyzer it replaces.
+        ("output_file:NESTED", 0),
+        # A component that is not present matches nothing.
+        ("output_file:missing", 0),
+    ],
+)
+def test_path_field_matches_by_component_phrase_and_prefix(tmp_path, query, expected):
+    """A ``path`` field keeps the whole value searchable while splitting on
+    ``/`` and ``.`` so directory, stem, and extension each match on their own.
+    """
+    documents = [
+        _doc(1, output_file="nested/NC_003888.3.json"),
+        _doc(2, output_file="NC_003888.3.json"),
+        _doc(3, output_file="top/Y16952.json"),
+    ]
+    index_dir = tmp_path / "tantivy.index"
+    build_index(iter(documents), index_dir)
+    target = open_index(index_dir)
+    assert search_protoclusters(target, query).total == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("input_file:rec", 2),
+        ("input_file:gbk", 3),
+        ("input_file:rec.gbk", 2),
+        ("input_file:other", 1),
+    ],
+)
+def test_input_file_is_path_tokenized(tmp_path, query, expected):
+    documents = [
+        _doc(1, input_file="rec.gbk"),
+        _doc(2, input_file="rec.gbk"),
+        _doc(3, input_file="other.gbk"),
+    ]
+    index_dir = tmp_path / "tantivy.index"
+    build_index(iter(documents), index_dir)
+    target = open_index(index_dir)
+    assert search_protoclusters(target, query).total == expected
 
 
 @pytest.mark.parametrize(

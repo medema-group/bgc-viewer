@@ -64,6 +64,13 @@ examples (run these from the backend/ directory):
       'pfam:PF00550 AND pfam:PF00668'
   uv run python -m bgc_viewer.search.cli search /tmp/bgv 'pfam_name:"thioesterase"'
 
+  # Path fields match by directory, stem, or extension
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'output_file:NC_003888'
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'output_file:json'
+
+  # Path prefix: drop the extension and prefix the stem
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'output_file:"NC_003888.3"*'
+
   # Boolean negation, numeric ranges, and pagination
   uv run python -m bgc_viewer.search.cli search /tmp/bgv \\
       'organism:Amycolatopsis NOT product:terpene'
