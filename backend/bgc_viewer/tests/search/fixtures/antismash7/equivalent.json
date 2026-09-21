@@ -1,0 +1,113 @@
+{
+  "version": "7.0.1",
+  "input_file": "equivalent.gbk",
+  "records": [
+    {
+      "id": "equivalent_record",
+      "features": [
+        {
+          "type": "source",
+          "location": "[0:5000](+)",
+          "qualifiers": {
+            "organism": [
+              " Equivalens modestus "
+            ]
+          }
+        },
+        {
+          "type": "region",
+          "location": "[100:2000](+)",
+          "qualifiers": {
+            "region_number": [
+              "1"
+            ]
+          }
+        },
+        {
+          "type": "protocluster",
+          "location": "[200:1000](+)",
+          "qualifiers": {
+            "protocluster_number": [
+              "1"
+            ],
+            "product": [
+              "NRPS"
+            ],
+            "product_category": [
+              "NRPS"
+            ]
+          }
+        },
+        {
+          "type": "protocluster",
+          "location": "[1100:1900](+)",
+          "qualifiers": {
+            "protocluster_number": [
+              "2"
+            ],
+            "product": [
+              "T3PKS"
+            ],
+            "product_category": [
+              "PKS"
+            ]
+          }
+        },
+        {
+          "type": "gene",
+          "location": "[300:600](+)",
+          "qualifiers": {
+            "gene": [
+              "eqsA"
+            ],
+            "locus_tag": [
+              "EQ_0001"
+            ]
+          }
+        },
+        {
+          "type": "PFAM_domain",
+          "location": "[400:500](+)",
+          "qualifiers": {
+            "db_xref": [
+              "PF00501.25"
+            ],
+            "description": [
+              "Thioesterase"
+            ]
+          }
+        },
+        {
+          "type": "PFAM_domain",
+          "location": "[3000:3400](+)",
+          "qualifiers": {
+            "db_xref": [
+              "PF12345.1"
+            ],
+            "description": [
+              "Outside cluster"
+            ]
+          }
+        },
+        {
+          "type": "CDS",
+          "location": "[1200:1600](+)",
+          "qualifiers": {
+            "gene": [
+              "ignored_cds"
+            ],
+            "locus_tag": [
+              "IGNORED_1"
+            ],
+            "db_xref": [
+              "PF99999.1"
+            ],
+            "description": [
+              "Ignored decoy"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

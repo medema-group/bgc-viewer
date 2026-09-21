@@ -114,6 +114,57 @@ export interface RegionsResponse {
 
 export type PfamColorMap = Record<string, string>
 
+export type SearchLevel = 'protocluster' | 'region' | 'record'
+
+export interface SearchFieldInfo {
+  name: string
+  kind: 'exact' | 'full_text' | 'numeric' | 'path'
+  unqualified: boolean
+  description: string
+}
+
+export interface SearchSchema {
+  fields: SearchFieldInfo[]
+  examples: string[]
+  query_syntax_url: string
+}
+
+export interface ProtoclusterSearchHit {
+  score: number
+  fields: {
+    record: string
+    region: number
+    protocluster: number
+    start: number | null
+    end: number | null
+    product: string
+    category: string
+    organism: string
+    output_file: string
+    input_file: string
+  }
+}
+
+export interface RegionSearchHit {
+  score: number
+  record: string
+  region: number
+  output_file: string
+  input_file: string | null
+}
+
+export interface RecordSearchHit {
+  score: number
+  record: string
+  output_file: string
+  input_file: string | null
+}
+
+export interface SearchResponse<T> {
+  hits: T[]
+  total: number
+}
+
 /**
  * Base class for data providers
  * All data providers should implement these methods

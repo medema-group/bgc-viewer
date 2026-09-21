@@ -13,23 +13,23 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 
-def open_file(file_path, mode='rb'):
+def open_file(file_path, mode="rb"):
     """
     Open a file with automatic decompression support.
     Supports .gz (gzip) and .bz2 (bzip2) compressed files.
-    
+
     Args:
         file_path: Path to the file (string or Path object)
         mode: File open mode (default 'rb')
-        
+
     Returns:
         File handle with appropriate decompression
     """
     file_path = Path(file_path) if not isinstance(file_path, Path) else file_path
-    
-    if file_path.suffix == '.gz':
+
+    if file_path.suffix == ".gz":
         return gzip.open(file_path, mode)
-    elif file_path.suffix == '.bz2':
+    elif file_path.suffix == ".bz2":
         return bz2.open(file_path, mode)
     else:
         return open(file_path, mode)
@@ -39,22 +39,24 @@ def load_json_file(file_path):
     """Load a JSON file using ijson with fallback to standard json."""
     try:
         # Use ijson for efficient parsing
-        with open_file(file_path, 'rb') as f:
+        with open_file(file_path, "rb") as f:
             parser = ijson.parse(f)
             data = _build_data_structure(parser)
             return data
     except Exception as e:
         # Fallback to regular json if ijson fails
         print(f"ijson parsing failed for {file_path}, falling back to json: {e}")
-        with open_file(file_path, 'rt') as f:
+        with open_file(file_path, "rt") as f:
             return json.load(f)
 
 
-def get_record_index(file_path: str, data_dir: str = "data") -> Optional[sqlite3.Connection]:
+def get_record_index(
+    file_path: str, data_dir: str = "data"
+) -> Optional[sqlite3.Connection]:
     """Get database connection for record index."""
     data_path = Path(data_dir)
     db_path = data_path / "attributes.db"
-    
+
     if db_path.exists():
         try:
             conn = sqlite3.connect(db_path)
@@ -65,98 +67,98 @@ def get_record_index(file_path: str, data_dir: str = "data") -> Optional[sqlite3
     return None
 
 
-def load_record_by_index(file_path: str, target_record_id: str, data_dir: str = "data") -> Optional[Dict[str, Any]]:
+def load_record_by_index(
+    file_path: str, target_record_id: str, data_dir: str = "data"
+) -> Optional[Dict[str, Any]]:
     """
     Load a specific record using byte position index for fast random access.
-    
+
     Args:
         file_path: Path to the JSON file
         target_record_id: ID of the record to load
         data_dir: Directory containing the index database
-        
+
     Returns:
         Dictionary containing file metadata and the target record
     """
     conn = get_record_index(file_path, data_dir)
     if not conn:
         return load_specific_record_fallback(file_path, target_record_id)
-    
+
     try:
         # Calculate relative path from data_dir to match database entries
         try:
-            relative_path = str(Path(file_path).resolve().relative_to(Path(data_dir).resolve()))
+            relative_path = str(
+                Path(file_path).resolve().relative_to(Path(data_dir).resolve())
+            )
         except ValueError:
             # If file is not within data_dir, just use the filename
             relative_path = Path(file_path).name
-        
+
         # Query the records table for byte positions (join with files table)
         cursor = conn.execute(
             """SELECT r.byte_start, r.byte_end, f.id as file_id
                FROM records r
                JOIN files f ON r.file_id = f.id
                WHERE f.path = ? AND r.record_id = ?""",
-            (relative_path, target_record_id)
+            (relative_path, target_record_id),
         )
-        
+
         result = cursor.fetchone()
         if not result:
             conn.close()
             return None
-        
-        byte_start, byte_end = result['byte_start'], result['byte_end']
-        file_id = result['file_id']
-        
+
+        byte_start, byte_end = result["byte_start"], result["byte_end"]
+        file_id = result["file_id"]
+
         # Query file attributes for this file
         file_attrs_cursor = conn.execute(
             """SELECT attribute_name, attribute_value
                FROM file_attributes
                WHERE file_id = ?""",
-            (file_id,)
+            (file_id,),
         )
-        file_attributes = {row['attribute_name']: row['attribute_value'] 
-                          for row in file_attrs_cursor.fetchall()}
-        
+        file_attributes = {
+            row["attribute_name"]: row["attribute_value"]
+            for row in file_attrs_cursor.fetchall()
+        }
+
         # Load the specific record using byte positions (skip metadata for performance)
         # Note: Byte positions are relative to uncompressed content
         file_path_obj = Path(file_path)
-        
+
         # For compressed files, we need to decompress first, then use byte positions
-        if file_path_obj.suffix in ['.gz', '.bz2']:
-            with open_file(file_path, 'rb') as f:
+        if file_path_obj.suffix in [".gz", ".bz2"]:
+            with open_file(file_path, "rb") as f:
                 file_content = f.read()
-            
+
             # Now use byte positions on the uncompressed content
             record_bytes = file_content[byte_start:byte_end]
-            
+
             try:
-                record_data = json.loads(record_bytes.decode('utf-8'))
+                record_data = json.loads(record_bytes.decode("utf-8"))
                 conn.close()
-                
-                return {
-                    "records": [record_data],
-                    "file_attributes": file_attributes
-                }
+
+                return {"records": [record_data], "file_attributes": file_attributes}
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 conn.close()
                 return load_specific_record_fallback(file_path, target_record_id)
         else:
             # For uncompressed files, we can seek directly
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 f.seek(byte_start)
                 record_bytes = f.read(byte_end - byte_start)
-                
+
             try:
-                record_data = json.loads(record_bytes.decode('utf-8'))
+                record_data = json.loads(record_bytes.decode("utf-8"))
                 conn.close()
-                
-                return {
-                    "records": [record_data],
-                    "file_attributes": file_attributes
-                }
+
+                return {"records": [record_data], "file_attributes": file_attributes}
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 conn.close()
                 return load_specific_record_fallback(file_path, target_record_id)
-    
+
     except Exception as e:
         if conn:
             conn.close()
@@ -172,70 +174,68 @@ def load_specific_record(file_path, target_record_id, data_dir="data"):
 
     # Fallback to original method
     return load_specific_record_fallback(file_path, target_record_id)
+
+
 def load_specific_record_fallback(file_path, target_record_id):
     """Fallback method for loading specific record without index."""
     try:
-        with open_file(file_path, 'rb') as f:
+        with open_file(file_path, "rb") as f:
             # Use ijson to parse and extract only the needed record
             # First pass: get metadata
             metadata = {}
-            for key, value in ijson.kvitems(f, ''):
-                if key != 'records':
+            for key, value in ijson.kvitems(f, ""):
+                if key != "records":
                     metadata[key] = value
-        
+
         # Second pass: find the target record (need to reopen for compressed files)
-        with open_file(file_path, 'rb') as f:
-            records = ijson.items(f, 'records.item')
+        with open_file(file_path, "rb") as f:
+            records = ijson.items(f, "records.item")
             target_record = None
-            
+
             for record in records:
-                if record.get('id') == target_record_id:
+                if record.get("id") == target_record_id:
                     target_record = record
                     break
-            
+
             if target_record:
-                return {
-                    **metadata,
-                    "records": [target_record]
-                }
+                return {**metadata, "records": [target_record]}
             else:
                 return None
-                
+
     except Exception as e:
         print(f"Optimized record loading failed: {e}, falling back to full file load")
         # Fallback to loading the full file
         try:
-            with open_file(file_path, 'rt') as f:
+            with open_file(file_path, "rt") as f:
                 full_data = json.load(f)
-            
+
             # Find the specific record
             for record in full_data.get("records", []):
                 if record.get("id") == target_record_id:
-                    return {
-                        **full_data,
-                        "records": [record]
-                    }
+                    return {**full_data, "records": [record]}
             return None
         except Exception as fallback_error:
             print(f"Fallback loading also failed: {fallback_error}")
             return None
 
 
-def list_available_records(filename: Optional[str] = None, data_dir: str = "data") -> Dict[str, Any]:
+def list_available_records(
+    filename: Optional[str] = None, data_dir: str = "data"
+) -> Dict[str, Any]:
     """
     List all available records from the index database.
-    
+
     Args:
         filename: Optional specific filename to filter by
         data_dir: Directory containing the index database
-        
+
     Returns:
         Dictionary with file information and available records
     """
     conn = get_record_index("", data_dir)
     if not conn:
         return {"error": "No index database found. Run preprocessing first."}
-    
+
     try:
         if filename:
             # Get records for specific file
@@ -245,7 +245,7 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
                    JOIN files f ON r.file_id = f.id
                    WHERE f.path = ? 
                    ORDER BY r.record_id""",
-                (filename,)
+                (filename,),
             )
         else:
             # Get all records grouped by file
@@ -255,15 +255,15 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
                    JOIN files f ON r.file_id = f.id
                    ORDER BY f.path, r.record_id"""
             )
-        
+
         results = cursor.fetchall()
         conn.close()
-        
+
         if filename:
             # Return records for specific file
             return {
                 "filename": filename,
-                "records": [{"id": row[0]} for row in results]
+                "records": [{"id": row[0]} for row in results],
             }
         else:
             # Group by filename
@@ -275,29 +275,31 @@ def list_available_records(filename: Optional[str] = None, data_dir: str = "data
                     files[file_name] = []
                 files[file_name].append({"id": record_id})
             return {"files": files}
-    
+
     except Exception as e:
         if conn:
             conn.close()
         return {"error": f"Failed to query index: {e}"}
 
 
-def get_record_metadata_from_index(filename: str, record_id: str, data_dir: str = "data") -> Optional[Dict[str, Any]]:
+def get_record_metadata_from_index(
+    filename: str, record_id: str, data_dir: str = "data"
+) -> Optional[Dict[str, Any]]:
     """
     Get record metadata from index without loading the full record.
-    
+
     Args:
         filename: Name of the file containing the record
         record_id: ID of the record
         data_dir: Directory containing the index database
-        
+
     Returns:
         Dictionary with record metadata or None if not found
     """
     conn = get_record_index("", data_dir)
     if not conn:
         return None
-    
+
     try:
         cursor = conn.execute(
             """SELECT f.path, r.record_id, r.byte_start, r.byte_end 
@@ -305,22 +307,22 @@ def get_record_metadata_from_index(filename: str, record_id: str, data_dir: str 
                JOIN files f ON r.file_id = f.id
                WHERE f.path = ? AND r.record_id = ? 
                LIMIT 1""",
-            (filename, record_id)
+            (filename, record_id),
         )
-        
+
         result = cursor.fetchone()
         conn.close()
-        
+
         if result:
             return {
                 "filename": result[0],
-                "record_id": result[1], 
+                "record_id": result[1],
                 "byte_start": result[2],
                 "byte_end": result[3],
-                "size_bytes": result[3] - result[2]
+                "size_bytes": result[3] - result[2],
             }
         return None
-    
+
     except Exception as e:
         if conn:
             conn.close()
@@ -332,36 +334,36 @@ def _build_data_structure(parser):
     data = {}
     stack = [data]
     path_stack = []
-    
+
     for prefix, event, value in parser:
-        if event == 'start_map':
+        if event == "start_map":
             if prefix:
                 # Navigate to the correct location in the structure
-                current = _navigate_to_path(data, prefix.split('.'))
+                current = _navigate_to_path(data, prefix.split("."))
                 new_dict = {}
                 if isinstance(current, list):
                     current.append(new_dict)
                 else:
-                    key = prefix.split('.')[-1]
+                    key = prefix.split(".")[-1]
                     current[key] = new_dict
                 stack.append(new_dict)
             else:
                 stack.append(data)
-        elif event == 'end_map':
+        elif event == "end_map":
             if stack:
                 stack.pop()
-        elif event == 'start_array':
+        elif event == "start_array":
             if prefix:
-                current = _navigate_to_path(data, prefix.split('.')[:-1])
-                key = prefix.split('.')[-1]
+                current = _navigate_to_path(data, prefix.split(".")[:-1])
+                key = prefix.split(".")[-1]
                 current[key] = []
                 stack.append(current[key])
-        elif event == 'end_array':
+        elif event == "end_array":
             if stack:
                 stack.pop()
-        elif event in ('string', 'number', 'boolean', 'null'):
+        elif event in ("string", "number", "boolean", "null"):
             if prefix:
-                path_parts = prefix.split('.')
+                path_parts = prefix.split(".")
                 if path_parts[-1].isdigit():  # Array index
                     # Handle array elements
                     parent_path = path_parts[:-1]
@@ -382,7 +384,7 @@ def _build_data_structure(parser):
             else:
                 # Root level value
                 return value
-    
+
     return data
 
 
@@ -390,7 +392,7 @@ def _navigate_to_path(data, path_parts):
     """Navigate to a specific path in the data structure."""
     current = data
     for part in path_parts:
-        if part == '':
+        if part == "":
             continue
         if part.isdigit():
             # Array index
