@@ -574,6 +574,13 @@ not the raw matching-document count.
 > `source_path` field to the registry (a `SEARCH_SCHEMA_VERSION` bump plus an
 > index rebuild) or resolve the relative path from `output_file` against the
 > selected database's `data_root`.
+>
+> **Resolved by Stage 3 step 1**, which registers `source_path` and returns a
+> composed `entry_id` from the backend. Basename-only resolution was rejected:
+> `files.path` stores the source-root-relative path, so `output_file` resolves
+> only for a flat source tree, and two source files in different subfolders
+> sharing a basename are not caught by the duplicate detector, which keys on
+> `input_file` plus record, region, and protocluster number.
 
 ### 3. Return self-contained results
 
@@ -1033,86 +1040,366 @@ rather than step 8 because it fails on registry drift, not on search behavior.
 
 ## Stage 3: Frontend Search and Navigation
 
-Advanced search initially applies only to preprocessed backend datasets. Browser-loaded JSON and GenBank providers retain their existing basic search behavior.
+> **Stage 3: not started.** Eight steps, one of which is a backend
+> prerequisite.
+>
+> - [ ] 1. Compose a navigable `entry_id` in the backend (schema bump 2 -> 3)
+> - [ ] 2. Add the frontend API contract
+> - [ ] 3. Add the header search bar
+> - [ ] 4. Add the search help popup
+> - [ ] 5. Render search results in the sidebar
+> - [ ] 6. Navigate to the hit
+> - [ ] 7. Block search during a rebuild
+> - [ ] 8. Test Stage 3
 
-### 1. Add the API contract
+Advanced search applies only to preprocessed backend datasets (API mode).
+Browser-loaded JSON and GenBank providers retain their existing basic
+client-side search behavior.
+
+The search surface moves out of the record list and into the **app header, top
+right**: a query input, a level combo box, and a help button that opens a popup
+carrying the available fields, copyable example queries, and a link to the
+Tantivy query grammar. Results render in a dedicated list component swapped
+into the sidebar in place of the SQLite record list.
+
+### 1. Compose a navigable `entry_id` in the backend
+
+This is a prerequisite for navigation. `POST /api/load-entry` takes an
+`entry_id` of the form `"<source-root-relative JSON path>:<record_id>"` and
+resolves `Path(data_root) / filename`, so the filename component must be the
+**source-root-relative path**, not the basename. Search hits carry only
+`output_file`, which is the basename, so it resolves only for a flat source
+tree.
+
+Changes:
+
+- Register `source_path` in `SEARCH_FIELD_REGISTRY` in
+	`backend/bgc_viewer/search/document.py`: `attribute="source_path"`,
+	`value_type="keyword"`, `cardinality="single"`, `analyzer="exact"`,
+	`returned=False`, `default_search=False`, `boost=1.0`, `required=True`,
+	with a description naming it as the source-root-relative POSIX path of the
+	antiSMASH JSON the protocluster was indexed from. This needs no extractor
+	work: `ProtoclusterSearchDocument.field_value` already falls back to
+	`getattr(self.source, definition.attribute)`, and `SourceFile.source_path`
+	in `extraction.py` carries the value.
+- Add `public: bool = True` to `SearchFieldDefinition` and filter on it in
+	`public_field_metadata()`. `source_path` is `public=False`: it is an
+	identity value the frontend needs in order to navigate, not a field a
+	searcher should be typing filesystem paths into. `returned=False` alone
+	would still list it in `GET /api/search/schema` as though it were
+	searchable.
+- Bump `SEARCH_SCHEMA_VERSION` from 2 to 3. The Tantivy schema gains a stored
+	field, so every existing index must be rebuilt.
+- Give each hit dataclass an `entry_id` composed as
+	`f"{source_path}:{record}"`:
+	- `SearchHit`: add `entry_id` beside `score` and `fields`, not inside
+		`fields`, so the existing "protocluster hits carry exactly the
+		registry's returned fields" assertion in
+		`backend/bgc_viewer/tests/search/test_api.py` stays valid.
+	- `RegionHit` and `RecordHit`: add `entry_id` beside the existing flat
+		keys.
+- `_matching_protocluster_fields` builds its summary through `_stored_fields`,
+	which drops every `returned=False` field. Give `_stored_fields` an
+	explicit `extra` parameter, or have the hit builders read `source_path`
+	from the raw stored document, so the navigation value reaches the builders
+	without becoming a public display field.
+
+Response shapes become:
+
+```json
+{"score": 4.21, "entry_id": "runs/NC_003888.3.json:NC_003888.3", "fields": {"...": "..."}}
+{"score": 4.21, "entry_id": "runs/NC_003888.3.json:NC_003888.3", "record": "NC_003888.3", "region": 1, "output_file": "NC_003888.3.json", "input_file": "NC_003888.3.gbk"}
+{"score": 4.21, "entry_id": "runs/NC_003888.3.json:NC_003888.3", "record": "NC_003888.3", "output_file": "NC_003888.3.json", "input_file": "NC_003888.3.gbk"}
+```
+
+Update `docs/guide/api/search.md` with the new key.
+
+Tests: extend `backend/bgc_viewer/tests/search/test_api.py` (every level
+carries `entry_id`; the protocluster `fields` set is unchanged),
+`test_index.py` (`entry_id` composition and ordering), and
+`test_field_registry_docs.py` (the `public` flag is honored by the projection).
+
+### 2. Add the frontend API contract
 
 Update:
 
 - `frontend/src/services/dataProviders/BGCViewerAPIProvider.ts`
 - `frontend/src/services/dataProviders/types.ts`
 
-Call `/api/search/<level>` for advanced backend searches and map the response
-into a protocluster search-result type.
+Add to `types.ts`:
 
-Each result must carry:
+```ts
+export type SearchLevel = 'protocluster' | 'region' | 'record'
 
-- Source-root-relative JSON path
-- Record ID
-- JSON basename and antiSMASH input filename
-- Region number
-- Protocluster number
-- Organism
-- Product and category
-- Score
+export interface SearchFieldInfo {
+	name: string
+	kind: 'exact' | 'full_text' | 'numeric'
+	unqualified: boolean
+	description: string
+}
 
-### 2. Display protocluster results
+export interface SearchSchema {
+	fields: SearchFieldInfo[]
+	examples: string[]
+	query_syntax_url: string
+}
 
-Update `frontend/src/components/RecordListSelector.vue` to:
+export interface ProtoclusterSearchHit {
+	score: number
+	entry_id: string
+	fields: {
+		record: string
+		region: number
+		protocluster: number
+		start: number | null
+		end: number | null
+		product: string
+		category: string
+		organism: string
+		output_file: string
+		input_file: string
+	}
+}
 
-- Display multiple protocluster hits from the same parent record
-- Show a level-selection combo beside the search input; the searchable fields
-	and example queries from `/api/search/schema` are shared across all levels
-	because the level only changes the hit shape and the hit-selection behavior
-- Show enough organism, product, category, region, and cluster context to distinguish them
-- Display structured query errors beside the search input
-- Keep the previous valid result set visible when a new query has a syntax error
-- Submit advanced searches only on Enter or an explicit Search action
-- Return immediately to the existing SQLite record list and clear any
-	protocluster target when the query is cleared
-- Provide a help popup generated from `/api/search/schema`, containing the
-	available fields, copyable examples, brief operator/phrase guidance, and a
-	Tantivy syntax link that opens in a new tab
-- Show a modal, non-cancellable blocking popup for the full duration of a
-	preprocessing run, driven by the existing preprocessing-status polling, and
-	refresh the record list and re-select the database when it completes
-- Map a `409 index_rebuilding` response (for example after a page refresh
-	mid-rebuild) to the same blocking popup and resume status polling
+export interface RegionSearchHit {
+	score: number
+	entry_id: string
+	record: string
+	region: number
+	output_file: string
+	input_file: string | null
+}
 
-### 3. Navigate to the hit
+export interface RecordSearchHit {
+	score: number
+	entry_id: string
+	record: string
+	output_file: string
+	input_file: string | null
+}
 
-Extend the selection payload through `RecordListSelector.vue` and `frontend/src/App.vue` with optional region and protocluster numbers.
+export interface SearchResponse<T> {
+	hits: T[]
+	total: number
+}
+```
+
+Add to `BGCViewerAPIProvider`:
+
+- `searchLevel(level: SearchLevel, query: string, page = 1, perPage = 20)`
+	calls `POST /api/search/${level}` with `{ query, page, per_page }` and
+	returns the parsed `SearchResponse`.
+- `getSearchSchema()` calls `GET /api/search/schema` and returns
+	`SearchSchema`.
+
+Do **not** add either method to the abstract `DataProvider` contract. Advanced
+search is backend-only; `JSONFileProvider` and `GenbankFileProvider` keep their
+existing client-side `searchRecords` and must not be forced to implement a
+Tantivy method. The header search bar is wired to the concrete
+`BGCViewerAPIProvider` only.
+
+Leave `searchRecords()` on `/api/database-entries` untouched. It still serves
+the basic search in upload mode and the plain record list in API mode.
+
+Tests: extend `frontend/src/tests/data-providers.test.js`, or add
+`frontend/src/__tests__/search-api.test.ts`, with stubbed axios asserting the
+URL, method, request body, and response mapping for all three levels and for
+the schema call.
+
+### 3. Add the header search bar
+
+Add `frontend/src/components/SearchBar.vue` and mount it in the right-hand
+slot of `.app-header` in `frontend/src/App.vue`, beside `.version-info`. The
+header is already `display: flex; justify-content: space-between`, so the bar
+occupies the existing top-right position without a layout change.
+
+The bar contains, left to right:
+
+1. A query `<input type="search">` bound to the query string, with a clear
+	(×) button.
+2. A level `<select>` combo box: `Protocluster` / `Region` / `Record`,
+	defaulting to `protocluster`. The combo selects which
+	`POST /api/search/<level>` endpoint is called and how the result rows
+	render.
+3. A help button that opens the search-help popup from step 4.
+
+Behavior:
+
+- **Enter-only submit.** No debounce. The 300 ms `@input` debounce in
+	`RecordListSelector` must not be copied: Tantivy parses every query and a
+	syntax error is a user-visible event, so firing per keystroke would spam
+	both the user and the server. Submit on Enter and on an explicit Search
+	action. Changing the level combo re-runs the current query immediately.
+- **Structured errors inline.** Render `error.code` and `error.message` from
+	the `{"error": {...}}` envelope beside the input, and keep the previous
+	valid result set visible while the error is shown.
+- **Visibility.** Render only when `dataSource === 'api' && !folderForIndexing`.
+	In upload mode the header bar is absent and `RecordListSelector` keeps its
+	own basic search.
+- **State ownership.** `App.vue` owns the query string, the selected level,
+	the result set, and the error, so the header bar, the sidebar results, and
+	the viewer stay in sync. `SearchBar` is presentational: it emits
+	`search({ query, level, page })` and `clear`.
+
+Hide the old search input in `RecordListSelector` when the header bar is
+active: wrap the existing `.search-container` in a `showSearch` prop that
+defaults to `true`, and pass `:show-search="dataSource !== 'api'"` from
+`App.vue`. Without this, API mode shows two search boxes with different
+semantics.
+
+### 4. Add the search help popup
+
+Add `frontend/src/components/SearchHelpPopup.vue`, opened by the header help
+button. Follow the existing `FolderSelectionDialog.vue` overlay pattern
+(`.modal-overlay` plus `.modal-dialog`): there is no generic modal component
+and no `Teleport` usage in the codebase today.
+
+Content, all from `GET /api/search/schema`, fetched once on first open, cached
+in `App.vue`, and refreshed when the selected database changes:
+
+- **Available fields**: one row per `fields[]` entry showing `name`, a `kind`
+	badge of `exact`, `full_text`, or `numeric`, an "included in unqualified
+	search" marker when `unqualified` is true, and `description`. The backend
+	already filters non-public fields, so `source_path` does not appear.
+- **Example queries**: `examples[]` rendered as monospace, individually
+	copyable rows.
+- **Operator guidance**: a short static block covering implicit `OR` on
+	whitespace, `AND` / `OR` / `NOT`, parentheses, quoted phrases,
+	`"a b"~N` phrase slop, `"a b"*` phrase prefix, and that a bare trailing
+	`*` on an unquoted term is inert.
+- **Grammar link**: `query_syntax_url` as
+	`<a target="_blank" rel="noopener noreferrer">`.
+
+Add `frontend/src/utils/clipboard.ts` exporting
+`copyText(text: string): Promise<boolean>` around
+`navigator.clipboard.writeText`, and use it for the example rows.
+`FeatureDetails.vue` already has a private `copyToClipboard` at L396-404 that
+`alert()`s on success; extract the shared helper rather than duplicating it,
+and leave `FeatureDetails` behavior as-is to keep this stage scoped.
+
+Close on the close button and on overlay click. Escape-to-close is optional.
+
+### 5. Render search results in the sidebar
+
+Add `frontend/src/components/SearchResultsList.vue`, rendered in `App.vue`'s
+`.sidebar-bottom` in place of `RecordListSelector` while a search is active.
+`RecordListSelector` stays untouched for SQLite browsing, and clearing the
+query swaps back to it immediately.
+
+Render per level:
+
+- **protocluster**: one row per hit showing organism, product, category,
+	`region N · protocluster M`, `start–end`, the `output_file` and
+	`input_file` context, and the score. Multiple rows can share one parent
+	record, which is the point of this level.
+- **region**: one row per hit showing record, `region N`, the file names, and
+	the score.
+- **record**: one row per hit showing record, the file names, and the score.
+
+The component owns its pagination over `total` at the same 20-per-page default
+the backend uses, and emits `search-selected` with the full hit. Highlight the
+selected row, show "no results" separately from an error, and keep the last
+valid rows visible during a refetch.
+
+### 6. Navigate to the hit
+
+Extend the selection payload through `SearchResultsList.vue` and `App.vue`
+with the composed `entry_id` and the optional region and protocluster numbers.
 
 The selection sequence is:
 
-1. Load the parent record.
-2. Select the parent region.
+1. Load the parent record from `entry_id`, the same path an ordinary sidebar
+	click uses, so `/api/load-entry` resolves the relative path and record id
+	without extra work.
+2. Select the parent region by reusing `RegionViewerContainer`'s existing
+	`initialRegionId` mechanism with `region_{region_number}`.
 3. Focus and highlight the matching protocluster.
 
-Reuse `RegionViewerContainer`'s existing `initialRegionId` mechanism to select `region_{region_number}`.
+For step 3, add an `initialProtoclusterNumber` prop to
+`frontend/src/components/RegionViewer.vue`. After the selected region's
+tracks are built:
 
-Add an `initialProtoclusterNumber` prop to `RegionViewer.vue`. After the selected region tracks are built:
+1. Locate the protocluster annotation by its `protocluster_number` qualifier,
+	the box annotation the `case "protocluster":` branch of `buildAllTracks`
+	builds with id `protocluster-{number}`, not the `-core` annotation.
+2. Drive the existing selection path, the same state `handleAnnotationClick`
+	sets (`selectedAnnotation`, `updateAnnotationHighlighting()`,
+	`drawTracks()`), so highlighting and the details panel behave exactly as
+	they do for a manual click.
+3. Scroll or zoom the protocluster into view with `TrackViewer.zoomTo(start,
+	end)` in `frontend/src/TrackViewer.ts` (L1404-1417).
 
-1. Locate the protocluster annotation by qualifier.
-2. Invoke the existing annotation selection and highlighting path.
-3. Scroll or zoom the protocluster into view.
+Two concrete gaps to close here:
 
-An ordinary record selection must clear any stale region or protocluster target.
+- `regionViewer` is a plain local variable in `RegionViewer.vue` (L210) and
+	`expose()` publishes only `clearViewer` and `rebuildViewer` (L1022-1025).
+	Either expose a `focusRange(start, end)` method or keep the zoom inside the
+	component driven by the new prop; do not widen the exposed surface beyond
+	what the focus path needs.
+- The focus must run **after** the asynchronous region-feature load and track
+	build complete, not when the prop changes. Gate it on the point where the
+	tracks are known to exist, and ignore the target when the region has no
+	such protocluster rather than throwing.
 
-### 4. Test Stage 3
+An ordinary record selection must clear any stale region or protocluster
+target. `App.vue` already resets `initialRegionId` to `''` on every selection
+at L215; reset `initialProtoclusterNumber` the same way, and have
+`RegionViewer` clear the highlight when the prop goes empty.
 
-Add frontend tests for:
+### 7. Block search during a rebuild
 
-- API query forwarding
-- Structured error mapping
-- Multiple cluster hits belonging to one parent record
-- Record-to-region-to-protocluster target propagation
-- Focus after asynchronous region loading
+Show a modal, non-cancellable blocking popup for the full duration of a
+preprocessing run.
+
+- Reuse the existing `/api/preprocessing-status` polling contract
+	(`is_running`, `status`, `current_file`, `files_processed`, `total_files`).
+	Today that poll lives only inside `PreprocessingStatus.vue` under
+	`IndexCreation`; Stage 3 needs an **app-level** poll so the state survives
+	a page refresh.
+- On completion, refresh the record list and re-select the database, as
+	`handlePreprocessingCompleted` already does.
+- Map a `409 index_rebuilding` response from any search or schema call to the
+	same blocking popup and resume status polling. This covers the
+	refresh-mid-rebuild case a client-side flag cannot.
+- Do **not** map `index_interrupted` to the blocking popup. It is
+	non-retryable: show a distinct, dismissible error saying the previous run
+	was interrupted and preprocessing must be rerun. Mapping it to the
+	blocking popup would block forever on a build that is not running.
+- `missing_index` is likewise not a rebuild: show the existing "run
+	preprocessing first" state.
+
+### 8. Test Stage 3
+
+The frontend has Vitest, `@vue/test-utils`, and `jsdom` configured in
+`frontend/vitest.config.js`, but **no component-mount tests exist yet**; these
+are the first. `frontend/src/tests/setup.js` already mocks
+`window.BGCViewer.TrackViewer` and `window.d3`, which the viewer-dependent
+tests need.
+
+Add tests for:
+
+- API query forwarding: the correct level URL, method, and body for all three
+	levels, plus the schema call
+- Structured error mapping: `invalid_query`, `empty_query`, and
+	`unknown_field` render inline and keep the previous results visible
+- Multiple protocluster hits belonging to one parent record render as
+	distinct rows
+- Record-to-region-to-protocluster target propagation through `App.vue`
+- Focus applied after the asynchronous region load, and ignored when the
+	region has no such protocluster
 - Clearing stale focus after an ordinary record selection
-- Blocking popup during a rebuild, including the `index_rebuilding` mapping
+- Enter submits and typing does not; changing the level re-runs the query
+- The header bar is visible in API mode and absent in upload mode, and the
+	`RecordListSelector` search input is hidden in API mode
+- The help popup renders fields, kind badges, unqualified markers, copyable
+	examples, and the external grammar link with `rel="noopener noreferrer"`
+- The blocking popup during a rebuild, including the `index_rebuilding`
+	mapping, and that `index_interrupted` renders a dismissible error instead
 
-Stage 3 is complete when selecting a search hit opens its parent record, selects its parent region, and focuses the correct protocluster.
-
+Stage 3 is complete when selecting a search hit opens its parent record,
+selects its parent region, and focuses the correct protocluster, and the
+header search bar with its level combo and help popup is the search surface in
+API mode.
 ## Documentation
 
 Document:
@@ -1130,13 +1417,18 @@ Document:
 - Case-sensitive exact fields and case-insensitive analyzed fields
 - Native Tantivy syntax, including implicit `OR` and disabled regex queries
 - Representative query examples
-- A generated field reference sourced from the registry in `document.py`
+- The live public field list, served by `GET /api/search/schema` and linked
+  from the docs rather than duplicated as a generated table
 - A compatibility matrix listing tested antiSMASH versions and selected adapters
 - Contributor recipes for adding fields and antiSMASH version adapters
+- The frontend search surface: the header search bar, the level combo box, the
+  help popup contents, and the record-to-protocluster navigation path
 
 Relevant documentation locations include:
 
 - `docs/guide/api/database.md`
+- `docs/guide/api/search.md`, the search HTTP contract, which Stage 3 step 1
+  must update with the composed `entry_id` hit key
 - `docs/guide/development/database-schema.md`
 - `docs/guide/development/search-index.md`, the focused search-index
   contributor guide delivered by Stage 2 step 9 and linked from
@@ -1196,6 +1488,16 @@ Relevant documentation locations include:
 - Search uses `POST /api/search/<level>` with the granularity in the URL path,
   returns compact self-contained summaries, and does not report matched field
   names.
+- Every hit carries a composed `entry_id` of the form
+  `"<source-root-relative JSON path>:<record_id>"` so the frontend can open
+  the parent record through the existing `/api/load-entry` path. The
+  basename-only `output_file` cannot resolve a nested source tree, so
+  `source_path` is registered as a stored, non-public, non-searchable identity
+  field and `SEARCH_SCHEMA_VERSION` is bumped to 3.
+- The registry carries a `public` flag separate from `returned`: `returned`
+  selects what comes back in an ordinary hit's `fields` projection, `public`
+  selects what the help popup advertises as searchable. `source_path` is
+  neither; its value reaches the client only composed into `entry_id`.
 - The schema endpoint `GET /api/search/schema` is level-independent: searchable
   fields and examples are identical for every level because the level only
   changes the hit shape and what happens when a hit is selected.
@@ -1216,4 +1518,24 @@ Relevant documentation locations include:
 	readers, holds no reader or index handle between requests, and uses no
 	request-scoped `g` holder; the frontend shows a modal blocking popup for
 	the duration of a rebuild.
+- The frontend search surface is the app header top right: a query input, a
+  level combo box, and a help button opening a popup with the available
+  fields, copyable example queries, and a link to the Tantivy query grammar.
+  The header is the natural top-right slot because `.app-header` is already a
+  `space-between` flex row.
+- The header search bar renders only in API mode. Upload mode keeps the
+  existing client-side basic search in `RecordListSelector`, whose own search
+  input is hidden in API mode so the two never appear at once.
+- Advanced search is not added to the abstract `DataProvider` contract. It is
+  a concrete `BGCViewerAPIProvider` capability, so browser-loaded providers are
+  not forced to implement a Tantivy method.
+- Protocluster results render in a dedicated `SearchResultsList.vue` swapped
+  into the sidebar while a query is active, rather than as a second mode inside
+  the already large `RecordListSelector.vue`.
+- The header search bar submits on Enter or an explicit Search action, not on
+  a debounce. Tantivy parses every query and a syntax error is a user-visible
+  event, so per-keystroke submission would spam both the user and the server.
+- `index_interrupted` never maps to the blocking rebuild popup. It is
+  non-retryable and renders a dismissible error, because blocking on a build
+  that is not running would block forever.
 - Incremental indexing, live writes, and advanced search for browser-local providers are out of scope for the initial implementation.
