@@ -16,7 +16,7 @@
     <div v-else class="entries-section">
       <!-- Search and Controls - Always visible -->
       <div class="controls-bar">
-        <div class="search-container">
+        <div v-if="showSearch" class="search-container">
           <input
             v-model="searchQuery"
             @input="debouncedSearch"
@@ -138,6 +138,10 @@ export default {
     indexPath: {
       type: String,
       default: ''
+    },
+    showSearch: {
+      type: Boolean,
+      default: true
     }
   },
   emits: ['record-selected'],

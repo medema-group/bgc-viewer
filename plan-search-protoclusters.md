@@ -53,9 +53,10 @@ the field registry in `document.py`. Derive the stable document key from:
 - Region number
 - Protocluster number
 
-The relative path is retained for navigation and identity. The public
-`output_file` field contains only the JSON basename; `input_file` contains the
-top-level antiSMASH input filename, or an empty string when absent.
+The relative path is retained for navigation and identity in the public
+`output_file` field. It is the source-root-relative POSIX path of the selected
+antiSMASH JSON file, not only its basename. `input_file` contains the top-level
+antiSMASH input filename, or an empty string when absent.
 
 Initial public fields:
 
@@ -73,7 +74,7 @@ Initial public fields:
 | `protocluster` | Protocluster number | Numeric |
 | `start` | Protocluster start coordinate | Numeric |
 | `end` | Protocluster end coordinate | Numeric |
-| `output_file` | Selected JSON basename | Exact, case-sensitive |
+| `output_file` | Source-root-relative POSIX path of the selected JSON | Path, case-sensitive |
 | `input_file` | antiSMASH input filename | Exact, case-sensitive |
 
 In antiSMASH, each `Protocluster` has one `product` string and one
@@ -85,8 +86,7 @@ individual protocluster search document.
 Also store these identity or display values:
 
 - Stable document key
-- Source-root-relative JSON path
-- JSON basename
+- Source-root-relative JSON path (`output_file`)
 - antiSMASH input filename
 - Record ID
 - Region number
@@ -456,7 +456,7 @@ search INDEX_DIRECTORY QUERY [--level protocluster|region|record]
 The search command prints, per hit:
 
 - Score
-- JSON basename and antiSMASH input filename
+- Source-root-relative JSON path and antiSMASH input filename
 - Record ID
 - Region number (protocluster and region levels)
 - Protocluster number, coordinates, product, category, and organism
@@ -564,23 +564,11 @@ Use a default page size of 20 and a maximum of 100. `total` reflects the
 distinct units at the selected level (protoclusters, regions, or records),
 not the raw matching-document count.
 
-> **Caveat (source path).** The "source path" in the per-level hit shapes above
-> is currently satisfied by the stored `output_file` (JSON basename) and
-> `input_file` fields. The field registry does not store the source-root-relative
-> JSON path, so hits do not carry a full relative path even though the Search
-> Document section lists it as a stored identity value. This is fine for
-> self-contained display, but Stage 3 navigation that needs the
-> source-root-relative path to open the parent record must either add a stored
-> `source_path` field to the registry (a `SEARCH_SCHEMA_VERSION` bump plus an
-> index rebuild) or resolve the relative path from `output_file` against the
-> selected database's `data_root`.
->
-> **Resolved by Stage 3 step 1**, which registers `source_path` and returns a
-> composed `entry_id` from the backend. Basename-only resolution was rejected:
-> `files.path` stores the source-root-relative path, so `output_file` resolves
-> only for a flat source tree, and two source files in different subfolders
-> sharing a basename are not caught by the duplicate detector, which keys on
-> `input_file` plus record, region, and protocluster number.
+> **Navigation prerequisite.** `output_file` now stores the
+> source-root-relative POSIX path, matching `files.path` and the filename
+> component expected by `POST /api/load-entry`. The frontend can compose that
+> value with the record id when it opens a hit; no additional backend response
+> field or Tantivy schema change is needed.
 
 ### 3. Return self-contained results
 
@@ -809,7 +797,7 @@ selected level.
 The response contains:
 
 - `fields`: public field metadata derived from the registry in `document.py`:
-  `name`, a user-facing `kind` of `exact`, `full_text`, or `numeric` so the
+	`name`, a user-facing `kind` of `exact`, `full_text`, `path`, or `numeric` so the
   popup shows whether a field is exact, full text, or numeric, whether the
   field participates in unqualified search, and a short `description` of what
   the field holds and where its values come from, for example `product` holds
@@ -1040,17 +1028,15 @@ rather than step 8 because it fails on registry drift, not on search behavior.
 
 ## Stage 3: Frontend Search and Navigation
 
-> **Stage 3: not started.** Eight steps, one of which is a backend
-> prerequisite.
+> **Stage 3: in progress.** Steps 1-3 are complete.
 >
-> - [ ] 1. Compose a navigable `entry_id` in the backend (schema bump 2 -> 3)
-> - [ ] 2. Add the frontend API contract
-> - [ ] 3. Add the header search bar
-> - [ ] 4. Add the search help popup
-> - [ ] 5. Render search results in the sidebar
-> - [ ] 6. Navigate to the hit
-> - [ ] 7. Block search during a rebuild
-> - [ ] 8. Test Stage 3
+> - [x] 1. Add the frontend API contract
+> - [x] 2. Add the header search bar
+> - [x] 3. Add the search help popup
+> - [ ] 4. Render search results in the sidebar
+> - [ ] 5. Navigate to the hit
+> - [ ] 6. Block search during a rebuild
+> - [ ] 7. Test Stage 3
 
 Advanced search applies only to preprocessed backend datasets (API mode).
 Browser-loaded JSON and GenBank providers retain their existing basic
@@ -1062,64 +1048,7 @@ carrying the available fields, copyable example queries, and a link to the
 Tantivy query grammar. Results render in a dedicated list component swapped
 into the sidebar in place of the SQLite record list.
 
-### 1. Compose a navigable `entry_id` in the backend
-
-This is a prerequisite for navigation. `POST /api/load-entry` takes an
-`entry_id` of the form `"<source-root-relative JSON path>:<record_id>"` and
-resolves `Path(data_root) / filename`, so the filename component must be the
-**source-root-relative path**, not the basename. Search hits carry only
-`output_file`, which is the basename, so it resolves only for a flat source
-tree.
-
-Changes:
-
-- Register `source_path` in `SEARCH_FIELD_REGISTRY` in
-	`backend/bgc_viewer/search/document.py`: `attribute="source_path"`,
-	`value_type="keyword"`, `cardinality="single"`, `analyzer="exact"`,
-	`returned=False`, `default_search=False`, `boost=1.0`, `required=True`,
-	with a description naming it as the source-root-relative POSIX path of the
-	antiSMASH JSON the protocluster was indexed from. This needs no extractor
-	work: `ProtoclusterSearchDocument.field_value` already falls back to
-	`getattr(self.source, definition.attribute)`, and `SourceFile.source_path`
-	in `extraction.py` carries the value.
-- Add `public: bool = True` to `SearchFieldDefinition` and filter on it in
-	`public_field_metadata()`. `source_path` is `public=False`: it is an
-	identity value the frontend needs in order to navigate, not a field a
-	searcher should be typing filesystem paths into. `returned=False` alone
-	would still list it in `GET /api/search/schema` as though it were
-	searchable.
-- Bump `SEARCH_SCHEMA_VERSION` from 2 to 3. The Tantivy schema gains a stored
-	field, so every existing index must be rebuilt.
-- Give each hit dataclass an `entry_id` composed as
-	`f"{source_path}:{record}"`:
-	- `SearchHit`: add `entry_id` beside `score` and `fields`, not inside
-		`fields`, so the existing "protocluster hits carry exactly the
-		registry's returned fields" assertion in
-		`backend/bgc_viewer/tests/search/test_api.py` stays valid.
-	- `RegionHit` and `RecordHit`: add `entry_id` beside the existing flat
-		keys.
-- `_matching_protocluster_fields` builds its summary through `_stored_fields`,
-	which drops every `returned=False` field. Give `_stored_fields` an
-	explicit `extra` parameter, or have the hit builders read `source_path`
-	from the raw stored document, so the navigation value reaches the builders
-	without becoming a public display field.
-
-Response shapes become:
-
-```json
-{"score": 4.21, "entry_id": "runs/NC_003888.3.json:NC_003888.3", "fields": {"...": "..."}}
-{"score": 4.21, "entry_id": "runs/NC_003888.3.json:NC_003888.3", "record": "NC_003888.3", "region": 1, "output_file": "NC_003888.3.json", "input_file": "NC_003888.3.gbk"}
-{"score": 4.21, "entry_id": "runs/NC_003888.3.json:NC_003888.3", "record": "NC_003888.3", "output_file": "NC_003888.3.json", "input_file": "NC_003888.3.gbk"}
-```
-
-Update `docs/guide/api/search.md` with the new key.
-
-Tests: extend `backend/bgc_viewer/tests/search/test_api.py` (every level
-carries `entry_id`; the protocluster `fields` set is unchanged),
-`test_index.py` (`entry_id` composition and ordering), and
-`test_field_registry_docs.py` (the `public` flag is honored by the projection).
-
-### 2. Add the frontend API contract
+### 1. Add the frontend API contract
 
 Update:
 
@@ -1133,7 +1062,7 @@ export type SearchLevel = 'protocluster' | 'region' | 'record'
 
 export interface SearchFieldInfo {
 	name: string
-	kind: 'exact' | 'full_text' | 'numeric'
+	kind: 'exact' | 'full_text' | 'numeric' | 'path'
 	unqualified: boolean
 	description: string
 }
@@ -1146,7 +1075,6 @@ export interface SearchSchema {
 
 export interface ProtoclusterSearchHit {
 	score: number
-	entry_id: string
 	fields: {
 		record: string
 		region: number
@@ -1163,7 +1091,6 @@ export interface ProtoclusterSearchHit {
 
 export interface RegionSearchHit {
 	score: number
-	entry_id: string
 	record: string
 	region: number
 	output_file: string
@@ -1172,7 +1099,6 @@ export interface RegionSearchHit {
 
 export interface RecordSearchHit {
 	score: number
-	entry_id: string
 	record: string
 	output_file: string
 	input_file: string | null
@@ -1201,12 +1127,29 @@ Tantivy method. The header search bar is wired to the concrete
 Leave `searchRecords()` on `/api/database-entries` untouched. It still serves
 the basic search in upload mode and the plain record list in API mode.
 
+Do not add a composed id to the search response types. Every level already
+returns `output_file` and `record`; the navigation step combines them only when
+the user selects a hit.
+
 Tests: extend `frontend/src/tests/data-providers.test.js`, or add
 `frontend/src/__tests__/search-api.test.ts`, with stubbed axios asserting the
 URL, method, request body, and response mapping for all three levels and for
 the schema call.
 
-### 3. Add the header search bar
+> **Implemented.** The search types live in
+> `frontend/src/services/dataProviders/types.ts`, and the concrete
+> `BGCViewerAPIProvider` owns `searchLevel()` and `getSearchSchema()` without
+> widening the abstract `DataProvider` contract. Literal-level overloads give
+> protocluster, region, and record callers their precise hit type, while a
+> `SearchLevel` overload supports the runtime combo-box value. `SearchFieldInfo`
+> includes the live backend's `path` kind for `output_file` and `input_file` in
+> addition to `exact`, `full_text`, and `numeric`.
+>
+> Tests: `frontend/src/tests/data-providers.test.js` verifies the URL, method,
+> request body, defaults, and direct response mapping for all three levels and
+> the schema endpoint.
+
+### 2. Add the header search bar
 
 Add `frontend/src/components/SearchBar.vue` and mount it in the right-hand
 slot of `.app-header` in `frontend/src/App.vue`, beside `.version-info`. The
@@ -1247,7 +1190,22 @@ defaults to `true`, and pass `:show-search="dataSource !== 'api'"` from
 `App.vue`. Without this, API mode shows two search boxes with different
 semantics.
 
-### 4. Add the search help popup
+> **Implemented.** `frontend/src/components/SearchBar.vue` is a presentational
+> controlled component mounted in the header by `App.vue`. It submits only on
+> Enter or the Search button, immediately reruns a non-empty query when the
+> level changes, emits `clear`, and renders structured errors without replacing
+> the previous successful result state. The component supplies one explicit
+> clear button and suppresses the browser-native search cancel control. The
+> level selector is fixed at a compact 114 px, wide enough for `Protocluster`
+> and the native chevron. `RecordListSelector.vue` keeps its existing search by
+> default and hides it only when App is in API mode.
+>
+> Tests: `frontend/src/__tests__/SearchBar.test.ts` covers Enter-only submit,
+> level-change reruns, and structured error rendering. The API-mode visibility,
+> real search request, clear action, and level rerun were also verified against
+> the Vite development app and the demo backend.
+
+### 3. Add the search help popup
 
 Add `frontend/src/components/SearchHelpPopup.vue`, opened by the header help
 button. Follow the existing `FolderSelectionDialog.vue` overlay pattern
@@ -1258,9 +1216,8 @@ Content, all from `GET /api/search/schema`, fetched once on first open, cached
 in `App.vue`, and refreshed when the selected database changes:
 
 - **Available fields**: one row per `fields[]` entry showing `name`, a `kind`
-	badge of `exact`, `full_text`, or `numeric`, an "included in unqualified
-	search" marker when `unqualified` is true, and `description`. The backend
-	already filters non-public fields, so `source_path` does not appear.
+	badge of `exact`, `full_text`, `path`, or `numeric`, an "included in unqualified
+	search" marker when `unqualified` is true, and `description`.
 - **Example queries**: `examples[]` rendered as monospace, individually
 	copyable rows.
 - **Operator guidance**: a short static block covering implicit `OR` on
@@ -1279,7 +1236,29 @@ and leave `FeatureDetails` behavior as-is to keep this stage scoped.
 
 Close on the close button and on overlay click. Escape-to-close is optional.
 
-### 5. Render search results in the sidebar
+> **Implemented.** `frontend/src/components/SearchHelpPopup.vue` follows the
+> existing overlay/dialog pattern. Runnable examples are deliberately the first
+> section, followed by the field reference and operator guidance. Every example
+> has copy success/failure feedback, fields show their kind and unqualified
+> participation, and the grammar link uses `target="_blank"` with
+> `rel="noopener noreferrer"`.
+>
+> `App.vue` fetches `GET /api/search/schema` only when help is first opened,
+> caches a successful response, and invalidates it when the selected database
+> changes or preprocessing completes. A request generation prevents an older
+> in-flight response from repopulating an invalidated cache. Structured schema
+> errors render in the popup and a failed first request can be retried by
+> reopening it.
+>
+> `frontend/src/utils/clipboard.ts` owns the shared `copyText()` helper;
+> `FeatureDetails.vue` now uses it while retaining its existing alerts.
+> Tests: `frontend/src/__tests__/SearchHelpPopup.test.ts` covers section order,
+> field metadata, badges, unqualified markers, examples, copy success and
+> failure, the external link, and both close paths. The real schema request,
+> 14-field/six-example rendering, and cache reuse were verified against the
+> demo backend.
+
+### 4. Render search results in the sidebar
 
 Add `frontend/src/components/SearchResultsList.vue`, rendered in `App.vue`'s
 `.sidebar-bottom` in place of `RecordListSelector` while a search is active.
@@ -1301,16 +1280,25 @@ the backend uses, and emits `search-selected` with the full hit. Highlight the
 selected row, show "no results" separately from an error, and keep the last
 valid rows visible during a refetch.
 
-### 6. Navigate to the hit
+### 5. Navigate to the hit
 
 Extend the selection payload through `SearchResultsList.vue` and `App.vue`
-with the composed `entry_id` and the optional region and protocluster numbers.
+with the hit's `output_file`, `record`, and optional region and protocluster
+numbers. In `App.vue`, compose the existing load-entry id only when the hit is
+selected:
+
+```ts
+const entryId = `${outputFile}:${record}`
+```
+
+For a protocluster hit, read `output_file` and `record` from `hit.fields`; for
+region and record hits, read the same keys directly from the hit.
 
 The selection sequence is:
 
-1. Load the parent record from `entry_id`, the same path an ordinary sidebar
-	click uses, so `/api/load-entry` resolves the relative path and record id
-	without extra work.
+1. Load the parent record from the composed `entryId`, the same value an
+	ordinary sidebar click receives, so `/api/load-entry` resolves the relative
+	path and record id without extra backend work.
 2. Select the parent region by reusing `RegionViewerContainer`'s existing
 	`initialRegionId` mechanism with `region_{region_number}`.
 3. Focus and highlight the matching protocluster.
@@ -1346,7 +1334,7 @@ target. `App.vue` already resets `initialRegionId` to `''` on every selection
 at L215; reset `initialProtoclusterNumber` the same way, and have
 `RegionViewer` clear the highlight when the prop goes empty.
 
-### 7. Block search during a rebuild
+### 6. Block search during a rebuild
 
 Show a modal, non-cancellable blocking popup for the full duration of a
 preprocessing run.
@@ -1368,7 +1356,7 @@ preprocessing run.
 - `missing_index` is likewise not a rebuild: show the existing "run
 	preprocessing first" state.
 
-### 8. Test Stage 3
+### 7. Test Stage 3
 
 The frontend has Vitest, `@vue/test-utils`, and `jsdom` configured in
 `frontend/vitest.config.js`, but **no component-mount tests exist yet**; these
@@ -1384,7 +1372,8 @@ Add tests for:
 	`unknown_field` render inline and keep the previous results visible
 - Multiple protocluster hits belonging to one parent record render as
 	distinct rows
-- Record-to-region-to-protocluster target propagation through `App.vue`
+- Frontend composition of `${output_file}:${record}` for all three hit levels,
+	plus record-to-region-to-protocluster target propagation through `App.vue`
 - Focus applied after the asynchronous region load, and ignored when the
 	region has no such protocluster
 - Clearing stale focus after an ordinary record selection
@@ -1427,8 +1416,7 @@ Document:
 Relevant documentation locations include:
 
 - `docs/guide/api/database.md`
-- `docs/guide/api/search.md`, the search HTTP contract, which Stage 3 step 1
-  must update with the composed `entry_id` hit key
+- `docs/guide/api/search.md`, the search HTTP contract
 - `docs/guide/development/database-schema.md`
 - `docs/guide/development/search-index.md`, the focused search-index
   contributor guide delivered by Stage 2 step 9 and linked from
@@ -1488,16 +1476,11 @@ Relevant documentation locations include:
 - Search uses `POST /api/search/<level>` with the granularity in the URL path,
   returns compact self-contained summaries, and does not report matched field
   names.
-- Every hit carries a composed `entry_id` of the form
-  `"<source-root-relative JSON path>:<record_id>"` so the frontend can open
-  the parent record through the existing `/api/load-entry` path. The
-  basename-only `output_file` cannot resolve a nested source tree, so
-  `source_path` is registered as a stored, non-public, non-searchable identity
-  field and `SEARCH_SCHEMA_VERSION` is bumped to 3.
-- The registry carries a `public` flag separate from `returned`: `returned`
-  selects what comes back in an ordinary hit's `fields` projection, `public`
-  selects what the help popup advertises as searchable. `source_path` is
-  neither; its value reaches the client only composed into `entry_id`.
+- Every search hit carries `output_file` and `record`. When a hit is selected,
+  the frontend composes them as
+  `"<source-root-relative JSON path>:<record_id>"` and passes that value to
+	the existing `/api/load-entry` path. No additional response field, registry
+	field, or schema change is needed.
 - The schema endpoint `GET /api/search/schema` is level-independent: searchable
   fields and examples are identical for every level because the level only
   changes the hit shape and what happens when a hit is selected.
@@ -1510,7 +1493,7 @@ Relevant documentation locations include:
   from the index. No example is generated per field because the popup lists
   the available fields separately.
 - The schema endpoint exposes each field's user-facing kind (`exact`,
-  `full_text`, or `numeric`), a short description of what the field holds, and
+  `full_text`, `path`, or `numeric`), a short description of what the field holds, and
   links to the Tantivy `QueryParser` query-language documentation; cardinality
   and boosts stay internal, and there is no storage flag because every
   registered field is stored.

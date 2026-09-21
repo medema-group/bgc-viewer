@@ -3,11 +3,30 @@
     <!-- Header spanning full width -->
     <header class="app-header">
       <h1>BGC Viewer</h1>
-      <div class="version-info">
-        <span v-if="appVersion">{{ appName }} v{{ appVersion }}</span>
-        <span v-else>Loading version...</span>
+      <div class="header-tools">
+        <SearchBar
+          v-if="dataSource === 'api' && !folderForIndexing"
+          v-model:query="searchQuery"
+          v-model:level="searchLevel"
+          :error="searchError"
+          @search="handleSearch"
+          @clear="clearSearch"
+          @help="openSearchHelp"
+        />
+        <div class="version-info">
+          <span v-if="appVersion">{{ appName }} v{{ appVersion }}</span>
+          <span v-else>Loading version...</span>
+        </div>
       </div>
     </header>
+
+    <SearchHelpPopup
+      v-if="showSearchHelp"
+      :schema="searchSchema"
+      :loading="searchSchemaLoading"
+      :error="searchSchemaError"
+      @close="showSearchHelp = false"
+    />
 
     <!-- Main content area with sidebar and viewer -->
     <div class="main-content">
@@ -63,6 +82,7 @@
             ref="recordListSelectorRef"
             :data-root="selectedDataRoot"
             :index-path="selectedIndexPath"
+            :show-search="dataSource !== 'api'"
             @record-selected="handleRecordSelected" 
           />
         </div>
@@ -104,6 +124,8 @@ import IndexCreation from './components/IndexCreation.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
 import DataSourceSelector from './components/DataSourceSelector.vue'
 import FileUpload from './components/FileUpload.vue'
+import SearchBar from './components/SearchBar.vue'
+import SearchHelpPopup from './components/SearchHelpPopup.vue'
 import { BGCViewerAPIProvider, JSONFileProvider, GenbankFileProvider } from '@/services/dataProviders'
 
 export default {
@@ -114,7 +136,9 @@ export default {
     IndexCreation,
     RecordListSelector,
     DataSourceSelector,
-    FileUpload
+    FileUpload,
+    SearchBar,
+    SearchHelpPopup
   },
   setup() {
     const regionViewerRef = ref(null)
@@ -148,6 +172,17 @@ export default {
     const currentRecordId = ref('')
     const currentRecordData = ref(null)
     const initialRegionId = ref('')
+
+    // Advanced backend search state
+    const searchQuery = ref('')
+    const searchLevel = ref('protocluster')
+    const searchResults = ref(null)
+    const searchError = ref(null)
+    const showSearchHelp = ref(false)
+    const searchSchema = ref(null)
+    const searchSchemaLoading = ref(false)
+    const searchSchemaError = ref(null)
+    let searchSchemaRequest = 0
     
     // Draggable divider state
     const savedSidebarWidth = localStorage.getItem('bgc-viewer-sidebar-width')
@@ -177,17 +212,94 @@ export default {
       selectedDataRoot.value = folderPath
     }
 
+    const loadSearchSchema = async () => {
+      if (searchSchema.value || searchSchemaLoading.value) return
+
+      const request = ++searchSchemaRequest
+      searchSchemaLoading.value = true
+      searchSchemaError.value = null
+
+      try {
+        const provider = dataProvider.value
+        if (!(provider instanceof BGCViewerAPIProvider)) {
+          throw new Error('Advanced search is only available for backend datasets')
+        }
+        const schema = await provider.getSearchSchema()
+        if (request === searchSchemaRequest) {
+          searchSchema.value = schema
+        }
+      } catch (error) {
+        if (request === searchSchemaRequest) {
+          const apiError = error?.response?.data?.error
+          searchSchemaError.value = apiError && apiError.code && apiError.message
+            ? { code: apiError.code, message: apiError.message }
+            : { code: 'schema_failed', message: error?.message || 'Failed to load search reference' }
+        }
+      } finally {
+        if (request === searchSchemaRequest) {
+          searchSchemaLoading.value = false
+        }
+      }
+    }
+
+    const openSearchHelp = () => {
+      showSearchHelp.value = true
+      loadSearchSchema()
+    }
+
+    const invalidateSearchSchema = () => {
+      searchSchemaRequest += 1
+      searchSchema.value = null
+      searchSchemaLoading.value = false
+      searchSchemaError.value = null
+      if (showSearchHelp.value) {
+        loadSearchSchema()
+      }
+    }
+
     const handleIndexChanged = async (indexPath) => {
       // Clear the viewer when the index changes
       currentRecordId.value = ''
       initialRegionId.value = ''
+      clearSearch()
       
       // Store the index file path (not data root)
       selectedIndexPath.value = indexPath
+      invalidateSearchSchema()
       // Refresh the record list when index has changed
       if (recordListSelectorRef.value) {
         await recordListSelectorRef.value.refreshEntries()
       }
+    }
+
+    const handleSearch = async ({ query, level, page = 1 }) => {
+      searchQuery.value = query
+      searchLevel.value = level
+      searchError.value = null
+
+      if (!query.trim()) {
+        searchResults.value = null
+        return
+      }
+
+      try {
+        const provider = dataProvider.value
+        if (!(provider instanceof BGCViewerAPIProvider)) {
+          throw new Error('Advanced search is only available for backend datasets')
+        }
+        searchResults.value = await provider.searchLevel(level, query, page)
+      } catch (error) {
+        const apiError = error?.response?.data?.error
+        searchError.value = apiError && apiError.code && apiError.message
+          ? { code: apiError.code, message: apiError.message }
+          : { code: 'search_failed', message: error?.message || 'Search failed' }
+      }
+    }
+
+    const clearSearch = () => {
+      searchQuery.value = ''
+      searchResults.value = null
+      searchError.value = null
     }
 
     const handleRecordSelected = async (recordData) => {
@@ -252,6 +364,7 @@ export default {
       // Update the selected index path - this will trigger the watcher in RecordListSelector
       // which will call setDatabasePath and loadEntries automatically
       selectedIndexPath.value = indexPath
+      invalidateSearchSchema()
       
       // Give the watcher time to process the change
       await new Promise(resolve => setTimeout(resolve, 100))
@@ -335,6 +448,7 @@ export default {
       currentRecordId.value = ''
       currentRecordData.value = null
       initialRegionId.value = ''
+      clearSearch()
       
       // Pass all providers to RecordListSelector for searching
       if (recordListSelectorRef.value) {
@@ -362,6 +476,8 @@ export default {
           await recordListSelectorRef.value.setRecordsFromProvider(apiProvider, false)
         }
       } else if (newSource === 'upload') {
+        showSearchHelp.value = false
+        invalidateSearchSchema()
         // Clear records and wait for file upload
         if (recordListSelectorRef.value) {
           recordListSelectorRef.value.clearRecords()
@@ -495,12 +611,23 @@ export default {
       dataProvider,
       currentRecordId,
       currentRecordData,
+      searchQuery,
+      searchLevel,
+      searchResults,
+      searchError,
+      showSearchHelp,
+      searchSchema,
+      searchSchemaLoading,
+      searchSchemaError,
       sidebarTopHeight,
       initialRegionId,
       sidebarWidth,
       handleFolderSelected,
       handleFolderChanged,
       handleIndexChanged,
+      handleSearch,
+      clearSearch,
+      openSearchHelp,
       handleRecordSelected,
       handleRegionChanged,
       handleAnnotationClicked,
@@ -562,10 +689,37 @@ html,
   font-size: 24px;
 }
 
+.header-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  min-width: 0;
+}
+
 .app-header .version-info {
   color: #666;
   font-size: 0.85rem;
   font-weight: 500;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .app-header {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .header-tools {
+    align-items: flex-end;
+    flex-direction: column-reverse;
+    gap: 4px;
+    width: min(70%, 560px);
+  }
+
+  .header-tools .search-bar {
+    width: 100%;
+  }
 }
 
 /* Main content area with sidebar and viewer */
