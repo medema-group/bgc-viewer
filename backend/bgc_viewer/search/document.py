@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal, Mapping
 
-SEARCH_SCHEMA_VERSION = 2
+SEARCH_SCHEMA_VERSION = 3
 
 FieldValueType = Literal["text", "keyword", "numeric"]
 FieldCardinality = Literal["single", "multi"]
@@ -211,7 +211,10 @@ SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
     ),
     SearchFieldDefinition(
         name="output_file",
-        description="Basename of the antiSMASH JSON file the protocluster was indexed from.",
+        description=(
+            "Path of the antiSMASH JSON file the protocluster was indexed "
+            "from, relative to the source directory that was indexed."
+        ),
         attribute="output_file",
         value_type="keyword",
         cardinality="single",
@@ -545,7 +548,9 @@ class Location:
 @dataclass(frozen=True)
 class SourceFile:
     antismash_version: str
-    source_path: str
+    # Relative to the source root that was indexed, POSIX-style, so a file in a
+    # nested directory is recorded as ``nesteddir/my.json`` rather than as a
+    # machine-specific absolute path.
     output_file: str
     input_file: str
 
@@ -607,6 +612,6 @@ class ProtoclusterSearchDocument:
     def document_key(self) -> str:
         fields = self.search_fields
         return (
-            f"{self.source.source_path}:{fields.record_id}:"
+            f"{self.source.output_file}:{fields.record_id}:"
             f"{fields.region_number}:{fields.protocluster_number}"
         )

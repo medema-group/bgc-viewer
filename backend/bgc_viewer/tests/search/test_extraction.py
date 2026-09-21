@@ -20,7 +20,7 @@ from bgc_viewer.search.extraction import (
 
 
 def test_search_fields_expose_the_versioned_public_registry():
-    assert SEARCH_SCHEMA_VERSION == 2
+    assert SEARCH_SCHEMA_VERSION == 3
     assert [field.name for field in SEARCH_FIELD_REGISTRY] == [
         "pfam",
         "pfam_name",
@@ -104,8 +104,7 @@ def test_extracts_canonical_protocluster_document(tmp_path):
             source=SourceFile(
                 antismash_version="8.0.2",
                 # JSON file specific props
-                source_path="nested/sample.json",
-                output_file="sample.json",
+                output_file="nested/sample.json",
                 input_file="sample.gbk",
             ),
             search_fields=SearchFields(
@@ -161,16 +160,14 @@ def test_extracts_from_data_without_reading_a_file():
 
     source_file = SourceFile(
         antismash_version=source["version"],
-        source_path="memory/sample.json",
-        output_file="sample.json",
+        output_file="memory/sample.json",
         input_file=source["input_file"],
     )
     [document] = extract(source["records"], source_file)
 
     assert document.source == SourceFile(
         antismash_version="8.0.2",
-        source_path="memory/sample.json",
-        output_file="sample.json",
+        output_file="memory/sample.json",
         input_file="sample.gbk",
     )
     assert document.search_fields.record_id == "record-1"
@@ -204,8 +201,7 @@ def test_compatible_unknown_major_version_uses_v8_adapter():
 
     source_file = SourceFile(
         antismash_version=source["version"],
-        source_path="memory/sample.json",
-        output_file="sample.json",
+        output_file="memory/sample.json",
         input_file="",
     )
     [document] = extract(source["records"], source_file)
@@ -218,8 +214,7 @@ def test_incompatible_version_error_identifies_adapter_and_source():
 
     source_file = SourceFile(
         antismash_version=source["version"],
-        source_path="memory/sample.json",
-        output_file="sample.json",
+        output_file="memory/sample.json",
         input_file="",
     )
     with pytest.raises(ExtractionError) as caught:

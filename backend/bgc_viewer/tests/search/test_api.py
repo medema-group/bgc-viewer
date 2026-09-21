@@ -66,7 +66,7 @@ def _doc(
     pfam: tuple[str, ...] = (),
 ) -> ProtoclusterSearchDocument:
     return ProtoclusterSearchDocument(
-        source=SourceFile("8.0.2", "rec.json", "rec.json", "rec.gbk"),
+        source=SourceFile("8.0.2", "rec.json", "rec.gbk"),
         search_fields=SearchFields(
             record_id=record_id,
             region_number=region_number,

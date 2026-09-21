@@ -36,7 +36,7 @@ def _doc(
     input_file="in.gbk",
 ):
     return ProtoclusterSearchDocument(
-        source=SourceFile("8.0.2", "f.json", "f.json", input_file),
+        source=SourceFile("8.0.2", "f.json", input_file),
         search_fields=SearchFields(
             record_id="rec",
             region_number=1,

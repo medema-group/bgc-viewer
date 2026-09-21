@@ -276,7 +276,7 @@ def _document(
     genes, loci, pfams, pfam_names = _annotation_values(
         protocluster,
         annotations,
-        source.source_path,
+        source.output_file,
         record_id,
         warning_counts,
         warning_threshold,
@@ -316,9 +316,9 @@ def _check_identity(
         identity_text = ":".join(str(value) for value in identity)
         raise ExtractionError(
             f"Duplicate biological identity {identity_text}: "
-            f"{previous_source.source_path} "
+            f"{previous_source.output_file} "
             f"(antiSMASH {previous_source.antismash_version}) and "
-            f"{source.source_path} (antiSMASH {source.antismash_version})"
+            f"{source.output_file} (antiSMASH {source.antismash_version})"
         )
     identities[identity] = source
 
@@ -329,7 +329,7 @@ def _extract_records(
     warning_threshold: int,
     identities: dict[tuple[str, str, int, int], SourceFile],
 ) -> Iterator[ProtoclusterSearchDocument]:
-    source_path = source.source_path
+    source_path = source.output_file
     warning_counts: dict[str, int] = {}
     found_protocluster = False
 
@@ -439,7 +439,7 @@ def _run_adapter(
         yield from adapter.extract(records, source, warning_threshold, identities)
     except ExtractionError as error:
         raise ExtractionError(
-            f"{source.source_path} (antiSMASH {source.antismash_version}) is "
+            f"{source.output_file} (antiSMASH {source.antismash_version}) is "
             f"incompatible with {adapter.name}: {error}"
         ) from error
 
@@ -511,9 +511,7 @@ def extract_documents(
             ) from error
 
         version, input_file = _read_file_metadata(source_path)
-        source = SourceFile(
-            version, relative_path, Path(relative_path).name, input_file
-        )
+        source = SourceFile(version, relative_path, input_file)
         with source_path.open("rb") as handle:
             records = ijson.items(handle, "records.item")
             yield from extract(

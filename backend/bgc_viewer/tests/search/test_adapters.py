@@ -29,8 +29,7 @@ def _load(path: Path, source_path: str) -> list[ProtoclusterSearchDocument]:
     data = json.loads(path.read_text())
     source = SourceFile(
         antismash_version=data["version"],
-        source_path=source_path,
-        output_file=Path(source_path).name,
+        output_file=source_path,
         input_file=data.get("input_file", ""),
     )
     return list(extract(data["records"], source))
@@ -50,7 +49,6 @@ def _equivalent_document(
     return ProtoclusterSearchDocument(
         source=SourceFile(
             antismash_version=version,
-            source_path="equivalent.json",
             output_file="equivalent.json",
             input_file="equivalent.gbk",
         ),
@@ -173,8 +171,7 @@ def test_incompatible_7x_structure_reports_adapter_and_source():
 
     source_file = SourceFile(
         antismash_version=source["version"],
-        source_path="memory/sample.json",
-        output_file="sample.json",
+        output_file="memory/sample.json",
         input_file="",
     )
     with pytest.raises(ExtractionError) as caught:
