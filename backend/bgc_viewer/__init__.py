@@ -5,6 +5,7 @@ BGC Viewer - A viewer for biosynthetic gene clusters.
 # Get version from package metadata
 try:
     from importlib.metadata import version
+
     __version__ = version("bgc-viewer")
 except ImportError:
     # Fallback for development/uninstalled package

@@ -172,7 +172,9 @@ class TestOpenPerRequest:
         assert len(opens) == 3
         assert len({id(handle) for handle in opens}) == 3
 
-    def test_malformed_request_opens_no_handle(self, search_client, temp_dir, monkeypatch):
+    def test_malformed_request_opens_no_handle(
+        self, search_client, temp_dir, monkeypatch
+    ):
         """A request that never searches must not touch the index on disk."""
         database = temp_dir / "attributes.db"
         database.write_text("")
@@ -256,7 +258,9 @@ class TestNothingPinnedAfterRequest:
         assert _pinned(index_dir) == set()
 
     @pytest.mark.parametrize("level", LEVELS)
-    def test_successful_search_leaves_nothing_pinned(self, search_client, test_database, level):
+    def test_successful_search_leaves_nothing_pinned(
+        self, search_client, test_database, level
+    ):
         db_path, _ = test_database
         _select_database(search_client, db_path)
         index_dir = _index_dir(db_path)
@@ -284,7 +288,9 @@ class TestNothingPinnedAfterRequest:
         _select_database(search_client, db_path)
         index_dir = _index_dir(db_path)
         for level in LEVELS:
-            assert _search(search_client, level, query="pfam:PF00501").status_code == 200
+            assert (
+                _search(search_client, level, query="pfam:PF00501").status_code == 200
+            )
 
         gc.collect()
         shutil.rmtree(index_dir)
@@ -364,7 +370,9 @@ class TestSqliteBrowsingWithoutIndex:
         assert response.status_code == 200
         assert json.loads(response.data)["total"] >= 2
 
-    def test_record_browsing_works_with_an_unreadable_search_index(self, client, test_database):
+    def test_record_browsing_works_with_an_unreadable_search_index(
+        self, client, test_database
+    ):
         db_path, _ = test_database
         index_dir = _index_dir(db_path)
         shutil.rmtree(index_dir)

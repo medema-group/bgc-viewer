@@ -1,3 +1,1 @@
-"""Protocluster search: canonical documents, extraction, and Tantivy indexing.
-
-"""
+"""Protocluster search: canonical documents, extraction, and Tantivy indexing."""

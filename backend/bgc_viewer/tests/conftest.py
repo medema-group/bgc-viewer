@@ -13,7 +13,7 @@ from bgc_viewer.preprocessing import preprocess_antismash_files
 @pytest.fixture
 def client():
     """Create a test client for the Flask application."""
-    app.config['TESTING'] = True
+    app.config["TESTING"] = True
     with app.test_client() as client:
         yield client
 
@@ -37,9 +37,9 @@ def sample_antismash_data():
                 "description": "Test record 1",
                 "annotations": {
                     "region1": {
-                        "type": "biosynthetic", 
+                        "type": "biosynthetic",
                         "product": "polyketide",
-                        "description": "Type I polyketide synthase cluster"
+                        "description": "Type I polyketide synthase cluster",
                     }
                 },
                 "features": [
@@ -49,31 +49,26 @@ def sample_antismash_data():
                         "qualifiers": {
                             "organism": "Streptomyces coelicolor",
                             "strain": "A3(2)",
-                            "mol_type": "genomic DNA"
-                        }
+                            "mol_type": "genomic DNA",
+                        },
                     },
                     {
                         "type": "region",
                         "location": "[1:1000]",
-                        "qualifiers": {
-                            "region_number": ["1"]
-                        }
+                        "qualifiers": {"region_number": ["1"]},
                     },
                     {
                         "type": "gene",
                         "location": "[100:500]",
-                        "qualifiers": {
-                            "gene": "testA",
-                            "product": "test protein A"
-                        }
+                        "qualifiers": {"gene": "testA", "product": "test protein A"},
                     },
                     {
                         "type": "PFAM_domain",
                         "location": "[400:500]",
                         "qualifiers": {
                             "db_xref": ["PF00501.25"],
-                            "description": ["Thioesterase"]
-                        }
+                            "description": ["Thioesterase"],
+                        },
                     },
                     {
                         "type": "protocluster",
@@ -82,8 +77,8 @@ def sample_antismash_data():
                             "protocluster_number": ["1"],
                             "category": ["PKS"],
                             "product": ["polyketide"],
-                            "core_location": ["[200:600]"]
-                        }
+                            "core_location": ["[200:600]"],
+                        },
                     },
                     {
                         "type": "CDS",
@@ -91,19 +86,19 @@ def sample_antismash_data():
                         "qualifiers": {
                             "gene_kind": "biosynthetic",
                             "gene": "pksA",
-                            "product": "polyketide synthase"
-                        }
-                    }
-                ]
+                            "product": "polyketide synthase",
+                        },
+                    },
+                ],
             },
             {
                 "id": "test_record_2",
-                "description": "Test record 2", 
+                "description": "Test record 2",
                 "annotations": {
                     "region1": {
                         "type": "biosynthetic",
                         "product": "NRPS",
-                        "description": "Nonribosomal peptide synthetase"
+                        "description": "Nonribosomal peptide synthetase",
                     }
                 },
                 "features": [
@@ -112,31 +107,26 @@ def sample_antismash_data():
                         "location": "[1:1500]",
                         "qualifiers": {
                             "organism": "Bacillus subtilis",
-                            "strain": "168"
-                        }
+                            "strain": "168",
+                        },
                     },
                     {
                         "type": "region",
                         "location": "[1:1500]",
-                        "qualifiers": {
-                            "region_number": ["1"]
-                        }
+                        "qualifiers": {"region_number": ["1"]},
                     },
                     {
                         "type": "gene",
                         "location": "[300:700]",
-                        "qualifiers": {
-                            "gene": "testB",
-                            "product": "test protein B"
-                        }
+                        "qualifiers": {"gene": "testB", "product": "test protein B"},
                     },
                     {
                         "type": "PFAM_domain",
                         "location": "[350:450]",
                         "qualifiers": {
                             "db_xref": ["PF00501.25"],
-                            "description": ["Thioesterase"]
-                        }
+                            "description": ["Thioesterase"],
+                        },
                     },
                     {
                         "type": "protocluster",
@@ -145,8 +135,8 @@ def sample_antismash_data():
                             "protocluster_number": ["1"],
                             "category": ["NRPS"],
                             "product": ["NRPS"],
-                            "core_location": ["[300:900]"]
-                        }
+                            "core_location": ["[300:900]"],
+                        },
                     },
                     {
                         "type": "CDS",
@@ -154,12 +144,12 @@ def sample_antismash_data():
                         "qualifiers": {
                             "gene_kind": "biosynthetic",
                             "gene": "nrpsA",
-                            "product": "nonribosomal peptide synthetase"
-                        }
-                    }
-                ]
-            }
-        ]
+                            "product": "nonribosomal peptide synthetase",
+                        },
+                    },
+                ],
+            },
+        ],
     }
 
 
@@ -167,7 +157,7 @@ def sample_antismash_data():
 def sample_json_file(temp_dir, sample_antismash_data):
     """Create a sample JSON file for testing."""
     test_file = temp_dir / "test_sample.json"
-    with open(test_file, 'w') as f:
+    with open(test_file, "w") as f:
         json.dump(sample_antismash_data, f, indent=2)
     return test_file
 
@@ -178,7 +168,7 @@ def processed_data_dir(temp_dir, sample_json_file):
     # Run preprocessing to create the index
     index_path = str(temp_dir / "attributes.db")
     result = preprocess_antismash_files(str(temp_dir), index_path)
-    
+
     return temp_dir, result
 
 
@@ -188,5 +178,5 @@ def test_database(temp_dir, sample_json_file):
     # Run preprocessing to create the index
     db_path = temp_dir / "attributes.db"
     preprocess_antismash_files(str(temp_dir), str(db_path))
-    
+
     return db_path, temp_dir

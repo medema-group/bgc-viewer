@@ -243,7 +243,9 @@ class TestSearchEndpoint:
         assert data["total"] == 2
         assert set(data["hits"][0]) == {"score", "record", "output_file", "input_file"}
 
-    def test_pagination_limits_hits_without_echoing_request(self, search_client, test_database):
+    def test_pagination_limits_hits_without_echoing_request(
+        self, search_client, test_database
+    ):
         db_path, _ = test_database
         _select_database(search_client, db_path)
         response = search_client.post(
@@ -316,7 +318,9 @@ class TestSearchEndpoint:
         assert data["error"]["code"] == "invalid_query"
         assert "Syntax Error" in data["error"]["message"]
 
-    def test_query_errors_report_no_character_position(self, search_client, test_database):
+    def test_query_errors_report_no_character_position(
+        self, search_client, test_database
+    ):
         """The contract omits the parser position rather than guessing it."""
         db_path, _ = test_database
         _select_database(search_client, db_path)
@@ -371,7 +375,9 @@ class TestSearchEndpoint:
             "/api/search/protocluster", json={"query": "pfam:PF00501"}
         )
         returned = {
-            definition.name for definition in SEARCH_FIELD_REGISTRY if definition.returned
+            definition.name
+            for definition in SEARCH_FIELD_REGISTRY
+            if definition.returned
         }
         indexed_only = {
             definition.name

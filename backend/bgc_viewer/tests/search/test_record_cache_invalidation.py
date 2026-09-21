@@ -109,14 +109,18 @@ class TestBuildGeneration:
     def test_an_unreadable_database_reports_no_generation(self, temp_dir):
         assert record_cache_build_id(str(temp_dir / "missing.db")) == ""
 
-    def test_a_database_without_timestamp_metadata_falls_back_to_the_file(self, temp_dir):
+    def test_a_database_without_timestamp_metadata_falls_back_to_the_file(
+        self, temp_dir
+    ):
         db_path = temp_dir / "attributes.db"
         _write_source(temp_dir, 1000)
         _rebuild(temp_dir)
         import sqlite3
 
         conn = sqlite3.connect(db_path)
-        conn.execute("DELETE FROM metadata WHERE key IN ('modified_date', 'creation_date')")
+        conn.execute(
+            "DELETE FROM metadata WHERE key IN ('modified_date', 'creation_date')"
+        )
         conn.commit()
         conn.close()
 
@@ -128,7 +132,9 @@ class TestGenerationIsPartOfTheCacheKey:
     def test_the_same_generation_reuses_the_cached_object(self, built):
         temp_dir, db_path, build_id = built
         first = load_cached_entry(ENTRY_ID, str(db_path), str(temp_dir), build_id)
-        assert load_cached_entry(ENTRY_ID, str(db_path), str(temp_dir), build_id) is first
+        assert (
+            load_cached_entry(ENTRY_ID, str(db_path), str(temp_dir), build_id) is first
+        )
 
     def test_a_new_generation_does_not_reuse_the_previous_object(self, built):
         temp_dir, db_path, stale_id = built
@@ -157,7 +163,9 @@ class TestGenerationIsPartOfTheCacheKey:
         _rebuild(temp_dir)
 
         assert record_cache_build_id(str(db_path)) != stale_id
-        assert load_cached_entry(ENTRY_ID, str(db_path), str(temp_dir), stale_id) is stale
+        assert (
+            load_cached_entry(ENTRY_ID, str(db_path), str(temp_dir), stale_id) is stale
+        )
 
     def test_a_new_generation_is_a_cache_miss_not_a_hit(self, built):
         temp_dir, db_path, first_id = built
@@ -245,7 +253,9 @@ class TestRecordBrowsingThroughTheApp:
         response = client.post("/api/load-entry", json={"id": ENTRY_ID})
 
         assert response.status_code == 200
-        assert calls == [(ENTRY_ID, str(db_path), str(temp_dir), record_cache_build_id(str(db_path)))]
+        assert calls == [
+            (ENTRY_ID, str(db_path), str(temp_dir), record_cache_build_id(str(db_path)))
+        ]
 
     def test_record_browsing_survives_a_rebuild_while_holding_a_stale_session(
         self, browsing_client
