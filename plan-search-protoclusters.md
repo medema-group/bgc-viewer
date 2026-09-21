@@ -584,14 +584,11 @@ search request resolves the current database path, opens its sibling
 `tantivy.index/`, and releases the handle when the request returns. No
 module-level or `app`-level index object is permitted.
 
-The frontend blocking popup is a client-side courtesy, not a server-side
-guarantee, so this step stays necessary even though the UI blocks searching
-during a run. Other browser tabs and other users of the same local-mode
-server, direct API clients, and the window between a page refresh and the
-next status poll can all reach the search endpoints. Step 5 rejects those
-requests with `409 index_rebuilding`; this step keeps the process correct
-for the requests that are actually served, and for every request when no
-rebuild is running at all.
+Local preprocessing switches the single client into index-creation mode, where
+the search surface is hidden, and public mode uses a prebuilt index. The
+backend nevertheless rejects a search request that reaches it during a build
+with `409 index_rebuilding`; reader lifecycle correctness must not depend on
+frontend visibility.
 
 Opening per request is a correctness requirement under the delete-in-place
 rebuild, not only a simplification:
@@ -655,18 +652,12 @@ uses the stable `{"error": {"code", "message", "details"}}` envelope built by
 Empty frontend and backend queries use the existing SQLite record browsing and
 are never sent to Tantivy.
 
-What remains is the rebuild signal, which the frontend blocking popup does not
-replace. A request arriving mid-build reaches `open_index` before
+What remains is the backend rebuild signal. A request arriving mid-build reaches `open_index` before
 `meta.json` exists, so it gets `404 missing_index`, identical to "never
-preprocessed". The popup cannot cover: a page refresh, which discards the
-client-side state Stage 3 needs to re-attach to a running build; other tabs,
-browsers, users, and direct API callers of the same local-mode server; the
-loss of retryability, since "go preprocess" and "retry in a minute" look the
-same; and interrupted runs, since the cleanup in `preprocessing.py` only runs
-for handled exceptions -- under a kill or power loss the partial index
-survives while the in-memory flag resets to false on restart, leaving a pair
-that looks preprocessed but has no usable index. Rarity makes the blocking
-cheap, not the detection redundant.
+preprocessed". The signal preserves a precise API contract and distinguishes
+an interrupted run: because cleanup in `preprocessing.py` only runs for handled
+exceptions, a kill or power loss can leave a partial index after the in-memory
+flag resets on restart.
 
 `backend/bgc_viewer/search/build_state.py` owns the `.building` sentinel in
 the preprocessing output directory, the `building()` context manager that
@@ -689,7 +680,6 @@ Constraints on later steps:
   are written, so a present sentinel always means the pair is not yet
   trustworthy.
 - Step 7 shares `guard_build_state()` for the schema endpoint's `409`.
-- Stage 3 must not map `index_interrupted` to the blocking popup.
 
 Tests: `backend/bgc_viewer/tests/search/test_build_state.py`.
 
@@ -1028,15 +1018,17 @@ rather than step 8 because it fails on registry drift, not on search behavior.
 
 ## Stage 3: Frontend Search and Navigation
 
-> **Stage 3: in progress.** Steps 1-3 are complete.
+> **Stage 3: complete.** Steps 1-5 and 7 are complete; the former rebuild
+> popup step was removed because preprocessing is only available from the
+> single local client where the search bar is already hidden, while public
+> mode uses a prebuilt index.
 >
 > - [x] 1. Add the frontend API contract
 > - [x] 2. Add the header search bar
 > - [x] 3. Add the search help popup
-> - [ ] 4. Render search results in the sidebar
-> - [ ] 5. Navigate to the hit
-> - [ ] 6. Block search during a rebuild
-> - [ ] 7. Test Stage 3
+> - [x] 4. Render search results in a right-side popover
+> - [x] 5. Navigate to the hit
+> - [x] 7. Test Stage 3
 
 Advanced search applies only to preprocessed backend datasets (API mode).
 Browser-loaded JSON and GenBank providers retain their existing basic
@@ -1045,8 +1037,8 @@ client-side search behavior.
 The search surface moves out of the record list and into the **app header, top
 right**: a query input, a level combo box, and a help button that opens a popup
 carrying the available fields, copyable example queries, and a link to the
-Tantivy query grammar. Results render in a dedicated list component swapped
-into the sidebar in place of the SQLite record list.
+Tantivy query grammar. Results render in a dedicated non-modal popover fixed to
+the right side of the screen, leaving the SQLite record list in place.
 
 ### 1. Add the frontend API contract
 
@@ -1180,7 +1172,7 @@ Behavior:
 	In upload mode the header bar is absent and `RecordListSelector` keeps its
 	own basic search.
 - **State ownership.** `App.vue` owns the query string, the selected level,
-	the result set, and the error, so the header bar, the sidebar results, and
+	the result set, and the error, so the header bar, the results popover, and
 	the viewer stay in sync. `SearchBar` is presentational: it emits
 	`search({ query, level, page })` and `clear`.
 
@@ -1258,12 +1250,20 @@ Close on the close button and on overlay click. Escape-to-close is optional.
 > 14-field/six-example rendering, and cache reuse were verified against the
 > demo backend.
 
-### 4. Render search results in the sidebar
+### 4. Render search results in a right-side popover
 
-Add `frontend/src/components/SearchResultsList.vue`, rendered in `App.vue`'s
-`.sidebar-bottom` in place of `RecordListSelector` while a search is active.
-`RecordListSelector` stays untouched for SQLite browsing, and clearing the
-query swaps back to it immediately.
+Add `frontend/src/components/SearchResultsPopover.vue`, rendered by `App.vue`
+as a non-modal panel fixed below the header at the right edge of the viewport.
+It overlays the viewer without resizing the main layout and has its own
+vertical scroll area, a constrained desktop width, and a near-full-width mobile
+layout. Do not add a backdrop: the record sidebar and viewer remain visible and
+usable while results are open.
+
+Keep `RecordListSelector` mounted and unchanged for SQLite browsing. A completed
+search, including a zero-result response, opens the popover. Its close button
+uses the same clear path as the search bar, resetting the query, results, and
+error together; do not introduce a separate hidden-results state. Clearing the
+query closes the popover immediately.
 
 Render per level:
 
@@ -1276,13 +1276,37 @@ Render per level:
 - **record**: one row per hit showing record, the file names, and the score.
 
 The component owns its pagination over `total` at the same 20-per-page default
-the backend uses, and emits `search-selected` with the full hit. Highlight the
-selected row, show "no results" separately from an error, and keep the last
-valid rows visible during a refetch.
+the backend uses, emits a page request to `App.vue`, and emits
+`search-selected` with the full hit. Highlight the selected row, show "no
+results" separately from an error, and keep the last valid rows visible during
+a refetch. The popover has a compact header showing the query, result count,
+and close button; result rows and pagination remain stable while loading.
+
+> **Implemented.** `frontend/src/components/SearchResultsPopover.vue` is a
+> typed, non-modal panel positioned inside the main content area at the right
+> edge, below the header. The SQLite record sidebar remains mounted and usable.
+> It renders the three level-specific hit shapes, including distinct rows for
+> protoclusters sharing one parent record, and provides selected-row styling,
+> zero-result messaging, loading treatment, pagination controls, and a shared
+> close/clear path.
+>
+> `App.vue` keeps the live search controls separate from the last successful
+> query, level, page, and response. This prevents an edited query or level from
+> reinterpreting stale rows while a request is in flight, and keeps those rows
+> visible on refetch or parse failure. Request generations prevent late
+> responses from reopening results after clear. The popover owns pagination
+> presentation and emits page requests; App retains the accepted page beside
+> the server response so the displayed page cannot advance on a failed request.
+>
+> Tests: `frontend/src/__tests__/SearchResultsPopover.test.ts` covers all hit
+> shapes, duplicate-parent protoclusters, selection, zero results, retained rows
+> while loading, pagination, and close. The right-side placement, preserved
+> record sidebar, real level rerun, selected-row highlight, zero-result state,
+> and clear behavior were verified against the Vite app and demo backend.
 
 ### 5. Navigate to the hit
 
-Extend the selection payload through `SearchResultsList.vue` and `App.vue`
+Extend the selection payload through `SearchResultsPopover.vue` and `App.vue`
 with the hit's `output_file`, `record`, and optional region and protocluster
 numbers. In `App.vue`, compose the existing load-entry id only when the hit is
 selected:
@@ -1334,44 +1358,40 @@ target. `App.vue` already resets `initialRegionId` to `''` on every selection
 at L215; reset `initialProtoclusterNumber` the same way, and have
 `RegionViewer` clear the highlight when the prop goes empty.
 
-### 6. Block search during a rebuild
-
-Show a modal, non-cancellable blocking popup for the full duration of a
-preprocessing run.
-
-- Reuse the existing `/api/preprocessing-status` polling contract
-	(`is_running`, `status`, `current_file`, `files_processed`, `total_files`).
-	Today that poll lives only inside `PreprocessingStatus.vue` under
-	`IndexCreation`; Stage 3 needs an **app-level** poll so the state survives
-	a page refresh.
-- On completion, refresh the record list and re-select the database, as
-	`handlePreprocessingCompleted` already does.
-- Map a `409 index_rebuilding` response from any search or schema call to the
-	same blocking popup and resume status polling. This covers the
-	refresh-mid-rebuild case a client-side flag cannot.
-- Do **not** map `index_interrupted` to the blocking popup. It is
-	non-retryable: show a distinct, dismissible error saying the previous run
-	was interrupted and preprocessing must be rerun. Mapping it to the
-	blocking popup would block forever on a build that is not running.
-- `missing_index` is likewise not a rebuild: show the existing "run
-	preprocessing first" state.
+> **Implemented.**
+> `frontend/src/services/searchNavigation.ts` translates every search hit shape
+> into the existing record-selection payload and composes
+> `entryId` as `output_file:record`. `App.vue` passes that payload through its
+> existing `handleRecordSelected()` path when a popover row is clicked, so the
+> current `BGCViewerAPIProvider` and `RegionViewerContainer` load the parent
+> record exactly as they do for an ordinary sidebar selection. The selected
+> result row remains highlighted while the record loads. Region and
+> protocluster hits also translate their region number to the viewer's
+> `region_<number>` ID and select that region during the record load; record
+> hits clear the region target. Protocluster hits additionally propagate their
+> number through `RegionViewerContainer` to `RegionViewer`. After the selected
+> region's tracks are built, the viewer locates the `protocluster-<number>` box,
+> drives its existing annotation-selection path, and zooms to its bounds.
+> Missing targets are ignored. Region, record, and ordinary sidebar selections
+> clear stale protocluster focus.
+>
+> Tests: `frontend/src/__tests__/searchNavigation.test.ts` covers composition
+> and target extraction for protocluster, region, and record hits;
+> `frontend/src/__tests__/RegionViewer.test.ts` covers post-build focus, missing
+> targets, and stale-focus clearing. Record loading for all three shapes,
+> selection of a non-default region, and protocluster selection, details, and
+> zoom were also verified against the demo backend.
 
 ### 7. Test Stage 3
 
-The frontend has Vitest, `@vue/test-utils`, and `jsdom` configured in
-`frontend/vitest.config.js`, but **no component-mount tests exist yet**; these
-are the first. `frontend/src/tests/setup.js` already mocks
-`window.BGCViewer.TrackViewer` and `window.d3`, which the viewer-dependent
-tests need.
-
-Add tests for:
+Test coverage includes:
 
 - API query forwarding: the correct level URL, method, and body for all three
 	levels, plus the schema call
 - Structured error mapping: `invalid_query`, `empty_query`, and
 	`unknown_field` render inline and keep the previous results visible
 - Multiple protocluster hits belonging to one parent record render as
-	distinct rows
+	distinct rows in the right-side popover
 - Frontend composition of `${output_file}:${record}` for all three hit levels,
 	plus record-to-region-to-protocluster target propagation through `App.vue`
 - Focus applied after the asynchronous region load, and ignored when the
@@ -1382,13 +1402,12 @@ Add tests for:
 	`RecordListSelector` search input is hidden in API mode
 - The help popup renders fields, kind badges, unqualified markers, copyable
 	examples, and the external grammar link with `rel="noopener noreferrer"`
-- The blocking popup during a rebuild, including the `index_rebuilding`
-	mapping, and that `index_interrupted` renders a dismissible error instead
 
-Stage 3 is complete when selecting a search hit opens its parent record,
+Stage 3 is complete: selecting a search hit opens its parent record,
 selects its parent region, and focuses the correct protocluster, and the
 header search bar with its level combo and help popup is the search surface in
 API mode.
+
 ## Documentation
 
 Document:
@@ -1499,8 +1518,7 @@ Relevant documentation locations include:
   registered field is stored.
 - The backend opens a fresh Tantivy reader per search request instead of caching
 	readers, holds no reader or index handle between requests, and uses no
-	request-scoped `g` holder; the frontend shows a modal blocking popup for
-	the duration of a rebuild.
+	request-scoped `g` holder.
 - The frontend search surface is the app header top right: a query input, a
   level combo box, and a help button opening a popup with the available
   fields, copyable example queries, and a link to the Tantivy query grammar.
@@ -1512,13 +1530,14 @@ Relevant documentation locations include:
 - Advanced search is not added to the abstract `DataProvider` contract. It is
   a concrete `BGCViewerAPIProvider` capability, so browser-loaded providers are
   not forced to implement a Tantivy method.
-- Protocluster results render in a dedicated `SearchResultsList.vue` swapped
-  into the sidebar while a query is active, rather than as a second mode inside
-  the already large `RecordListSelector.vue`.
+- Search results render in a dedicated non-modal
+	`SearchResultsPopover.vue` fixed to the right side of the viewport while a
+	query is active. It overlays the viewer without replacing or adding a mode to
+	the already large `RecordListSelector.vue`; closing it follows the same state
+	reset path as clearing the header search.
 - The header search bar submits on Enter or an explicit Search action, not on
   a debounce. Tantivy parses every query and a syntax error is a user-visible
   event, so per-keystroke submission would spam both the user and the server.
-- `index_interrupted` never maps to the blocking rebuild popup. It is
-  non-retryable and renders a dismissible error, because blocking on a build
-  that is not running would block forever.
+- `index_interrupted` is a non-retryable structured error instructing the user
+	to rerun preprocessing.
 - Incremental indexing, live writes, and advanced search for browser-local providers are out of scope for the initial implementation.

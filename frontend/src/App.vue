@@ -103,6 +103,7 @@
           :record-id="currentRecordId"
           :record-data="currentRecordData"
           :initial-region-id="initialRegionId"
+          :initial-protocluster-number="initialProtoclusterNumber"
           @region-changed="handleRegionChanged"
           @annotation-clicked="handleAnnotationClicked"
           @error="handleViewerError"
@@ -111,6 +112,19 @@
           <p>Select a record from the sidebar to view details</p>
         </div>
       </main>
+
+      <SearchResultsPopover
+        v-if="searchResults"
+        :query="searchResultsQuery"
+        :level="searchResultsLevel"
+        :response="searchResults"
+        :page="searchResultsPage"
+        :selected-hit="selectedSearchHit"
+        :loading="searchLoading"
+        @page-change="handleSearchPage"
+        @search-selected="handleSearchSelected"
+        @close="clearSearch"
+      />
     </div>
   </div>
 </template>
@@ -126,7 +140,13 @@ import DataSourceSelector from './components/DataSourceSelector.vue'
 import FileUpload from './components/FileUpload.vue'
 import SearchBar from './components/SearchBar.vue'
 import SearchHelpPopup from './components/SearchHelpPopup.vue'
+import SearchResultsPopover from './components/SearchResultsPopover.vue'
 import { BGCViewerAPIProvider, JSONFileProvider, GenbankFileProvider } from '@/services/dataProviders'
+import {
+  protoclusterNumberFromHit,
+  recordSelectionFromHit,
+  regionIdFromHit
+} from '@/services/searchNavigation'
 
 export default {
   name: 'App',
@@ -138,7 +158,8 @@ export default {
     DataSourceSelector,
     FileUpload,
     SearchBar,
-    SearchHelpPopup
+    SearchHelpPopup,
+    SearchResultsPopover
   },
   setup() {
     const regionViewerRef = ref(null)
@@ -172,12 +193,19 @@ export default {
     const currentRecordId = ref('')
     const currentRecordData = ref(null)
     const initialRegionId = ref('')
+    const initialProtoclusterNumber = ref(null)
 
     // Advanced backend search state
     const searchQuery = ref('')
     const searchLevel = ref('protocluster')
     const searchResults = ref(null)
+    const searchResultsQuery = ref('')
+    const searchResultsLevel = ref('protocluster')
+    const searchResultsPage = ref(1)
+    const selectedSearchHit = ref(null)
+    const searchLoading = ref(false)
     const searchError = ref(null)
+    let searchRequest = 0
     const showSearchHelp = ref(false)
     const searchSchema = ref(null)
     const searchSchemaLoading = ref(false)
@@ -278,31 +306,71 @@ export default {
       searchError.value = null
 
       if (!query.trim()) {
-        searchResults.value = null
+        clearSearch()
         return
       }
+
+      const request = ++searchRequest
+      searchLoading.value = true
 
       try {
         const provider = dataProvider.value
         if (!(provider instanceof BGCViewerAPIProvider)) {
           throw new Error('Advanced search is only available for backend datasets')
         }
-        searchResults.value = await provider.searchLevel(level, query, page)
+        const results = await provider.searchLevel(level, query, page)
+        if (request === searchRequest) {
+          searchResults.value = results
+          searchResultsQuery.value = query
+          searchResultsLevel.value = level
+          searchResultsPage.value = page
+          selectedSearchHit.value = null
+        }
       } catch (error) {
-        const apiError = error?.response?.data?.error
-        searchError.value = apiError && apiError.code && apiError.message
-          ? { code: apiError.code, message: apiError.message }
-          : { code: 'search_failed', message: error?.message || 'Search failed' }
+        if (request === searchRequest) {
+          const apiError = error?.response?.data?.error
+          searchError.value = apiError && apiError.code && apiError.message
+            ? { code: apiError.code, message: apiError.message }
+            : { code: 'search_failed', message: error?.message || 'Search failed' }
+        }
+      } finally {
+        if (request === searchRequest) {
+          searchLoading.value = false
+        }
       }
     }
 
     const clearSearch = () => {
+      searchRequest += 1
       searchQuery.value = ''
       searchResults.value = null
+      searchResultsQuery.value = ''
+      searchResultsPage.value = 1
+      selectedSearchHit.value = null
+      searchLoading.value = false
       searchError.value = null
     }
 
-    const handleRecordSelected = async (recordData) => {
+    const handleSearchPage = (page) => {
+      handleSearch({
+        query: searchResultsQuery.value,
+        level: searchResultsLevel.value,
+        page
+      })
+    }
+
+    const handleSearchSelected = async (hit) => {
+      selectedSearchHit.value = hit
+      await handleRecordSelected(
+        recordSelectionFromHit(searchResultsLevel.value, hit),
+        regionIdFromHit(searchResultsLevel.value, hit),
+        protoclusterNumberFromHit(searchResultsLevel.value, hit)
+      )
+    }
+
+    const handleRecordSelected = async (recordData, regionId = '', protoclusterNumber = null) => {
+      recordListSelectorRef.value?.setSelectedEntry(recordData.entryId)
+
       // Store the selected entry ID - container will load it through the provider
       currentRecordData.value = {
         entryId: recordData.entryId,
@@ -324,7 +392,8 @@ export default {
       // Set the record ID to trigger the container to load
       // Use entryId (which includes filename) for uniqueness, not recordId
       currentRecordId.value = recordData.entryId
-      initialRegionId.value = '' // Reset region selection for new record
+      initialRegionId.value = regionId
+      initialProtoclusterNumber.value = protoclusterNumber
       
       console.log('Record selected:', recordData.recordId, 'from', recordData.filename, '(entryId:', recordData.entryId, ')')
     }
@@ -465,6 +534,7 @@ export default {
       currentRecordId.value = ''
       currentRecordData.value = null
       initialRegionId.value = ''
+      clearSearch()
 
       // Reset data provider based on source
       if (newSource === 'api') {
@@ -614,6 +684,11 @@ export default {
       searchQuery,
       searchLevel,
       searchResults,
+      searchResultsQuery,
+      searchResultsLevel,
+      searchResultsPage,
+      selectedSearchHit,
+      searchLoading,
       searchError,
       showSearchHelp,
       searchSchema,
@@ -621,11 +696,14 @@ export default {
       searchSchemaError,
       sidebarTopHeight,
       initialRegionId,
+      initialProtoclusterNumber,
       sidebarWidth,
       handleFolderSelected,
       handleFolderChanged,
       handleIndexChanged,
       handleSearch,
+      handleSearchPage,
+      handleSearchSelected,
       clearSearch,
       openSearchHelp,
       handleRecordSelected,
@@ -724,6 +802,7 @@ html,
 
 /* Main content area with sidebar and viewer */
 .main-content {
+  position: relative;
   display: flex;
   flex: 1;
   overflow: hidden;

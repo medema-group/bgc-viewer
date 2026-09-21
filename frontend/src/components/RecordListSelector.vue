@@ -205,6 +205,10 @@ export default {
         filename: record.filename
       })
     }
+
+    const setSelectedEntry = (entryId) => {
+      selectedEntryId.value = entryId
+    }
     
     const searchRecords = async (query, page = null) => {
       // Handle multiple providers or single provider
@@ -405,6 +409,7 @@ export default {
       loadEntries,
       goToPage,
       selectRecord,
+      setSelectedEntry,
       debouncedSearch,
       clearSearch,
       refreshEntries,

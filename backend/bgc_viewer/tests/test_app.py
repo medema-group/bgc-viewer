@@ -33,3 +33,21 @@ def test_cors_headers(client):
     assert response.status_code == 200
     # Flask-CORS should add these headers when Origin is present
     assert 'Access-Control-Allow-Origin' in response.headers
+
+
+def test_scan_folder_hides_tantivy_metadata(client, tmp_path):
+    """Generated Tantivy metadata should not appear as index source files."""
+    (tmp_path / "record.json").write_text("{}")
+    (tmp_path / "meta.json").write_text("{}")
+    index_dir = tmp_path / "tantivy.index"
+    index_dir.mkdir()
+    (index_dir / ".managed.json").write_text("{}")
+    (index_dir / "meta.json").write_text("{}")
+
+    response = client.post('/api/scan-folder', json={"path": str(tmp_path)})
+
+    assert response.status_code == 200
+    relative_paths = {
+        item["relative_path"] for item in response.get_json()["json_files"]
+    }
+    assert relative_paths == {"meta.json", "record.json"}

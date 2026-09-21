@@ -375,7 +375,11 @@ if not PUBLIC_MODE:
                 for pattern in ['*.json', '*.json.gz', '*.json.bz2']:
                     for json_file in resolved_path.rglob(pattern):
                         try:
-                            if json_file.is_file():
+                            is_tantivy_metadata = (
+                                json_file.parent.name == "tantivy.index"
+                                and json_file.name in {".managed.json", "meta.json"}
+                            )
+                            if json_file.is_file() and not is_tantivy_metadata:
                                 # Calculate relative path from the base folder for display
                                 relative_path = json_file.relative_to(resolved_path)
                                 json_files.append({
