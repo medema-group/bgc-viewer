@@ -8,6 +8,7 @@ level-independent ``GET /api/search/schema`` endpoint.
 
 import json
 import sqlite3
+from typing import Any
 
 import pytest
 import bgc_viewer.app as app_module
@@ -474,7 +475,7 @@ class TestSearchEndpointRanking:
 
 
 def _definition(**overrides) -> SearchFieldDefinition:
-    fields = dict(
+    fields: dict[str, Any] = dict(
         name="go",
         description="Gene Ontology term of the protocluster.",
         attribute="go",

@@ -17,4 +17,4 @@ __email__ = "your.email@example.com"
 # Don't import app here to avoid circular imports when running with -m
 # from .app import app
 
-__all__ = []
+__all__: list[str] = []

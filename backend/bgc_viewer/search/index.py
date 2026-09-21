@@ -412,7 +412,7 @@ def _stored_fields(searcher, address: Any) -> dict[str, Any]:
     return summary
 
 
-def collect_first_values(index: SearchIndex) -> dict[str, str]:
+def collect_first_values(index: Index | SearchIndex) -> dict[str, str]:
     """Read the first non-empty stored value for each text field from ``index``.
 
     Documents are visited in Tantivy document-address order. The index is built
