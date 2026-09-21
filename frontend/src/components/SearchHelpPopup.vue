@@ -1,29 +1,7 @@
 <template>
-  <div class="modal-overlay" @click="$emit('close')">
-    <section
-      class="modal-dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="search-help-title"
-      @click.stop
-    >
-      <header class="modal-header">
-        <div>
-          <p class="eyebrow">Advanced search</p>
-          <h2 id="search-help-title">Search reference</h2>
-        </div>
-        <button
-          type="button"
-          class="close-button"
-          aria-label="Close search help"
-          title="Close search help"
-          @click="$emit('close')"
-        >
-          &times;
-        </button>
-      </header>
-
-      <div class="modal-body">
+  <section class="help-panel" aria-labelledby="search-help-title">
+      <div class="help-body">
+        <h2 id="search-help-title" class="sr-only">Search reference</h2>
         <p v-if="loading" class="status-message">Loading search reference...</p>
         <div v-else-if="error" class="error-message" role="alert">
           <strong>{{ error.code }}</strong>: {{ error.message }}
@@ -37,11 +15,11 @@
                 <code>{{ example }}</code>
                 <button
                   type="button"
-                  class="copy-button"
-                  :aria-label="`Copy example: ${example}`"
-                  @click="copyExample(example)"
+                  class="example-button"
+                  :aria-label="`Use example: ${example}`"
+                  @click="$emit('use-example', example)"
                 >
-                  {{ copyLabel(example) }}
+                  Use
                 </button>
               </div>
             </div>
@@ -79,14 +57,11 @@
           </section>
         </template>
       </div>
-    </section>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
 import type { SearchSchema } from '@/services/dataProviders/types'
-import { copyText } from '@/utils/clipboard'
 
 interface SearchError {
   code: string
@@ -100,85 +75,22 @@ defineProps<{
 }>()
 
 defineEmits<{
-  (event: 'close'): void
+  (event: 'use-example', example: string): void
 }>()
-
-const copyStatus = ref<{ example: string; copied: boolean } | null>(null)
-
-async function copyExample(example: string) {
-  copyStatus.value = { example, copied: await copyText(example) }
-}
-
-function copyLabel(example: string) {
-  if (copyStatus.value?.example !== example) return 'Copy'
-  return copyStatus.value.copied ? 'Copied' : 'Copy failed'
-}
 </script>
 
 <style scoped>
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(22, 31, 38, 0.58);
-}
-
-.modal-dialog {
-  display: flex;
-  width: min(720px, 100%);
-  max-height: min(84vh, 760px);
-  flex-direction: column;
-  overflow: hidden;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 20px 55px rgba(22, 31, 38, 0.3);
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 22px 16px;
-  border-bottom: 1px solid #dce3e8;
-}
-
-.eyebrow {
-  margin: 0 0 2px;
-  color: #52616d;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.modal-header h2 {
-  margin: 0;
-  color: #263442;
-  font-size: 20px;
-  letter-spacing: 0;
-}
-
-.close-button {
-  width: 34px;
-  height: 34px;
-  border: 0;
-  background: transparent;
-  color: #52616d;
-  cursor: pointer;
-  font-size: 26px;
-  line-height: 1;
-}
-
-.close-button:hover {
-  background: #edf2f5;
-}
-
-.modal-body {
-  overflow-y: auto;
+.help-body {
   padding: 4px 22px 22px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 .help-section {
@@ -270,7 +182,7 @@ code {
   font-size: 12px;
 }
 
-.copy-button {
+.example-button {
   flex: 0 0 auto;
   min-width: 68px;
   border: 0;
@@ -306,16 +218,7 @@ code {
 }
 
 @media (max-width: 600px) {
-  .modal-overlay {
-    padding: 12px;
-  }
-
-  .modal-dialog {
-    max-height: 90vh;
-  }
-
-  .modal-header,
-  .modal-body {
+  .help-body {
     padding-right: 16px;
     padding-left: 16px;
   }

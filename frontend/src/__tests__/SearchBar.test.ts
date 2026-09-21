@@ -4,45 +4,30 @@ import { describe, expect, it } from 'vitest'
 import SearchBar from '@/components/SearchBar.vue'
 
 describe('SearchBar', () => {
-  it('submits on Enter but not while typing', async () => {
-    const wrapper = mount(SearchBar, {
-      props: { query: '', level: 'protocluster', error: null }
-    })
-    const input = wrapper.get('input')
+  it('opens search when clicked', async () => {
+    const wrapper = mount(SearchBar)
 
-    await input.setValue('pfam:PF00512')
-    expect(wrapper.emitted('search')).toBeUndefined()
+    await wrapper.get('[aria-label="Open search"]').trigger('click')
 
-    await input.trigger('keydown.enter')
-    expect(wrapper.emitted('search')).toEqual([[
-      { query: 'pfam:PF00512', level: 'protocluster', page: 1 }
-    ]])
+    expect(wrapper.emitted('open')).toHaveLength(1)
   })
 
-  it('reruns a non-empty query when the level changes', async () => {
-    const wrapper = mount(SearchBar, {
-      props: { query: 'terpene', level: 'protocluster', error: null }
-    })
+  it('opens search with Ctrl+K and Command+K', async () => {
+    const wrapper = mount(SearchBar, { attachTo: document.body })
 
-    await wrapper.get('select').setValue('region')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'K', metaKey: true }))
+    await wrapper.vm.$nextTick()
 
-    expect(wrapper.emitted('update:level')).toEqual([['region']])
-    expect(wrapper.emitted('search')).toEqual([[
-      { query: 'terpene', level: 'region', page: 1 }
-    ]])
+    expect(wrapper.emitted('open')).toHaveLength(2)
+    wrapper.unmount()
   })
 
-  it('renders structured errors without replacing the query', () => {
-    const wrapper = mount(SearchBar, {
-      props: {
-        query: 'pfam:',
-        level: 'protocluster',
-        error: { code: 'invalid_query', message: 'Invalid query syntax' }
-      }
-    })
+  it('does not intercept unrelated shortcuts', () => {
+    const wrapper = mount(SearchBar, { attachTo: document.body })
 
-    expect(wrapper.get('input').element.value).toBe('pfam:')
-    expect(wrapper.get('[role="alert"]').text()).toContain('invalid_query')
-    expect(wrapper.get('[role="alert"]').text()).toContain('Invalid query syntax')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }))
+    expect(wrapper.emitted('open')).toBeUndefined()
+    wrapper.unmount()
   })
 })

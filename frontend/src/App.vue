@@ -6,12 +6,7 @@
       <div class="header-tools">
         <SearchBar
           v-if="dataSource === 'api' && !folderForIndexing"
-          v-model:query="searchQuery"
-          v-model:level="searchLevel"
-          :error="searchError"
-          @search="handleSearch"
-          @clear="clearSearch"
-          @help="openSearchHelp"
+          @open="searchDialogOpen = true"
         />
         <div class="version-info">
           <span v-if="appVersion">{{ appName }} v{{ appVersion }}</span>
@@ -20,12 +15,26 @@
       </div>
     </header>
 
-    <SearchHelpPopup
-      v-if="showSearchHelp"
+    <SearchDialog
+      v-if="searchDialogOpen"
+      v-model:query="searchQuery"
+      v-model:level="searchLevel"
+      :response="searchResults"
+      :results-query="searchResultsQuery"
+      :results-level="searchResultsLevel"
+      :page="searchResultsPage"
+      :selected-hit="selectedSearchHit"
+      :loading="searchLoading"
+      :error="searchError"
       :schema="searchSchema"
-      :loading="searchSchemaLoading"
-      :error="searchSchemaError"
-      @close="showSearchHelp = false"
+      :schema-loading="searchSchemaLoading"
+      :schema-error="searchSchemaError"
+      @search="handleSearch"
+      @clear="clearSearch"
+      @request-help="loadSearchSchema"
+      @page-change="handleSearchPage"
+      @search-selected="handleSearchSelected"
+      @close="searchDialogOpen = false"
     />
 
     <!-- Main content area with sidebar and viewer -->
@@ -113,18 +122,6 @@
         </div>
       </main>
 
-      <SearchResultsPopover
-        v-if="searchResults"
-        :query="searchResultsQuery"
-        :level="searchResultsLevel"
-        :response="searchResults"
-        :page="searchResultsPage"
-        :selected-hit="selectedSearchHit"
-        :loading="searchLoading"
-        @page-change="handleSearchPage"
-        @search-selected="handleSearchSelected"
-        @close="clearSearch"
-      />
     </div>
   </div>
 </template>
@@ -139,8 +136,7 @@ import RecordListSelector from './components/RecordListSelector.vue'
 import DataSourceSelector from './components/DataSourceSelector.vue'
 import FileUpload from './components/FileUpload.vue'
 import SearchBar from './components/SearchBar.vue'
-import SearchHelpPopup from './components/SearchHelpPopup.vue'
-import SearchResultsPopover from './components/SearchResultsPopover.vue'
+import SearchDialog from './components/SearchDialog.vue'
 import { BGCViewerAPIProvider, JSONFileProvider, GenbankFileProvider } from '@/services/dataProviders'
 import {
   protoclusterNumberFromHit,
@@ -158,8 +154,7 @@ export default {
     DataSourceSelector,
     FileUpload,
     SearchBar,
-    SearchHelpPopup,
-    SearchResultsPopover
+    SearchDialog
   },
   setup() {
     const regionViewerRef = ref(null)
@@ -206,7 +201,7 @@ export default {
     const searchLoading = ref(false)
     const searchError = ref(null)
     let searchRequest = 0
-    const showSearchHelp = ref(false)
+    const searchDialogOpen = ref(false)
     const searchSchema = ref(null)
     const searchSchemaLoading = ref(false)
     const searchSchemaError = ref(null)
@@ -270,19 +265,11 @@ export default {
       }
     }
 
-    const openSearchHelp = () => {
-      showSearchHelp.value = true
-      loadSearchSchema()
-    }
-
     const invalidateSearchSchema = () => {
       searchSchemaRequest += 1
       searchSchema.value = null
       searchSchemaLoading.value = false
       searchSchemaError.value = null
-      if (showSearchHelp.value) {
-        loadSearchSchema()
-      }
     }
 
     const handleIndexChanged = async (indexPath) => {
@@ -366,6 +353,7 @@ export default {
         regionIdFromHit(searchResultsLevel.value, hit),
         protoclusterNumberFromHit(searchResultsLevel.value, hit)
       )
+      searchDialogOpen.value = false
     }
 
     const handleRecordSelected = async (recordData, regionId = '', protoclusterNumber = null) => {
@@ -546,7 +534,7 @@ export default {
           await recordListSelectorRef.value.setRecordsFromProvider(apiProvider, false)
         }
       } else if (newSource === 'upload') {
-        showSearchHelp.value = false
+        searchDialogOpen.value = false
         invalidateSearchSchema()
         // Clear records and wait for file upload
         if (recordListSelectorRef.value) {
@@ -690,7 +678,7 @@ export default {
       selectedSearchHit,
       searchLoading,
       searchError,
-      showSearchHelp,
+      searchDialogOpen,
       searchSchema,
       searchSchemaLoading,
       searchSchemaError,
@@ -705,7 +693,7 @@ export default {
       handleSearchPage,
       handleSearchSelected,
       clearSearch,
-      openSearchHelp,
+      loadSearchSchema,
       handleRecordSelected,
       handleRegionChanged,
       handleAnnotationClicked,

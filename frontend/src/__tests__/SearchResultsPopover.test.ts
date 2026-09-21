@@ -116,7 +116,7 @@ describe('SearchResultsPopover', () => {
     expect(wrapper.find('.pagination').exists()).toBe(false)
   })
 
-  it('keeps rows visible while loading and emits page requests and close', async () => {
+  it('keeps rows visible while loading and emits page requests', async () => {
     const recordHit = {
       score: 2,
       record: 'record-2',
@@ -144,9 +144,7 @@ describe('SearchResultsPopover', () => {
     await wrapper.setProps({ loading: false })
     await wrapper.get('[aria-label="Previous search results page"]').trigger('click')
     await wrapper.get('[aria-label="Next search results page"]').trigger('click')
-    await wrapper.get('[aria-label="Close search results"]').trigger('click')
 
     expect(wrapper.emitted('page-change')).toEqual([[1], [3]])
-    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 })

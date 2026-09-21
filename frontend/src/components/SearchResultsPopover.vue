@@ -1,19 +1,10 @@
 <template>
-  <aside class="results-popover" aria-label="Search results">
+  <section class="search-results" aria-label="Search results">
     <header class="results-header">
       <div class="results-heading">
         <p class="results-count">{{ response.total }} {{ resultLabel }}</p>
         <h2>{{ query }}</h2>
       </div>
-      <button
-        type="button"
-        class="close-button"
-        aria-label="Close search results"
-        title="Close search results"
-        @click="$emit('close')"
-      >
-        &times;
-      </button>
     </header>
 
     <div class="results-body" :class="{ loading }" aria-live="polite">
@@ -76,7 +67,7 @@
         &rsaquo;
       </button>
     </footer>
-  </aside>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -105,7 +96,6 @@ const props = withDefaults(defineProps<{
 })
 
 defineEmits<{
-  (event: 'close'): void
   (event: 'page-change', page: number): void
   (event: 'search-selected', hit: SearchHit): void
 }>()
@@ -164,20 +154,11 @@ function isSelected(hit: SearchHit) {
 </script>
 
 <style scoped>
-.results-popover {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
-  z-index: 20;
+.search-results {
   display: flex;
-  width: min(420px, calc(100% - 24px));
+  min-height: 100%;
   flex-direction: column;
-  overflow: hidden;
-  border: 1px solid #cbd5dc;
-  border-radius: 8px;
   background: #fff;
-  box-shadow: 0 14px 40px rgba(22, 31, 38, 0.22);
 }
 
 .results-header {
@@ -212,22 +193,6 @@ function isSelected(hit: SearchHit) {
   letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.close-button {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  border: 0;
-  background: transparent;
-  color: #52616d;
-  cursor: pointer;
-  font-size: 24px;
-  line-height: 1;
-}
-
-.close-button:hover {
-  background: #edf2f5;
 }
 
 .results-body {
@@ -362,11 +327,4 @@ function isSelected(hit: SearchHit) {
   opacity: 0.45;
 }
 
-@media (max-width: 600px) {
-  .results-popover {
-    right: 8px;
-    bottom: 8px;
-    width: calc(100% - 16px);
-  }
-}
 </style>
