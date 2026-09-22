@@ -1,17 +1,15 @@
-# Data Sources and Input Formats
+# Data sources and input formats
 
 BGC Viewer supports two main approaches for exploring biosynthetic gene cluster (BGC) data. Choose the approach that best fits your needs.
 
-## Quick Reference
+## Quick reference
 
 | Approach | When to use | Supported formats |
 |----------|------------|-------------------|
-| **Direct File Loading** | Quick exploration of a few files, no setup needed | antiSMASH JSON, GenBank |
-| **Backend API with Database** | Large datasets, persistent access, advanced search | antiSMASH JSON (preprocessed) |
+| **Direct file loading** | Quick exploration of a few files, no setup needed | antiSMASH JSON, GenBank |
+| **Backend API with database** | Large datasets, persistent access, advanced search | antiSMASH JSON (preprocessed) |
 
----
-
-## Direct File Loading (Client-Side)
+## Direct file loading (client-side)
 
 The fastest way to get started. Upload files directly in your browser—no server or preprocessing required.
 
@@ -25,8 +23,6 @@ The fastest way to get started. Upload files directly in your browser—no serve
 - Exploring a few genomes quickly
 - Testing the viewer
 - Analyzing single-genome results
-
----
 
 ## BGC Viewer API (Backend with Database)
 
@@ -44,13 +40,12 @@ For larger datasets or when you want persistent access to your data with powerfu
 - Running on a server for remote access
 - Persistent data exploration across sessions
 
----
 
-## Setting Up the Backend
+## Setting up the backend
 
 If you're working with a large dataset or want to host the viewer on a server, you'll need to index your data first.
 
-### Command Line
+### Command line
 
 ```bash
 # Index a directory of antiSMASH output files
@@ -67,7 +62,7 @@ python -m bgc_viewer.preprocess_cli /path/to/antismash/output --verbose
 
 The preprocessing tool will scan your directory for antiSMASH JSON files and create a searchable SQLite database containing extracted metadata (cluster types, products, organisms, etc.).
 
-### Using the User Interface
+### Using the user interface
 
 When running BGC Viewer locally:
 
