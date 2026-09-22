@@ -162,23 +162,23 @@ class TestParseSearchRequest:
 
 
 class TestResponseFromResults:
-    def test_response_carries_only_hits_and_total(self, index_dir):
+    def test_response_carries_only_hits_and_has_more(self, index_dir):
         results = search_protoclusters(
             open_index(index_dir), "pfam:shared", offset=0, limit=2
         )
         response = SearchResponse.from_results(results)
-        assert response.total == 4
+        assert response.has_more is True
         assert len(response.hits) == 2
 
-    def test_region_response_total_counts_distinct_regions(self, index_dir):
+    def test_region_response_has_more_for_distinct_regions(self, index_dir):
         results = search_region(open_index(index_dir), "pfam:shared", offset=0, limit=2)
         response = SearchResponse.from_results(results)
-        assert response.total == 3
+        assert response.has_more is True
 
-    def test_record_response_zero_total_reports_no_hits(self, index_dir):
+    def test_record_response_zero_hits_reports_no_more(self, index_dir):
         results = search_record(open_index(index_dir), "pfam:none", offset=0, limit=20)
         response = SearchResponse.from_results(results)
-        assert response.total == 0
+        assert response.has_more is False
         assert response.hits == ()
 
 
@@ -233,8 +233,8 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {"hits", "total"}
-        assert data["total"] == 2
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is False
         assert set(data["hits"][0]) == {"score", "fields"}
         assert data["hits"][0]["fields"]["record"] in {"test_record_1", "test_record_2"}
 
@@ -246,8 +246,8 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {"hits", "total"}
-        assert data["total"] == 2
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is False
         assert set(data["hits"][0]) == {
             "score",
             "record",
@@ -264,8 +264,8 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {"hits", "total"}
-        assert data["total"] == 2
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is False
         assert set(data["hits"][0]) == {"score", "record", "output_file", "input_file"}
 
     def test_pagination_limits_hits_without_echoing_request(
@@ -278,8 +278,8 @@ class TestSearchEndpoint:
             json={"query": "pfam:PF00501", "page": 1, "per_page": 1},
         )
         data = json.loads(response.data)
-        assert set(data) == {"hits", "total"}
-        assert data["total"] == 2
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is True
         assert len(data["hits"]) == 1
 
     def test_unknown_level_is_not_a_route(self, search_client, test_database):
@@ -446,13 +446,16 @@ class TestSearchEndpointRanking:
     ):
         _select_database(search_client, ranked_database)
         full = self._search(search_client, per_page=10)
-        assert full["total"] == 3
+        assert full["has_more"] is False
 
         paged: list[dict] = []
-        for page in range(1, 4):
+        page = 1
+        while True:
             page_data = self._search(search_client, page=page, per_page=1)
-            assert page_data["total"] == full["total"]
             paged.extend(page_data["hits"])
+            if not page_data["has_more"]:
+                break
+            page += 1
 
         assert [hit["score"] for hit in paged] == [hit["score"] for hit in full["hits"]]
         assert [hit["fields"]["protocluster"] for hit in paged] == [
@@ -474,13 +477,13 @@ class TestSearchEndpointRanking:
             ]
             assert [hit["fields"]["protocluster"] for hit in singles] == [1, 2, 3]
 
-    def test_a_page_beyond_the_end_returns_no_hits_without_changing_the_total(
+    def test_a_page_beyond_the_end_returns_no_hits_and_no_more(
         self, search_client, ranked_database
     ):
         _select_database(search_client, ranked_database)
         data = self._search(search_client, page=9, per_page=5)
         assert data["hits"] == []
-        assert data["total"] == 3
+        assert data["has_more"] is False
 
 
 # --- Public field projection -------------------------------------------------

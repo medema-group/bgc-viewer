@@ -259,7 +259,7 @@ class TestSearchIndexIntegration:
         # The generated index is directly usable through the search API.
         index = open_index(str(search_index_dir))
         hits = search_protoclusters(index, "product:polyketide")
-        assert hits.total == 1
+        assert len(hits.hits) == 1
         assert hits.hits[0].fields["record"] == "test_record_1"
 
     def test_preprocessing_rebuild_removes_previous_index(self, sample_json_file):

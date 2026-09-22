@@ -206,7 +206,7 @@ class TestRebuildVisibility:
         index_dir = _index_dir(db_path)
 
         first = json.loads(_search(search_client, "protocluster").data)
-        assert first["total"] == 2
+        assert len(first["hits"]) == 2
 
         shutil.rmtree(index_dir)
         build_index(
@@ -221,7 +221,7 @@ class TestRebuildVisibility:
         )
 
         second = json.loads(_search(search_client, "protocluster").data)
-        assert second["total"] == 3
+        assert len(second["hits"]) == 3
         assert {hit["fields"]["record"] for hit in second["hits"]} == {"recX", "recY"}
 
     def test_a_deleted_index_is_reported_instead_of_served_from_a_stale_reader(

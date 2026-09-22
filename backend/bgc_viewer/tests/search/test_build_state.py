@@ -255,7 +255,7 @@ class TestSearchEndpointsDuringRebuild:
         _select_database(search_client, db_path)
         response = _search(search_client, "protocluster")
         assert response.status_code == 200
-        assert json.loads(response.data)["total"] == 2
+        assert len(json.loads(response.data)["hits"]) == 2
 
     def test_missing_index_still_wins_when_nothing_is_building(
         self, search_client, temp_dir

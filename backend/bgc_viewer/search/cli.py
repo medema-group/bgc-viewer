@@ -38,7 +38,7 @@ class _PrintableResults(Protocol):
     def hits(self) -> tuple[Any, ...]: ...
 
     @property
-    def total(self) -> int: ...
+    def has_more(self) -> bool: ...
 
 
 HitFormatter = Callable[[int, Any], str]
@@ -130,16 +130,14 @@ def _print_results(
     result: _PrintableResults, format_hit: HitFormatter, query: str, offset: int
 ) -> None:
     print(f"query: {query}")
-    if result.total == 0:
-        print("0 total")
-        return
     shown = len(result.hits)
     if shown == 0:
-        print(f"{result.total} total; no hits at offset {offset}")
+        print("no hits")
         return
     first = offset + 1
     last = offset + shown
-    print(f"{result.total} total; showing {first}-{last}")
+    more = " (more available)" if result.has_more else ""
+    print(f"showing {first}-{last}{more}")
     for position, hit in enumerate(result.hits, start=first):
         print(format_hit(position, hit))
 

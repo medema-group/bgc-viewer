@@ -59,7 +59,7 @@
           @click="view = 'results'"
         >
           Results
-          <span v-if="response" class="result-count">{{ response.total }}</span>
+          <span v-if="response" class="result-count">{{ response.hits.length }}</span>
         </button>
         <button
           type="button"
@@ -88,10 +88,10 @@
           :query="resultsQuery"
           :level="resultsLevel"
           :response="response"
-          :page="page"
           :selected-hit="selectedHit"
           :loading="loading"
-          @page-change="emit('page-change', $event)"
+          :loading-more="loadingMore"
+          @load-more="emit('load-more')"
           @search-selected="emit('search-selected', $event)"
         />
         <div v-else class="search-empty">
@@ -137,9 +137,9 @@ const props = defineProps<{
   response: SearchResponse<SearchHit> | null
   resultsQuery: string
   resultsLevel: SearchLevel
-  page: number
   selectedHit: SearchHit | null
   loading: boolean
+  loadingMore: boolean
   error: SearchError | null
   schema: SearchSchema | null
   schemaLoading: boolean
@@ -153,7 +153,7 @@ const emit = defineEmits<{
   (event: 'clear'): void
   (event: 'close'): void
   (event: 'request-help'): void
-  (event: 'page-change', page: number): void
+  (event: 'load-more'): void
   (event: 'search-selected', hit: SearchHit): void
 }>()
 

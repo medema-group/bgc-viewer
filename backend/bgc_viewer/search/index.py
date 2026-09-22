@@ -250,10 +250,10 @@ class SearchHit:
 
 @dataclass(frozen=True)
 class SearchResults:
-    """A page of search hits plus the total number of matching documents."""
+    """A page of search hits plus whether more matching documents remain."""
 
     hits: tuple[SearchHit, ...]
-    total: int
+    has_more: bool
 
 
 @dataclass(frozen=True)
@@ -269,10 +269,10 @@ class RegionHit:
 
 @dataclass(frozen=True)
 class RegionResults:
-    """A page of unique regions plus the total number of matching regions."""
+    """A page of unique regions plus whether more matching regions remain."""
 
     hits: tuple[RegionHit, ...]
-    total: int
+    has_more: bool
 
 
 @dataclass(frozen=True)
@@ -287,10 +287,10 @@ class RecordHit:
 
 @dataclass(frozen=True)
 class RecordResults:
-    """A page of unique records plus the total number of matching records."""
+    """A page of unique records plus whether more matching records remain."""
 
     hits: tuple[RecordHit, ...]
-    total: int
+    has_more: bool
 
 
 def _index_present(path: Path) -> bool:
@@ -426,8 +426,9 @@ def search_protoclusters(
     :class:`UnknownFieldError` naming the field and the available fields; the
     character position is not reported. Any other parser failure is surfaced as
     :class:`QuerySyntaxError` carrying the parser message. Results use Tantivy
-    relevance ordering, include the total hit count, and carry the stored
-    identity and display fields for every hit.
+    relevance ordering and carry the stored identity and display fields for
+    every hit. One extra hit beyond ``limit`` is fetched so ``has_more`` reports
+    whether further pages exist without counting the whole result set.
     """
     if not query.strip():
         raise EmptyQueryError()
@@ -436,12 +437,14 @@ def search_protoclusters(
     parsed = _parse_query(index, query)
 
     searcher: Any = index.searcher()
-    result = searcher.search(parsed, limit=limit, offset=offset, count=True)
+    result = searcher.search(parsed, limit=limit + 1, offset=offset, count=False)
+    fetched = list(result.hits)
+    has_more = len(fetched) > limit
     hits = tuple(
         SearchHit(score=score, fields=_stored_fields(searcher, address))
-        for score, address in result.hits
+        for score, address in fetched[:limit]
     )
-    return SearchResults(hits=hits, total=result.count)
+    return SearchResults(hits=hits, has_more=has_more)
 
 
 # Number of raw Tantivy hits pulled per round when collapsing matches. Keeps the
@@ -450,14 +453,17 @@ _FETCH_BATCH_SIZE = 1000
 
 
 def _unique_matching_protoclusters(
-    index: Index, parsed: Any, key_fields: tuple[str, ...]
+    index: Index, parsed: Any, key_fields: tuple[str, ...], max_needed: int
 ) -> list[tuple[float, dict[str, Any]]]:
-    """Return ``(score, stored_fields)`` for each distinct ``key_fields`` group.
+    """Return up to ``max_needed`` ``(score, stored_fields)`` distinct groups.
 
     Matching protoclusters are fetched from Tantivy in batches of
-    :data:`_FETCH_BATCH_SIZE` so the full hit list is never held in memory at
-    once. Documents arrive in Tantivy relevance order, so the first occurrence of
-    a grouping key carries that group's best score.
+    :data:`_FETCH_BATCH_SIZE` and collapsed on ``key_fields`` so the full hit
+    list (which can reach millions) is never held in memory at once. Documents
+    arrive in Tantivy relevance order, so the first occurrence of a grouping key
+    carries that group's best score. Collapsing stops as soon as ``max_needed``
+    distinct groups have been collected, leaving the caller to tell from the
+    returned length whether more groups remain.
     """
     searcher: Searcher = index.searcher()
     total = searcher.search(parsed, limit=1, count=True).count
@@ -476,6 +482,8 @@ def _unique_matching_protoclusters(
                 continue
             seen.add(key)
             unique.append((score, fields))
+            if len(unique) >= max_needed:
+                return unique
     return unique
 
 
@@ -490,8 +498,9 @@ def search_region(
     A region is identified by its output file, record, and region number. Every
     protocluster matching ``query`` contributes to its parent region, but each
     region is reported once, scored by its highest-scoring matching
-    protocluster, and ordered by that score. The total is the number of distinct
-    matching regions, and ``offset``/``limit`` paginate that distinct set.
+    protocluster, and ordered by that score. ``offset``/``limit`` paginate that
+    distinct set; one extra group is collapsed so ``has_more`` reports whether
+    further regions remain.
     """
     if not query.strip():
         raise EmptyQueryError()
@@ -499,8 +508,9 @@ def search_region(
 
     parsed = _parse_query(index, query)
     unique = _unique_matching_protoclusters(
-        index, parsed, ("output_file", "record", "region")
+        index, parsed, ("output_file", "record", "region"), offset + limit + 1
     )
+    has_more = len(unique) > offset + limit
     hits = tuple(
         RegionHit(
             score=score,
@@ -511,7 +521,7 @@ def search_region(
         )
         for score, fields in unique[offset : offset + limit]
     )
-    return RegionResults(hits=hits, total=len(unique))
+    return RegionResults(hits=hits, has_more=has_more)
 
 
 def search_record(
@@ -525,15 +535,19 @@ def search_record(
     A record is identified by its output file and record id. Every protocluster
     matching ``query`` contributes to its parent record, but each record is
     reported once, scored by its highest-scoring matching protocluster, and
-    ordered by that score. The total is the number of distinct matching
-    records, and ``offset``/``limit`` paginate that distinct set.
+    ordered by that score. ``offset``/``limit`` paginate that distinct set; one
+    extra group is collapsed so ``has_more`` reports whether further records
+    remain.
     """
     if not query.strip():
         raise EmptyQueryError()
     _validate_pagination(offset, limit)
 
     parsed = _parse_query(index, query)
-    unique = _unique_matching_protoclusters(index, parsed, ("output_file", "record"))
+    unique = _unique_matching_protoclusters(
+        index, parsed, ("output_file", "record"), offset + limit + 1
+    )
+    has_more = len(unique) > offset + limit
     hits = tuple(
         RecordHit(
             score=score,
@@ -543,4 +557,4 @@ def search_record(
         )
         for score, fields in unique[offset : offset + limit]
     )
-    return RecordResults(hits=hits, total=len(unique))
+    return RecordResults(hits=hits, has_more=has_more)
