@@ -2,14 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-from bgc_viewer.search.document import (
-    SEARCH_FIELD_REGISTRY,
-    SEARCH_SCHEMA_VERSION,
-    Location,
-    ProtoclusterSearchDocument,
-    SearchFields,
-    SourceFile,
-)
+from bgc_viewer.search.document import SEARCH_SCHEMA_VERSION, Location
 from bgc_viewer.search.extraction import extract_documents
 from bgc_viewer.search.index import (
     EmptyQueryError,
@@ -18,7 +11,6 @@ from bgc_viewer.search.index import (
     IndexNotFoundError,
     QuerySyntaxError,
     SearchHit,
-    SearchIndex,
     SearchResults,
     UnknownFieldError,
     build_index,
@@ -27,9 +19,24 @@ from bgc_viewer.search.index import (
     search_record,
     search_region,
 )
-from tantivy import Index
+from tantivy import Document, Index
 
-BY_NAME = {definition.name: definition for definition in SEARCH_FIELD_REGISTRY}
+SCHEMA_FIELD_NAMES = (
+    "pfam",
+    "pfam_name",
+    "organism",
+    "gene",
+    "locus",
+    "product",
+    "category",
+    "record",
+    "region",
+    "protocluster",
+    "start",
+    "end",
+    "output_file",
+    "input_file",
+)
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
@@ -48,27 +55,34 @@ def _doc(
     locus: tuple[str, ...] = (),
     input_file: str = "rec.gbk",
     output_file: str = "rec.json",
-) -> ProtoclusterSearchDocument:
-    return ProtoclusterSearchDocument(
-        source=SourceFile("8.0.2", output_file, input_file),
-        search_fields=SearchFields(
-            record_id=record_id,
-            region_number=region_number,
-            protocluster_number=protocluster_number,
-            location=Location.parse(location),
-            product=product,
-            category=category,
-            organism=organism,
-            pfam=pfam,
-            pfam_name=pfam_name,
-            gene=gene,
-            locus=locus,
-        ),
-    )
+) -> Document:
+    parsed = Location.parse(location)
+    document = Document()
+    document.add_text("record", record_id)
+    document.add_integer("region", region_number)
+    document.add_integer("protocluster", protocluster_number)
+    document.add_integer("start", parsed.start)
+    document.add_integer("end", parsed.end)
+    document.add_text("product", product)
+    document.add_text("category", category)
+    if organism:
+        document.add_text("organism", organism)
+    for value in pfam:
+        document.add_text("pfam", value)
+    for value in pfam_name:
+        document.add_text("pfam_name", value)
+    for value in gene:
+        document.add_text("gene", value)
+    for value in locus:
+        document.add_text("locus", value)
+    document.add_text("output_file", output_file)
+    if input_file:
+        document.add_text("input_file", input_file)
+    return document
 
 
 @pytest.fixture
-def corpus() -> list[ProtoclusterSearchDocument]:
+def corpus() -> list[Document]:
     return [
         _doc(
             1,
@@ -125,9 +139,9 @@ def _assert_field_spec(field_spec: dict, expected: dict) -> None:
         assert field_spec["options"]["indexing"][key] == value
 
 
-def test_schema_is_derived_from_registry_not_hardcoded(tmp_path):
+def test_schema_has_the_declared_field_set(tmp_path):
     schema_dir = _empty_schema_dir(tmp_path)
-    assert set(schema_dir) == set(BY_NAME)
+    assert set(schema_dir) == set(SCHEMA_FIELD_NAMES)
 
 
 @pytest.mark.parametrize(
@@ -181,8 +195,9 @@ def test_build_index_accepts_a_generator(corpus):
 def test_build_index_persists_search_schema_version(corpus, tmp_path):
     index_dir = tmp_path / "tantivy.index"
     build_index(iter(corpus), index_dir)
-    payload = json.loads((index_dir / "meta.json").read_text())["payload"]
-    assert json.loads(payload) == {"search_schema_version": SEARCH_SCHEMA_VERSION}
+    assert (index_dir / "version.txt").read_text(encoding="utf-8") == str(
+        SEARCH_SCHEMA_VERSION
+    )
 
 
 @pytest.mark.parametrize(
@@ -301,7 +316,7 @@ def test_build_from_extracted_fixture():
     assert _hits(searcher, index, 'category:"trans-AT PKS"') == 1
 
 
-def _open(corpus, tmp_path, name="tantivy.index") -> SearchIndex:
+def _open(corpus, tmp_path, name="tantivy.index") -> Index:
     index_dir = tmp_path / name
     build_index(iter(corpus), index_dir)
     return open_index(index_dir)
@@ -330,12 +345,9 @@ def test_open_index_empty_directory_raises(tmp_path):
 def test_open_index_rejects_mismatched_schema_version(corpus, tmp_path):
     index_dir = tmp_path / "tantivy.index"
     build_index(iter(corpus), index_dir)
-    meta_path = index_dir / "meta.json"
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    payload = json.loads(meta["payload"])
-    payload["search_schema_version"] = SEARCH_SCHEMA_VERSION + 1
-    meta["payload"] = json.dumps(payload)
-    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    (index_dir / "version.txt").write_text(
+        str(SEARCH_SCHEMA_VERSION + 1), encoding="utf-8"
+    )
 
     with pytest.raises(IndexIncompatibleError):
         open_index(index_dir)
@@ -355,10 +367,7 @@ def test_open_index_rejects_incompatible_schema(tmp_path):
     document.add_text("totally", "x")
     writer.add_document(document)
     writer.commit()
-    meta_path = index_dir / "meta.json"
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    meta["payload"] = json.dumps({"search_schema_version": SEARCH_SCHEMA_VERSION})
-    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    (index_dir / "version.txt").write_text(str(SEARCH_SCHEMA_VERSION), encoding="utf-8")
 
     with pytest.raises(IndexIncompatibleError):
         open_index(index_dir)
@@ -378,7 +387,6 @@ def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
     result = search_protoclusters(target, "pfam:PF00512")
 
     expected = SearchResults(
-        query="pfam:PF00512",
         hits=(
             SearchHit(
                 score=result.hits[0].score,
@@ -397,8 +405,6 @@ def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
             ),
         ),
         total=1,
-        offset=0,
-        limit=10,
     )
     assert result == expected and result.hits[0].score > 0
 
@@ -726,9 +732,7 @@ def test_search_unknown_field_reports_field_and_available(corpus, tmp_path):
 
     error = excinfo.value
     assert error.field == "go"
-    assert error.available_fields == sorted(
-        definition.name for definition in SEARCH_FIELD_REGISTRY
-    )
+    assert error.available_fields == sorted(SCHEMA_FIELD_NAMES)
 
 
 @pytest.mark.parametrize("query", ["pfam:(", "(pfam:PF00512 AND", "-pfam:PF00512"])
@@ -762,7 +766,7 @@ def test_search_over_index_built_from_fixture(tmp_path):
 
 
 @pytest.fixture
-def grouped() -> list[ProtoclusterSearchDocument]:
+def grouped() -> list[Document]:
     return [
         _doc(1, record_id="recA", region_number=1, pfam=("shared",)),
         _doc(2, record_id="recA", region_number=1, pfam=("shared",)),

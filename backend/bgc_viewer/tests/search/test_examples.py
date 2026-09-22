@@ -8,16 +8,13 @@ by preprocessing.
 
 import sqlite3
 
-import pytest
 from bgc_viewer.search.document import (
     EXAMPLE_TEMPLATE_REGISTRY,
-    ProtoclusterSearchDocument,
-    SearchFields,
-    SourceFile,
     Location,
     generate_example_queries,
 )
 from bgc_viewer.search.index import build_index, collect_first_values
+from tantivy import Document
 
 
 def _template(template_id: str):
@@ -35,22 +32,29 @@ def _doc(
     category="Cat",
     input_file="in.gbk",
 ):
-    return ProtoclusterSearchDocument(
-        source=SourceFile("8.0.2", "f.json", input_file),
-        search_fields=SearchFields(
-            record_id="rec",
-            region_number=1,
-            protocluster_number=1,
-            location=Location.parse("[100:500](+)"),
-            product=product,
-            category=category,
-            organism=organism,
-            pfam=pfam,
-            pfam_name=pfam_name,
-            gene=gene,
-            locus=locus,
-        ),
-    )
+    location = Location.parse("[100:500](+)")
+    document = Document()
+    document.add_text("record", "rec")
+    document.add_integer("region", 1)
+    document.add_integer("protocluster", 1)
+    document.add_integer("start", location.start)
+    document.add_integer("end", location.end)
+    document.add_text("product", product)
+    document.add_text("category", category)
+    if organism:
+        document.add_text("organism", organism)
+    for value in pfam:
+        document.add_text("pfam", value)
+    for value in pfam_name:
+        document.add_text("pfam_name", value)
+    for value in gene:
+        document.add_text("gene", value)
+    for value in locus:
+        document.add_text("locus", value)
+    document.add_text("output_file", "f.json")
+    if input_file:
+        document.add_text("input_file", input_file)
+    return document
 
 
 # --- Template registry -------------------------------------------------------

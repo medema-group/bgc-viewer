@@ -11,6 +11,7 @@ leftover sentinel with no build running is the non-retryable
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import pytest
 import bgc_viewer.app as app_module
@@ -48,8 +49,8 @@ class TestSentinelPrimitives:
 
     def test_sentinel_records_a_start_time_for_diagnostics(self, temp_dir):
         mark_building(temp_dir)
-        payload = json.loads(sentinel_path(temp_dir).read_text(encoding="utf-8"))
-        assert payload["started_at"]
+        started = sentinel_path(temp_dir).read_text(encoding="utf-8")
+        assert datetime.fromisoformat(started)
 
     def test_clear_removes_it_and_is_idempotent(self, temp_dir):
         mark_building(temp_dir)

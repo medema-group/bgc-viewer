@@ -1,14 +1,13 @@
 """Build protocluster search indexes on top of the ``tantivy`` engine.
 
-The Tantivy schema is derived entirely from the field registry in
-:mod:`bgc_viewer.search.document`; biological fields are never hard-coded
-here. Only the search schema version is persisted as index metadata so a
-reader can validate compatibility when it opens the index.
+The Tantivy schema, the query-time default fields and boosts, and the fields
+returned in hits are declared here as plain constants. The search schema
+version is persisted as index metadata so a reader can validate
+compatibility when it opens the index.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from os import PathLike
@@ -21,18 +20,13 @@ from tantivy import (
     Index,
     Schema,
     SchemaBuilder,
+    Searcher,
     TextAnalyzerBuilder,
     Tokenizer,
 )
 from tantivy import query_parser_error as parser_errors  # type: ignore[attr-defined]
 
-from .document import (
-    PATH_TOKENIZER_PATTERN,
-    ProtoclusterSearchDocument,
-    SEARCH_FIELD_REGISTRY,
-    SEARCH_SCHEMA_VERSION,
-    SearchFieldDefinition,
-)
+from .document import PATH_TOKENIZER_PATTERN, SEARCH_SCHEMA_VERSION
 
 # The custom ``path`` analyzer matches the runs *between* separators rather
 # than the separators themselves, so ``nested/NC_003888.3.json`` tokenizes
@@ -42,19 +36,68 @@ from .document import (
 # ``document.py`` so the example templates strip an extension the same way.
 _PATH_TOKENIZER_NAME = "path"
 
-# Registry analyzer name -> Tantivy tokenizer name.
-# ``exact`` uses the ``raw`` analyzer: one whole-value token with no case
-# normalization. ``full_text`` uses Tantivy's ``default`` analyzer: Unicode
-# word segmentation with lowercase normalization and indexed positions.
-# ``path`` uses a custom analyzer registered on every Index (see
-# ``_register_custom_tokenizers``): it splits on ``/`` and ``.``, so a file
-# path is searchable by directory, stem, or extension while the whole value
-# still matches as a phrase.
-_ANALYZERS: dict[str, str] = {
-    "exact": "raw",
-    "full_text": "default",
-    "path": _PATH_TOKENIZER_NAME,
+# The Tantivy schema, declared in field order. Each entry is ``(name,
+# tokenizer)``; ``"numeric"`` marks an integer field. Text tokenizers are:
+# ``raw`` -- one whole-value token, no case folding, used for exact-match
+# fields; ``default`` -- Unicode word segmentation with lowercase
+# normalization and indexed positions, used for full-text fields; and the
+# custom ``path`` tokenizer (see ``_register_custom_tokenizers``), which
+# splits on ``/`` and ``.`` so a file path is searchable by directory, stem,
+# or extension while the whole value still matches as a phrase.
+_SCHEMA: tuple[tuple[str, str], ...] = (
+    ("pfam", "raw"),
+    ("pfam_name", "default"),
+    ("organism", "default"),
+    ("gene", "raw"),
+    ("locus", "raw"),
+    ("product", "raw"),
+    ("category", "raw"),
+    ("record", "raw"),
+    ("region", "numeric"),
+    ("protocluster", "numeric"),
+    ("start", "numeric"),
+    ("end", "numeric"),
+    ("output_file", _PATH_TOKENIZER_NAME),
+    ("input_file", _PATH_TOKENIZER_NAME),
+)
+
+# All indexed field names, in schema order.
+_FIELD_NAMES: tuple[str, ...] = tuple(name for name, _ in _SCHEMA)
+
+# Fields an unqualified term searches: every text field.
+_DEFAULT_SEARCH_FIELDS: tuple[str, ...] = tuple(
+    name for name, tokenizer in _SCHEMA if tokenizer != "numeric"
+)
+
+# Per-field relevance boosts applied to unqualified and fielded terms. Numeric
+# fields are not boosted.
+_FIELD_BOOSTS: dict[str, float] = {
+    "pfam": 2.0,
+    "pfam_name": 1.0,
+    "organism": 1.0,
+    "gene": 2.0,
+    "locus": 2.0,
+    "product": 2.0,
+    "category": 2.0,
+    "record": 2.0,
+    "output_file": 2.0,
+    "input_file": 2.0,
 }
+
+# Fields read back into ordinary hits, in display order. Every other field is
+# still stored in the index for example collection and diagnostics.
+_RETURNED_FIELDS: tuple[tuple[str, str], ...] = (
+    ("organism", "text"),
+    ("product", "text"),
+    ("category", "text"),
+    ("record", "text"),
+    ("region", "numeric"),
+    ("protocluster", "numeric"),
+    ("start", "numeric"),
+    ("end", "numeric"),
+    ("output_file", "text"),
+    ("input_file", "text"),
+)
 
 
 def _register_custom_tokenizers(index: Index) -> None:
@@ -72,78 +115,41 @@ def _register_custom_tokenizers(index: Index) -> None:
     )
 
 
-_SCHEMA_VERSION_KEY = "search_schema_version"
-_META_FILE = "meta.json"
-
-
-def _add_field(builder: SchemaBuilder, definition: SearchFieldDefinition) -> None:
-    # Every registered field is stored so its value can be read back for
-    # example collection and diagnostics; ``returned`` only selects what comes
-    # back in ordinary hits and is applied in ``_stored_fields``.
-    if definition.value_type == "numeric":
-        builder.add_integer_field(
-            definition.name,
-            stored=True,
-            indexed=True,
-            fast=True,
-        )
-        return
-
-    if definition.analyzer is None:
-        raise ValueError(f"Field {definition.name} has no analyzer")
-    tokenizer = _ANALYZERS.get(definition.analyzer)
-    if tokenizer is None:
-        raise ValueError(
-            f"Field {definition.name} requests unregistered analyzer "
-            f"{definition.analyzer!r}"
-        )
-
-    builder.add_text_field(
-        definition.name,
-        stored=True,
-        tokenizer_name=tokenizer,
-        # Positions are needed wherever a query may span more than one token:
-        # full-text phrases and, for path fields, the whole-value phrase and
-        # the ``"a b"*`` prefix. A bare ``exact`` field is a single token,
-        # so ``freq`` is enough there.
-        index_option="freq" if definition.analyzer == "exact" else "position",
-    )
+_VERSION_FILE = "version.txt"
 
 
 def build_schema() -> Schema:
-    """Build the Tantivy schema from the current search-field registry."""
+    """Build the Tantivy schema from the field declarations above.
+
+    Every field is stored so its value can be read back for example collection
+    and diagnostics; ``_RETURNED_FIELDS`` selects what comes back in ordinary
+    hits. Text fields use ``freq`` indexing when their tokenizer is ``raw``
+    (a single whole-value token) and ``position`` indexing otherwise, so
+    full-text phrases and path phrases/prefixes that span tokens work.
+    """
     builder = SchemaBuilder()
-    for definition in SEARCH_FIELD_REGISTRY:
-        _add_field(builder, definition)
+    for name, tokenizer in _SCHEMA:
+        if tokenizer == "numeric":
+            builder.add_integer_field(name, stored=True, indexed=True, fast=True)
+        else:
+            builder.add_text_field(
+                name,
+                stored=True,
+                tokenizer_name=tokenizer,
+                index_option="freq" if tokenizer == "raw" else "position",
+            )
     return builder.build()
 
 
-def _to_tantivy_document(document: ProtoclusterSearchDocument) -> Document:
-    tantivy_document = Document()
-    for definition in SEARCH_FIELD_REGISTRY:
-        value = document.field_value(definition)
-        if definition.value_type == "numeric":
-            tantivy_document.add_integer(definition.name, cast(int, value))
-        elif definition.cardinality == "multi":
-            for item in cast("tuple[str, ...]", value):
-                tantivy_document.add_text(definition.name, item)
-        elif value != "":
-            tantivy_document.add_text(definition.name, cast(str, value))
-    return tantivy_document
-
-
 def _persist_schema_version(index_dir: Path, version: int) -> None:
-    meta_path = index_dir / _META_FILE
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    meta["payload"] = json.dumps({_SCHEMA_VERSION_KEY: version})
-    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    (index_dir / _VERSION_FILE).write_text(str(version), encoding="utf-8")
 
 
 def build_index(
-    documents: Iterable[ProtoclusterSearchDocument],
+    documents: Iterable[Document],
     index_path: str | PathLike[str] | None = None,
 ) -> Index:
-    """Stream ``documents`` into a new Tantivy index and return it.
+    """Stream Tantivy ``documents`` into a new index and return it.
 
     When ``index_path`` is given the index is created on disk at that final
     path and the search schema version is persisted as index metadata after the
@@ -153,9 +159,8 @@ def build_index(
 
     Documents are added one at a time in the order produced by the extraction
     iterator (selected-file, record, then protocluster order) so Python never
-    retains a converted copy of the corpus and equal-score results resolve
-    deterministically. A single writer thread is used to keep document order
-    stable.
+    retains the whole corpus and equal-score results resolve deterministically.
+    A single writer thread is used to keep document order stable.
     """
     index_dir = None if index_path is None else Path(index_path)
     if index_dir is not None:
@@ -168,7 +173,7 @@ def build_index(
     writer = index.writer(num_threads=1)
     try:
         for document in documents:
-            writer.add_document(_to_tantivy_document(document))
+            writer.add_document(document)
         writer.commit()
         writer.wait_merging_threads()
     finally:
@@ -197,7 +202,7 @@ class EmptyQueryError(SearchError):
 
 
 class UnknownFieldError(SearchError):
-    """Raised when a query references a field outside the registry."""
+    """Raised when a query references a field outside the schema."""
 
     code = "unknown_field"
 
@@ -247,11 +252,8 @@ class SearchHit:
 class SearchResults:
     """A page of search hits plus the total number of matching documents."""
 
-    query: str
     hits: tuple[SearchHit, ...]
     total: int
-    offset: int
-    limit: int
 
 
 @dataclass(frozen=True)
@@ -269,11 +271,8 @@ class RegionHit:
 class RegionResults:
     """A page of unique regions plus the total number of matching regions."""
 
-    query: str
     hits: tuple[RegionHit, ...]
     total: int
-    offset: int
-    limit: int
 
 
 @dataclass(frozen=True)
@@ -290,59 +289,8 @@ class RecordHit:
 class RecordResults:
     """A page of unique records plus the total number of matching records."""
 
-    query: str
     hits: tuple[RecordHit, ...]
     total: int
-    offset: int
-    limit: int
-
-
-@dataclass(frozen=True)
-class SearchIndex:
-    """An open Tantivy index plus the query-time configuration it uses.
-
-    The public field names, default search fields, and boosts are all derived
-    from the registry so callers never touch internal schema details.
-    """
-
-    index: Index
-    fields: tuple[str, ...]
-    default_field_names: tuple[str, ...]
-    field_boosts: dict[str, float]
-
-    def searcher(self):
-        return self.index.searcher()
-
-
-def _query_configuration() -> tuple[
-    tuple[str, ...],
-    tuple[str, ...],
-    dict[str, float],
-]:
-    """Project the registry onto the query parser's per-field options.
-
-    Only the field list, the fields searched by an unqualified query, and the
-    boosts come from the registry. No field is given prefix or fuzzy tolerance:
-    Tantivy applies both to *every* term built against a configured field, which
-    widens a plain search without the searcher asking for it. A searcher who
-    wants looser matching uses the operators Tantivy provides on a quoted phrase
-    instead, ``~N`` for slop and ``*`` for a prefix on the last word.
-    """
-    default_fields: list[str] = []
-    boosts: dict[str, float] = {}
-    names: list[str] = []
-    for definition in SEARCH_FIELD_REGISTRY:
-        names.append(definition.name)
-        if definition.value_type != "numeric":
-            boosts[definition.name] = definition.boost
-        if definition.default_search:
-            default_fields.append(definition.name)
-    return tuple(names), tuple(default_fields), boosts
-
-
-def _wrap(index: Index) -> SearchIndex:
-    names, default_fields, boosts = _query_configuration()
-    return SearchIndex(index, names, default_fields, boosts)
 
 
 def _index_present(path: Path) -> bool:
@@ -355,20 +303,18 @@ def _index_present(path: Path) -> bool:
 
 
 def _read_schema_version(path: Path) -> int | None:
-    meta = json.loads((path / _META_FILE).read_text(encoding="utf-8"))
-    payload = meta.get("payload")
-    if not payload:
+    version_path = path / _VERSION_FILE
+    if not version_path.exists():
         return None
-    return json.loads(payload).get(_SCHEMA_VERSION_KEY)
+    return int(version_path.read_text(encoding="utf-8"))
 
 
-def open_index(index_path: str | PathLike[str]) -> SearchIndex:
+def open_index(index_path: str | PathLike[str]) -> Index:
     """Open a previously built index for querying.
 
-    The expected schema is rebuilt from the current registry, then the stored
-    index is checked for schema and search-schema-version compatibility before
-    it is returned together with the query-time fields, default search fields,
-    and boosts derived from the registry.
+    The expected schema is rebuilt from the constants in this module, then the
+    stored index is checked for schema and search-schema-version compatibility
+    before it is returned.
     """
     path = Path(index_path)
     if not _index_present(path):
@@ -393,41 +339,35 @@ def open_index(index_path: str | PathLike[str]) -> SearchIndex:
             f"Search index at {path} has schema version {stored_version!r}; "
             f"expected {SEARCH_SCHEMA_VERSION}"
         )
-    return _wrap(index)
+    return index
 
 
 def _stored_fields(searcher, address: Any) -> dict[str, Any]:
     raw = searcher.doc(address).to_dict()
     summary: dict[str, Any] = {}
-    for definition in SEARCH_FIELD_REGISTRY:
-        if not definition.returned or definition.name not in raw:
+    for name, kind in _RETURNED_FIELDS:
+        if name not in raw:
             continue
-        value = raw[definition.name]
-        if definition.value_type == "numeric":
-            summary[definition.name] = value[0] if value else None
-        elif definition.cardinality == "single":
-            summary[definition.name] = value[0] if value else ""
+        value = raw[name]
+        if kind == "numeric":
+            summary[name] = value[0] if value else None
         else:
-            summary[definition.name] = tuple(value)
+            summary[name] = value[0] if value else ""
     return summary
 
 
-def collect_first_values(index: Index | SearchIndex) -> dict[str, str]:
+def collect_first_values(index: Index) -> dict[str, str]:
     """Read the first non-empty stored value for each text field from ``index``.
 
     Documents are visited in Tantivy document-address order. The index is built
     by a single writer thread with a single commit, so it is a single segment
     and this order is the deterministic selected-file, record, protocluster
     insertion order the plan calls for. The scan stops as soon as every text
-    registry field has a value or the corpus ends, and a multi-valued field
-    contributes its first stored value. Numeric fields are skipped because no
-    example template consumes them.
+    field has a value or the corpus ends, and a multi-valued field contributes
+    its first stored value. Numeric fields are skipped because no example
+    template consumes them.
     """
-    text_fields = tuple(
-        definition
-        for definition in SEARCH_FIELD_REGISTRY
-        if definition.value_type != "numeric"
-    )
+    text_fields = _DEFAULT_SEARCH_FIELDS
     values: dict[str, str] = {}
     searcher = index.searcher()
     for segment_ord in range(searcher.num_segments):
@@ -439,32 +379,29 @@ def collect_first_values(index: Index | SearchIndex) -> dict[str, str]:
                 raw = searcher.doc(DocAddress(segment_ord, doc_id)).to_dict()
             except ValueError:
                 break
-            for definition in text_fields:
-                if definition.name in values:
+            for name in text_fields:
+                if name in values:
                     continue
-                items = raw.get(definition.name)
-                if not items:
-                    continue
-                value = items[0] if isinstance(items, list) else items
-                if value:
-                    values[definition.name] = value
+                items = raw.get(name)
+                if items and items[0]:
+                    values[name] = items[0]
             if len(values) == len(text_fields):
                 break
             doc_id += 1
     return values
 
 
-def _parse_query(index: SearchIndex, query: str):
+def _parse_query(index: Index, query: str):
     """Parse ``query``, mapping parser errors onto structured search errors."""
-    parsed, errors = index.index.parse_query_lenient(
+    parsed, errors = index.parse_query_lenient(
         query,
-        default_field_names=list(index.default_field_names),
-        field_boosts=index.field_boosts,
+        default_field_names=list(_DEFAULT_SEARCH_FIELDS),
+        field_boosts=dict(_FIELD_BOOSTS),
         allow_regexes=False,
     )
     for error in errors:
         if isinstance(error, parser_errors.FieldDoesNotExistError):
-            raise UnknownFieldError(error.field, index.fields)
+            raise UnknownFieldError(error.field, _FIELD_NAMES)
     if errors:
         raise QuerySyntaxError(str(errors[0]))
     return parsed
@@ -478,7 +415,7 @@ def _validate_pagination(offset: int, limit: int) -> None:
 
 
 def search_protoclusters(
-    index: SearchIndex,
+    index: Index,
     query: str,
     offset: int = 0,
     limit: int = 10,
@@ -498,56 +435,52 @@ def search_protoclusters(
 
     parsed = _parse_query(index, query)
 
-    searcher = index.searcher()
+    searcher: Any = index.searcher()
     result = searcher.search(parsed, limit=limit, offset=offset, count=True)
     hits = tuple(
         SearchHit(score=score, fields=_stored_fields(searcher, address))
         for score, address in result.hits
     )
-    return SearchResults(
-        query=query,
-        hits=hits,
-        total=result.count,
-        offset=offset,
-        limit=limit,
-    )
+    return SearchResults(hits=hits, total=result.count)
 
 
-def _matching_protocluster_fields(
-    index: SearchIndex, parsed: Any
+# Number of raw Tantivy hits pulled per round when collapsing matches. Keeps the
+# full hit list (which can reach millions) from ever being materialized at once.
+_FETCH_BATCH_SIZE = 1000
+
+
+def _unique_matching_protoclusters(
+    index: Index, parsed: Any, key_fields: tuple[str, ...]
 ) -> list[tuple[float, dict[str, Any]]]:
-    """Return ``(score, stored_fields)`` for every matching protocluster document.
+    """Return ``(score, stored_fields)`` for each distinct ``key_fields`` group.
 
-    Documents are yielded in Tantivy relevance order so the first occurrence of
-    any grouping key carries that group's best score.
+    Matching protoclusters are fetched from Tantivy in batches of
+    :data:`_FETCH_BATCH_SIZE` so the full hit list is never held in memory at
+    once. Documents arrive in Tantivy relevance order, so the first occurrence of
+    a grouping key carries that group's best score.
     """
-    searcher = index.searcher()
-    probe = searcher.search(parsed, limit=1, count=True)
-    if probe.count == 0:
-        return []
-    result = searcher.search(parsed, limit=probe.count, count=True)
-    return [
-        (score, _stored_fields(searcher, address)) for score, address in result.hits
-    ]
-
-
-def _unique_by(
-    matches: list[tuple[float, dict[str, Any]]], key_fields: tuple[str, ...]
-) -> list[tuple[float, dict[str, Any]]]:
-    """Keep the first match per distinct ``key_fields`` tuple, in order."""
+    searcher: Searcher = index.searcher()
+    total = searcher.search(parsed, limit=1, count=True).count
     seen: set[tuple[Any, ...]] = set()
     unique: list[tuple[float, dict[str, Any]]] = []
-    for score, fields in matches:
-        key = tuple(fields.get(name) for name in key_fields)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append((score, fields))
+    for offset in range(0, total, _FETCH_BATCH_SIZE):
+        result = searcher.search(
+            parsed, limit=_FETCH_BATCH_SIZE, offset=offset, count=False
+        )
+        if not result.hits:
+            break
+        for score, address in result.hits:
+            fields = _stored_fields(searcher, address)
+            key = tuple(fields.get(name) for name in key_fields)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append((score, fields))
     return unique
 
 
 def search_region(
-    index: SearchIndex,
+    index: Index,
     query: str,
     offset: int = 0,
     limit: int = 10,
@@ -565,9 +498,8 @@ def search_region(
     _validate_pagination(offset, limit)
 
     parsed = _parse_query(index, query)
-    unique = _unique_by(
-        _matching_protocluster_fields(index, parsed),
-        ("output_file", "record", "region"),
+    unique = _unique_matching_protoclusters(
+        index, parsed, ("output_file", "record", "region")
     )
     hits = tuple(
         RegionHit(
@@ -579,17 +511,11 @@ def search_region(
         )
         for score, fields in unique[offset : offset + limit]
     )
-    return RegionResults(
-        query=query,
-        hits=hits,
-        total=len(unique),
-        offset=offset,
-        limit=limit,
-    )
+    return RegionResults(hits=hits, total=len(unique))
 
 
 def search_record(
-    index: SearchIndex,
+    index: Index,
     query: str,
     offset: int = 0,
     limit: int = 10,
@@ -607,10 +533,7 @@ def search_record(
     _validate_pagination(offset, limit)
 
     parsed = _parse_query(index, query)
-    unique = _unique_by(
-        _matching_protocluster_fields(index, parsed),
-        ("output_file", "record"),
-    )
+    unique = _unique_matching_protoclusters(index, parsed, ("output_file", "record"))
     hits = tuple(
         RecordHit(
             score=score,
@@ -620,10 +543,4 @@ def search_record(
         )
         for score, fields in unique[offset : offset + limit]
     )
-    return RecordResults(
-        query=query,
-        hits=hits,
-        total=len(unique),
-        offset=offset,
-        limit=limit,
-    )
+    return RecordResults(hits=hits, total=len(unique))

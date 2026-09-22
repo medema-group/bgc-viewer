@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from os import PathLike
 from typing import Any
 
-from .document import PublicFieldInfo, public_field_metadata
+from .document import PUBLIC_FIELDS, PublicFieldInfo
 from .index import (
     RecordHit,
     RecordResults,
@@ -144,7 +144,7 @@ def read_example_queries(db_path: str | PathLike[str]) -> tuple[str, ...]:
 def build_schema_response(db_path: str | PathLike[str]) -> SchemaResponse:
     """Assemble the schema response from the registry and the example table."""
     return SchemaResponse(
-        fields=public_field_metadata(),
+        fields=PUBLIC_FIELDS,
         examples=read_example_queries(db_path),
         query_syntax_url=QUERY_SYNTAX_URL,
     )

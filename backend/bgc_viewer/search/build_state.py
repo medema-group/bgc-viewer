@@ -24,7 +24,6 @@ here, which is out of scope.
 
 from __future__ import annotations
 
-import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from os import PathLike
@@ -80,8 +79,7 @@ def mark_building(output_dir: str | PathLike[str]) -> Path:
     """Mark an output directory as having a preprocessing run in progress."""
     path = sentinel_path(output_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    started = datetime.now(timezone.utc).isoformat()
-    path.write_text(json.dumps({"started_at": started}), encoding="utf-8")
+    path.write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
     return path
 
 

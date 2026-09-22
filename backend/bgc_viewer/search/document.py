@@ -1,285 +1,31 @@
-"""Canonical search documents and antiSMASH location parsing."""
+"""Search field metadata, antiSMASH location parsing, and example generation.
+
+This module holds the data the search layer needs that is not itself the Tantivy
+schema or the extraction code: the user-facing field descriptions served to the
+help popup, the location parser, the path/escaping helpers shared with the index
+tokenizer, and the runnable example-query templates.
+"""
 
 import re
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Mapping
 
-SEARCH_SCHEMA_VERSION = 4
+SEARCH_SCHEMA_VERSION = 1
 
-FieldValueType = Literal["text", "keyword", "numeric"]
-FieldCardinality = Literal["single", "multi"]
-FieldAnalyzer = Literal["full_text", "exact", "path"]
-
-# User-facing field kind. Derived from the analyzer for text fields and from
-# the value type for numeric fields, so the help popup can tell a searcher
-# whether a field matches exactly, as full text, as a path, or as a number.
-# A ``path`` field keeps its whole value searchable while also splitting on
-# ``/`` and ``.``, so a file path matches by directory, stem, or extension.
+# User-facing field kind reported to the help popup: whether a field matches
+# exactly, as full text, as a path, or as a number. A ``path`` field keeps its
+# whole value searchable while also splitting on ``/`` and ``.``, so a file path
+# matches by directory, stem, or extension.
 FieldKind = Literal["exact", "full_text", "path", "numeric"]
 
 
 @dataclass(frozen=True)
-class SearchFieldDefinition:
-    name: str
-    description: str
-    attribute: str
-    value_type: FieldValueType
-    cardinality: FieldCardinality
-    analyzer: FieldAnalyzer | None
-    returned: bool
-    default_search: bool
-    boost: float
-    required: bool
-    # Query-time tolerance is deliberately absent from the registry. Tantivy
-    # offers prefix and Levenshtein fuzzy matching only as a per-field parser
-    # option applied to *every* term built against that field, which would
-    # widen a plain search without the searcher asking for it. Both knobs are
-    # therefore left unset for all fields.
-    #
-    # A searcher who wants looser matching uses the operators Tantivy provides
-    # on a quoted phrase: ``~N`` is slop, the slack between the quoted words,
-    # and ``*`` makes the last word a prefix. Both need the phrase to tokenize
-    # to at least two words. A trailing ``*`` on a bare, unquoted term is not a
-    # wildcard: the grammar folds it into the term text and the tokenizer drops
-    # it, so such a query matches nothing.
-
-
-SEARCH_FIELD_REGISTRY: tuple[SearchFieldDefinition, ...] = (
-    SearchFieldDefinition(
-        name="pfam",
-        description=(
-            "PFAM accession of a PFAM_domain overlapping the protocluster, "
-            "with the version suffix removed, so PF00512.28 is searched as "
-            "PF00512."
-        ),
-        attribute="pfam",
-        value_type="keyword",
-        cardinality="multi",
-        analyzer="exact",
-        returned=False,
-        default_search=True,
-        boost=2.0,
-        required=False,
-    ),
-    SearchFieldDefinition(
-        name="pfam_name",
-        description=(
-            "Description of a PFAM_domain overlapping the protocluster, from "
-            "the domain's description qualifier."
-        ),
-        attribute="pfam_name",
-        value_type="text",
-        cardinality="multi",
-        analyzer="full_text",
-        returned=False,
-        default_search=True,
-        boost=1.0,
-        required=False,
-    ),
-    SearchFieldDefinition(
-        name="organism",
-        description=(
-            "Organism of the parent record, from the organism qualifier of its "
-            "first source feature; empty when the record declares none."
-        ),
-        attribute="organism",
-        value_type="text",
-        cardinality="single",
-        analyzer="full_text",
-        returned=True,
-        default_search=True,
-        boost=1.0,
-        required=False,
-    ),
-    SearchFieldDefinition(
-        name="gene",
-        description="Gene name of a gene feature overlapping the protocluster.",
-        attribute="gene",
-        value_type="keyword",
-        cardinality="multi",
-        analyzer="exact",
-        returned=False,
-        default_search=True,
-        boost=2.0,
-        required=False,
-    ),
-    SearchFieldDefinition(
-        name="locus",
-        description=("Locus tag of a gene feature overlapping the protocluster."),
-        attribute="locus",
-        value_type="keyword",
-        cardinality="multi",
-        analyzer="exact",
-        returned=False,
-        default_search=True,
-        boost=2.0,
-        required=False,
-    ),
-    SearchFieldDefinition(
-        name="product",
-        description="Product of the protocluster, from its own product qualifier.",
-        attribute="product",
-        value_type="keyword",
-        cardinality="single",
-        analyzer="exact",
-        returned=True,
-        default_search=True,
-        boost=2.0,
-        required=True,
-    ),
-    SearchFieldDefinition(
-        name="category",
-        description=(
-            "Product category of the protocluster, from its own "
-            "product_category qualifier."
-        ),
-        attribute="category",
-        value_type="keyword",
-        cardinality="single",
-        analyzer="exact",
-        returned=True,
-        default_search=True,
-        boost=2.0,
-        required=True,
-    ),
-    SearchFieldDefinition(
-        name="record",
-        description="antiSMASH record ID the protocluster belongs to.",
-        attribute="record_id",
-        value_type="keyword",
-        cardinality="single",
-        analyzer="exact",
-        returned=True,
-        default_search=True,
-        boost=2.0,
-        required=True,
-    ),
-    SearchFieldDefinition(
-        name="region",
-        description=(
-            "Region number of the smallest region feature containing the "
-            "protocluster."
-        ),
-        attribute="region_number",
-        value_type="numeric",
-        cardinality="single",
-        analyzer=None,
-        returned=True,
-        default_search=False,
-        boost=1.0,
-        required=True,
-    ),
-    SearchFieldDefinition(
-        name="protocluster",
-        description="Protocluster number of the protocluster itself.",
-        attribute="protocluster_number",
-        value_type="numeric",
-        cardinality="single",
-        analyzer=None,
-        returned=True,
-        default_search=False,
-        boost=1.0,
-        required=True,
-    ),
-    SearchFieldDefinition(
-        name="start",
-        description=(
-            "Lowest coordinate of the protocluster location, across every part "
-            "of a compound location."
-        ),
-        attribute="start",
-        value_type="numeric",
-        cardinality="single",
-        analyzer=None,
-        returned=True,
-        default_search=False,
-        boost=1.0,
-        required=True,
-    ),
-    SearchFieldDefinition(
-        name="end",
-        description=(
-            "Highest coordinate of the protocluster location, across every "
-            "part of a compound location."
-        ),
-        attribute="end",
-        value_type="numeric",
-        cardinality="single",
-        analyzer=None,
-        returned=True,
-        default_search=False,
-        boost=1.0,
-        required=True,
-    ),
-    SearchFieldDefinition(
-        name="output_file",
-        description=(
-            "Path of the antiSMASH JSON file the protocluster was indexed "
-            "from, relative to the source directory that was indexed. "
-            "Searched as a path: the whole value matches, and it also splits "
-            "on / and ., so a directory, the file stem, or the extension "
-            "each match on their own."
-        ),
-        attribute="output_file",
-        value_type="keyword",
-        cardinality="single",
-        analyzer="path",
-        returned=True,
-        default_search=True,
-        boost=2.0,
-        required=True,
-    ),
-    SearchFieldDefinition(
-        name="input_file",
-        description=(
-            "Input sequence filename antiSMASH reported for the source JSON; "
-            "empty when absent. Searched as a path: the whole value matches, "
-            "and it also splits on / and ., so a directory, the file stem, "
-            "or the extension each match on their own."
-        ),
-        attribute="input_file",
-        value_type="keyword",
-        cardinality="single",
-        analyzer="path",
-        returned=True,
-        default_search=True,
-        boost=2.0,
-        required=False,
-    ),
-)
-
-# Every registered field is stored in the Tantivy index so its value can be read
-# back for example collection and diagnostics. The ``returned`` flag is the only
-# storage-related decision: it selects which stored fields come back in ordinary
-# search hits. PFAMs, PFAM names, genes, and locus tags are stored but are not
-# returned in ordinary hits.
-
-
-def public_kind(definition: SearchFieldDefinition) -> FieldKind:
-    """Map a registry entry onto the user-facing kind of a searchable field.
-
-    Text fields report their analyzer; numeric fields have no analyzer and are
-    reported by value type. A field that is neither is a registry error, so it
-    raises rather than being silently classified.
-    """
-    if definition.value_type == "numeric":
-        return "numeric"
-    if definition.analyzer == "exact":
-        return "exact"
-    if definition.analyzer == "full_text":
-        return "full_text"
-    if definition.analyzer == "path":
-        return "path"
-    raise ValueError(f"Field {definition.name} has no user-facing kind")
-
-
-@dataclass(frozen=True)
 class PublicFieldInfo:
-    """Public projection of one registry entry, as served to searchers.
+    """One searchable field as served to searchers.
 
     Cardinality and boosts are deliberately absent: they are internal indexing
-    details. There is no storage flag because every registered field is stored;
-    ``unqualified`` reports whether an unqualified term searches the field.
+    details. ``unqualified`` reports whether an unqualified term searches the
+    field.
     """
 
     name: str
@@ -288,22 +34,136 @@ class PublicFieldInfo:
     description: str
 
 
-def public_field_metadata() -> tuple[PublicFieldInfo, ...]:
-    """Project the registry onto public field metadata, in registry order."""
-    return tuple(
-        PublicFieldInfo(
-            name=definition.name,
-            kind=public_kind(definition),
-            unqualified=definition.default_search,
-            description=definition.description,
-        )
-        for definition in SEARCH_FIELD_REGISTRY
-    )
+# The public field list, in the order the help popup shows it. This is the single
+# place the user-facing description of each field lives; the Tantivy schema in
+# ``index.py`` and the extraction in ``extraction.py`` are kept in step with it
+# by the tests rather than by a shared registry.
+PUBLIC_FIELDS: tuple[PublicFieldInfo, ...] = (
+    PublicFieldInfo(
+        name="pfam",
+        kind="exact",
+        unqualified=True,
+        description=(
+            "PFAM accession of a PFAM_domain overlapping the protocluster, "
+            "with the version suffix removed, so PF00512.28 is searched as "
+            "PF00512."
+        ),
+    ),
+    PublicFieldInfo(
+        name="pfam_name",
+        kind="full_text",
+        unqualified=True,
+        description=(
+            "Description of a PFAM_domain overlapping the protocluster, from "
+            "the domain's description qualifier."
+        ),
+    ),
+    PublicFieldInfo(
+        name="organism",
+        kind="full_text",
+        unqualified=True,
+        description=(
+            "Organism of the parent record, from the organism qualifier of its "
+            "first source feature; empty when the record declares none."
+        ),
+    ),
+    PublicFieldInfo(
+        name="gene",
+        kind="exact",
+        unqualified=True,
+        description="Gene name of a gene feature overlapping the protocluster.",
+    ),
+    PublicFieldInfo(
+        name="locus",
+        kind="exact",
+        unqualified=True,
+        description="Locus tag of a gene feature overlapping the protocluster.",
+    ),
+    PublicFieldInfo(
+        name="product",
+        kind="exact",
+        unqualified=True,
+        description="Product of the protocluster, from its own product qualifier.",
+    ),
+    PublicFieldInfo(
+        name="category",
+        kind="exact",
+        unqualified=True,
+        description=(
+            "Product category of the protocluster, from its own "
+            "product_category qualifier."
+        ),
+    ),
+    PublicFieldInfo(
+        name="record",
+        kind="exact",
+        unqualified=True,
+        description="antiSMASH record ID the protocluster belongs to.",
+    ),
+    PublicFieldInfo(
+        name="region",
+        kind="numeric",
+        unqualified=False,
+        description=(
+            "Region number of the smallest region feature containing the "
+            "protocluster."
+        ),
+    ),
+    PublicFieldInfo(
+        name="protocluster",
+        kind="numeric",
+        unqualified=False,
+        description="Protocluster number of the protocluster itself.",
+    ),
+    PublicFieldInfo(
+        name="start",
+        kind="numeric",
+        unqualified=False,
+        description=(
+            "Lowest coordinate of the protocluster location, across every part "
+            "of a compound location."
+        ),
+    ),
+    PublicFieldInfo(
+        name="end",
+        kind="numeric",
+        unqualified=False,
+        description=(
+            "Highest coordinate of the protocluster location, across every "
+            "part of a compound location."
+        ),
+    ),
+    PublicFieldInfo(
+        name="output_file",
+        kind="path",
+        unqualified=True,
+        description=(
+            "Path of the antiSMASH JSON file the protocluster was indexed "
+            "from, relative to the source directory that was indexed. "
+            "Searched as a path: the whole value matches, and it also splits "
+            "on / and ., so a directory, the file stem, or the extension "
+            "each match on their own."
+        ),
+    ),
+    PublicFieldInfo(
+        name="input_file",
+        kind="path",
+        unqualified=True,
+        description=(
+            "Input sequence filename antiSMASH reported for the source JSON; "
+            "empty when absent. Searched as a path: the whole value matches, "
+            "and it also splits on / and ., so a directory, the file stem, "
+            "or the extension each match on their own."
+        ),
+    ),
+)
 
 
-ExampleValueFilter = Literal["any", "single_word", "multi_word", "path_prefix"]
+# Fields an unqualified term searches: every field except the numeric ones.
+DEFAULT_SEARCH_FIELD_NAMES: tuple[str, ...] = tuple(
+    info.name for info in PUBLIC_FIELDS if info.unqualified
+)
 
-_BARE_SAFE_PATTERN = re.compile(r"\w+", re.ASCII)
 
 # The characters a ``path`` field splits on: the directory separator and the
 # extension separator. Declared here, rather than in the index module that
@@ -336,10 +196,14 @@ def strip_path_extension(value: str) -> str:
 # ``ESCAPE_IN_WORD`` in tantivy-query-grammar, plus whitespace and a leading
 # ``-`` (a leading hyphen is the negation operator). Everything else -- a
 # mid-term ``-``, ``.``, ``/``, ``*``, ``?``, ``~`` -- is safe unquoted: the
-# term text is passed through the field's analyzer, and 0.26 has no wildcard
+# term text is passed through the field's analyzer, and Tantivy has no wildcard
 # query (regex is gated behind ``allow_regexes``, which we disable).
 _TANTIVY_ESCAPE_IN_WORD = frozenset("^`:{}\"'[]()\\")
 _RESERVED_TERMS = frozenset({"OR", "AND", "NOT", "IN"})
+
+ExampleValueFilter = Literal["any", "single_word", "multi_word", "path_prefix"]
+
+_BARE_SAFE_PATTERN = re.compile(r"\w+", re.ASCII)
 
 
 def _needs_quoting(value: str) -> bool:
@@ -367,14 +231,6 @@ def _escape_term(value: str) -> str:
     if not _needs_quoting(value):
         return value
     return f'"{_escape_quoted(value)}"'
-
-
-def _default_search_field_names() -> tuple[str, ...]:
-    return tuple(
-        definition.name
-        for definition in SEARCH_FIELD_REGISTRY
-        if definition.default_search
-    )
 
 
 def _passes_value_filter(value: str, value_filter: ExampleValueFilter) -> bool:
@@ -411,7 +267,7 @@ class ExampleSlot:
 
     def select(self, values: Mapping[str, str]) -> tuple[str, str] | None:
         """Return the ``(field, value)`` this slot resolves to, or ``None``."""
-        candidates = self.candidates or _default_search_field_names()
+        candidates = self.candidates or DEFAULT_SEARCH_FIELD_NAMES
         for name in candidates:
             collected = values.get(name)
             if not collected:
@@ -451,10 +307,10 @@ class ExampleTemplate:
         return self.pattern.format(**context)
 
 
-# The declared registry is the version of the example set: it is rebuilt with
-# the attributes database on every preprocessing run, so it carries no
-# separate version number. The templates mirror the query shapes demonstrated
-# by ``_CLI_EXAMPLES`` in ``bgc_viewer/search/cli.py``.
+# The declared template set is rebuilt with the attributes database on every
+# preprocessing run, so it carries no separate version number. The templates
+# mirror the query shapes demonstrated by ``_CLI_EXAMPLES`` in
+# ``bgc_viewer/search/cli.py``.
 EXAMPLE_TEMPLATE_REGISTRY: tuple[ExampleTemplate, ...] = (
     ExampleTemplate(
         template_id="unqualified_word",
@@ -616,65 +472,3 @@ class SourceFile:
     # machine-specific absolute path.
     output_file: str
     input_file: str
-
-
-@dataclass(frozen=True)
-class SearchFields:
-    record_id: str
-    region_number: int
-    protocluster_number: int
-    location: Location
-    product: str
-    category: str
-    organism: str
-    pfam: tuple[str, ...]
-    pfam_name: tuple[str, ...]
-    gene: tuple[str, ...]
-    # TODO locus is too generic it is used as genbank root level, rename to gene_locus?
-    locus: tuple[str, ...]
-
-    @property
-    def start(self) -> int:
-        return self.location.start
-
-    @property
-    def end(self) -> int:
-        return self.location.end
-
-
-@dataclass(frozen=True)
-class ProtoclusterSearchDocument:
-    source: SourceFile
-    search_fields: SearchFields
-
-    def __post_init__(self) -> None:
-        for definition in SEARCH_FIELD_REGISTRY:
-            value = self.field_value(definition)
-            if definition.cardinality == "multi":
-                if not isinstance(value, tuple):
-                    raise TypeError(f"Field {definition.name} must be multi-valued")
-                if any(not isinstance(item, str) or not item for item in value):
-                    raise ValueError(f"Field {definition.name} contains an empty value")
-                if len(value) != len(set(value)):
-                    raise ValueError(f"Field {definition.name} contains duplicates")
-            elif definition.value_type == "numeric":
-                if not isinstance(value, int) or isinstance(value, bool):
-                    raise TypeError(f"Field {definition.name} must be numeric")
-            elif not isinstance(value, str):
-                raise TypeError(f"Field {definition.name} must be a string")
-
-            if definition.required and (value == "" or value == ()):
-                raise ValueError(f"Field {definition.name} is required")
-
-    def field_value(self, definition: SearchFieldDefinition) -> object:
-        if hasattr(self.search_fields, definition.attribute):
-            return getattr(self.search_fields, definition.attribute)
-        return getattr(self.source, definition.attribute)
-
-    @property
-    def document_key(self) -> str:
-        fields = self.search_fields
-        return (
-            f"{self.source.output_file}:{fields.record_id}:"
-            f"{fields.region_number}:{fields.protocluster_number}"
-        )
