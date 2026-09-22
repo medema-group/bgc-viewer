@@ -162,7 +162,7 @@ export interface RecordSearchHit {
 
 export interface SearchResponse<T> {
   hits: T[]
-  total: number
+  has_more: boolean
 }
 
 /**

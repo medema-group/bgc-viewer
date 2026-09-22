@@ -11,6 +11,7 @@ leftover sentinel with no build running is the non-retryable
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import pytest
 import bgc_viewer.app as app_module
@@ -48,8 +49,8 @@ class TestSentinelPrimitives:
 
     def test_sentinel_records_a_start_time_for_diagnostics(self, temp_dir):
         mark_building(temp_dir)
-        payload = json.loads(sentinel_path(temp_dir).read_text(encoding="utf-8"))
-        assert payload["started_at"]
+        started = sentinel_path(temp_dir).read_text(encoding="utf-8")
+        assert datetime.fromisoformat(started)
 
     def test_clear_removes_it_and_is_idempotent(self, temp_dir):
         mark_building(temp_dir)
@@ -254,7 +255,7 @@ class TestSearchEndpointsDuringRebuild:
         _select_database(search_client, db_path)
         response = _search(search_client, "protocluster")
         assert response.status_code == 200
-        assert json.loads(response.data)["total"] == 2
+        assert len(json.loads(response.data)["hits"]) == 2
 
     def test_missing_index_still_wins_when_nothing_is_building(
         self, search_client, temp_dir

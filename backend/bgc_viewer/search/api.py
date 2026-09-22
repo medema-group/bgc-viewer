@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from os import PathLike
 from typing import Any
 
-from .document import PublicFieldInfo, public_field_metadata
+from .document import PUBLIC_FIELDS, PublicFieldInfo
 from .index import (
     RecordHit,
     RecordResults,
@@ -89,22 +89,22 @@ def parse_search_request(body: Any) -> SearchRequest:
 
 @dataclass(frozen=True)
 class SearchResponse:
-    """The minimal search response body: ranked hits plus the total match count.
+    """The minimal search response body: ranked hits plus a ``has_more`` flag.
 
     Request parameters (query, page, per-page) are deliberately not echoed
-    back; the client already knows them. ``total`` is the number of distinct
-    matching units at the selected level, so the client can derive page
-    counts itself from its own ``per_page``.
+    back; the client already knows them. ``has_more`` reports whether more
+    matching units exist beyond this page at the selected level, so the client
+    can show a "load more" affordance without a total count.
     """
 
     hits: tuple[SearchHit | RegionHit | RecordHit, ...]
-    total: int
+    has_more: bool
 
     @classmethod
     def from_results(
         cls, results: SearchResults | RegionResults | RecordResults
     ) -> "SearchResponse":
-        return cls(hits=results.hits, total=results.total)
+        return cls(hits=results.hits, has_more=results.has_more)
 
 
 @dataclass(frozen=True)
@@ -144,7 +144,7 @@ def read_example_queries(db_path: str | PathLike[str]) -> tuple[str, ...]:
 def build_schema_response(db_path: str | PathLike[str]) -> SchemaResponse:
     """Assemble the schema response from the registry and the example table."""
     return SchemaResponse(
-        fields=public_field_metadata(),
+        fields=PUBLIC_FIELDS,
         examples=read_example_queries(db_path),
         query_syntax_url=QUERY_SYNTAX_URL,
     )

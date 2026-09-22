@@ -2,15 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-from bgc_viewer.search.document import (
-    SEARCH_FIELD_REGISTRY,
-    SEARCH_SCHEMA_VERSION,
-    Location,
-    LocationPart,
-    ProtoclusterSearchDocument,
-    SearchFields,
-    SourceFile,
-)
+from bgc_viewer.search.document import Location, LocationPart, SourceFile
 from bgc_viewer.search.extraction import (
     ExtractionError,
     ExtractionWarning,
@@ -19,27 +11,8 @@ from bgc_viewer.search.extraction import (
 )
 
 
-def test_search_fields_expose_the_versioned_public_registry():
-    assert SEARCH_SCHEMA_VERSION == 4
-    assert [field.name for field in SEARCH_FIELD_REGISTRY] == [
-        "pfam",
-        "pfam_name",
-        "organism",
-        "gene",
-        "locus",
-        "product",
-        "category",
-        "record",
-        "region",
-        "protocluster",
-        "start",
-        "end",
-        "output_file",
-        "input_file",
-    ]
-    assert len({field.name for field in SEARCH_FIELD_REGISTRY}) == len(
-        SEARCH_FIELD_REGISTRY
-    )
+def _values(document, name):
+    return document.to_dict().get(name, [])
 
 
 def test_extracts_canonical_protocluster_document(tmp_path):
@@ -98,37 +71,24 @@ def test_extracts_canonical_protocluster_document(tmp_path):
     source_file.parent.mkdir()
     source_file.write_text(json.dumps(source))
 
-    expected: list[ProtoclusterSearchDocument] = [
-        ProtoclusterSearchDocument(
-            # document_key derives from its source and biological identity
-            source=SourceFile(
-                antismash_version="8.0.2",
-                # JSON file specific props
-                output_file="nested/sample.json",
-                input_file="sample.gbk",
-            ),
-            search_fields=SearchFields(
-                # record specific props
-                record_id="record-1",
-                # region specific props
-                region_number=2,
-                # protocluster specific props
-                protocluster_number=3,
-                location=Location.parse("[200:700](+)"),
-                product="NRPS",
-                category="NRPS",
-                # overlapping searchable features
-                organism="Example organism",
-                pfam=("PF00512",),
-                pfam_name=("His Kinase",),
-                gene=("geneA",),
-                locus=("LOC_1",),
-            ),
-        )
-    ]
+    [document] = extract_documents([Path("nested/sample.json")], tmp_path)
 
-    documents = extract_documents([Path("nested/sample.json")], tmp_path)
-    assert list(documents) == expected
+    assert document.to_dict() == {
+        "record": ["record-1"],
+        "region": [2],
+        "protocluster": [3],
+        "start": [200],
+        "end": [700],
+        "product": ["NRPS"],
+        "category": ["NRPS"],
+        "organism": ["Example organism"],
+        "pfam": ["PF00512"],
+        "pfam_name": ["His Kinase"],
+        "gene": ["geneA"],
+        "locus": ["LOC_1"],
+        "output_file": ["nested/sample.json"],
+        "input_file": ["sample.gbk"],
+    }
 
 
 def test_extracts_from_data_without_reading_a_file():
@@ -165,15 +125,11 @@ def test_extracts_from_data_without_reading_a_file():
     )
     [document] = extract(source["records"], source_file)
 
-    assert document.source == SourceFile(
-        antismash_version="8.0.2",
-        output_file="memory/sample.json",
-        input_file="sample.gbk",
-    )
-    assert document.search_fields.record_id == "record-1"
+    assert document.to_dict()["record"] == ["record-1"]
+    assert document.to_dict()["input_file"] == ["sample.gbk"]
 
 
-def test_compatible_unknown_major_version_uses_v8_adapter():
+def test_extracts_regardless_of_declared_version():
     source = {
         "version": "9.0.0",
         "records": [
@@ -206,10 +162,12 @@ def test_compatible_unknown_major_version_uses_v8_adapter():
     )
     [document] = extract(source["records"], source_file)
 
-    assert document.source.antismash_version == "9.0.0"
+    assert document.to_dict()["protocluster"] == [1]
+    # An empty input_file is not indexed.
+    assert "input_file" not in document.to_dict()
 
 
-def test_incompatible_version_error_identifies_adapter_and_source():
+def test_error_identifies_source_file_and_version():
     source = {"version": "7.1.0", "records": "incompatible"}
 
     source_file = SourceFile(
@@ -222,7 +180,6 @@ def test_incompatible_version_error_identifies_adapter_and_source():
 
     message = str(caught.value)
     assert "memory/sample.json (antiSMASH 7.1.0)" in message
-    assert "Antismash8Adapter" in message
     assert "records" in message
 
 
@@ -270,7 +227,7 @@ def test_selects_smallest_parent_region_and_warns_for_multiple_matches(
 
     warning = caught[0].message
     assert isinstance(warning, ExtractionWarning)
-    assert document.search_fields.region_number == 1
+    assert _values(document, "region") == [1]
     assert warning.code == "multiple_parent_regions"
     assert warning.source_path == "sample.json"
     assert warning.record_id == "record-1"
@@ -314,7 +271,7 @@ def test_skips_malformed_optional_features_with_structured_warning(tmp_path):
 
     warning = caught[0].message
     assert isinstance(warning, ExtractionWarning)
-    assert document.search_fields.gene == ()
+    assert "gene" not in document.to_dict()
     assert warning.code == "malformed_optional_feature"
     assert warning.json_path == "records[0].features[2]"
 
@@ -480,9 +437,9 @@ def test_warns_when_pfam_annotation_has_no_usable_accession(tmp_path):
 
     warning = caught[0].message
     assert isinstance(warning, ExtractionWarning)
-    assert document.search_fields.pfam == ("PF00512",)
-    assert document.search_fields.pfam_name == ("His Kinase",)
-    assert "Orphan description" not in document.search_fields.pfam_name
+    assert _values(document, "pfam") == ["PF00512"]
+    assert _values(document, "pfam_name") == ["His Kinase"]
+    assert "Orphan description" not in _values(document, "pfam_name")
     assert warning.code == "missing_pfam_accession"
     assert warning.source_path == "sample.json"
     assert warning.record_id == "record-1"
@@ -589,13 +546,12 @@ def test_cds_features_do_not_contribute_search_fields(tmp_path):
     (tmp_path / "sample.json").write_text(json.dumps(source))
 
     document = next(extract_documents([Path("sample.json")], tmp_path))
-    fields = document.search_fields
 
-    assert fields.gene == ("real_gene",)
-    assert fields.locus == ("REAL_1",)
-    assert fields.pfam == ("PF00512",)
-    assert fields.pfam_name == ("Real Pfam",)
-    assert "cds_gene" not in fields.gene
-    assert "CDS_IGNORABLE" not in fields.locus
-    assert "PF99999" not in fields.pfam
-    assert "CDS decoy" not in fields.pfam_name
+    assert _values(document, "gene") == ["real_gene"]
+    assert _values(document, "locus") == ["REAL_1"]
+    assert _values(document, "pfam") == ["PF00512"]
+    assert _values(document, "pfam_name") == ["Real Pfam"]
+    assert "cds_gene" not in _values(document, "gene")
+    assert "CDS_IGNORABLE" not in _values(document, "locus")
+    assert "PF99999" not in _values(document, "pfam")
+    assert "CDS decoy" not in _values(document, "pfam_name")

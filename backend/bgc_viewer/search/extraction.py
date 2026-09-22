@@ -4,16 +4,11 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Protocol
 
 import ijson
+from tantivy import Document
 
-from .document import (
-    Location,
-    ProtoclusterSearchDocument,
-    SearchFields,
-    SourceFile,
-)
+from .document import Location, SourceFile
 
 
 class ExtractionError(ValueError):
@@ -34,18 +29,6 @@ class ExtractionWarning(UserWarning):
         self.source_path = source_path
         self.record_id = record_id
         self.json_path = json_path
-
-
-class SourceAdapter(Protocol):
-    name: str
-
-    def extract(
-        self,
-        records: Iterable[object],
-        source: SourceFile,
-        warning_threshold: int,
-        identities: dict[tuple[str, str, int, int], SourceFile],
-    ) -> Iterator[ProtoclusterSearchDocument]: ...
 
 
 @dataclass(frozen=True)
@@ -253,26 +236,33 @@ def _annotation_values(
     )
 
 
+def _add_text(document: Document, name: str, value: str) -> None:
+    if value:
+        document.add_text(name, value)
+
+
+def _add_texts(document: Document, name: str, values: tuple[str, ...]) -> None:
+    for value in values:
+        document.add_text(name, value)
+
+
 def _document(
     protocluster: _Feature,
-    parent: _Feature,
     annotations: list[_Feature],
     organism: str,
     record_id: str,
     record_path: str,
     source: SourceFile,
+    region_number: int,
+    protocluster_number: int,
     warning_counts: dict[str, int],
     warning_threshold: int,
-) -> ProtoclusterSearchDocument:
+) -> Document:
     category = _values(protocluster.qualifiers, "product_category") or _values(
         protocluster.qualifiers, "category"
     )
     if not category:
         raise ExtractionError(f"Missing protocluster product category in {record_path}")
-    region_number = _number(parent.qualifiers, "region_number", record_path)
-    protocluster_number = _number(
-        protocluster.qualifiers, "protocluster_number", record_path
-    )
     genes, loci, pfams, pfam_names = _annotation_values(
         protocluster,
         annotations,
@@ -281,36 +271,34 @@ def _document(
         warning_counts,
         warning_threshold,
     )
-    return ProtoclusterSearchDocument(
-        source=source,
-        search_fields=SearchFields(
-            record_id=record_id,
-            region_number=region_number,
-            protocluster_number=protocluster_number,
-            location=protocluster.location,
-            product=_required_value(protocluster.qualifiers, "product", record_path),
-            category=category[0],
-            organism=organism,
-            pfam=pfams,
-            pfam_name=pfam_names,
-            gene=genes,
-            locus=loci,
-        ),
+    document = Document()
+    document.add_text("record", record_id)
+    document.add_integer("region", region_number)
+    document.add_integer("protocluster", protocluster_number)
+    document.add_integer("start", protocluster.location.start)
+    document.add_integer("end", protocluster.location.end)
+    document.add_text(
+        "product", _required_value(protocluster.qualifiers, "product", record_path)
     )
+    document.add_text("category", category[0])
+    _add_text(document, "organism", organism)
+    _add_texts(document, "pfam", pfams)
+    _add_texts(document, "pfam_name", pfam_names)
+    _add_texts(document, "gene", genes)
+    _add_texts(document, "locus", loci)
+    document.add_text("output_file", source.output_file)
+    _add_text(document, "input_file", source.input_file)
+    return document
 
 
 def _check_identity(
-    document: ProtoclusterSearchDocument,
+    source: SourceFile,
+    record_id: str,
+    region_number: int,
+    protocluster_number: int,
     identities: dict[tuple[str, str, int, int], SourceFile],
 ) -> None:
-    source = document.source
-    fields = document.search_fields
-    identity = (
-        source.input_file,
-        fields.record_id,
-        fields.region_number,
-        fields.protocluster_number,
-    )
+    identity = (source.input_file, record_id, region_number, protocluster_number)
     previous_source = identities.get(identity)
     if previous_source is not None:
         identity_text = ":".join(str(value) for value in identity)
@@ -328,7 +316,7 @@ def _extract_records(
     source: SourceFile,
     warning_threshold: int,
     identities: dict[tuple[str, str, int, int], SourceFile],
-) -> Iterator[ProtoclusterSearchDocument]:
+) -> Iterator[Document]:
     source_path = source.output_file
     warning_counts: dict[str, int] = {}
     found_protocluster = False
@@ -373,18 +361,25 @@ def _extract_records(
                 warning_counts,
                 warning_threshold,
             )
+            region_number = _number(parent.qualifiers, "region_number", record_path)
+            protocluster_number = _number(
+                protocluster.qualifiers, "protocluster_number", record_path
+            )
             document = _document(
                 protocluster,
-                parent,
                 annotations,
                 organism_values[0] if organism_values else "",
                 record_id,
                 record_path,
                 source,
+                region_number,
+                protocluster_number,
                 warning_counts,
                 warning_threshold,
             )
-            _check_identity(document, identities)
+            _check_identity(
+                source, record_id, region_number, protocluster_number, identities
+            )
             yield document
 
     if not found_protocluster:
@@ -399,49 +394,6 @@ def _extract_records(
             warning_counts,
             warning_threshold,
         )
-
-
-class Antismash8Adapter:
-    name = "Antismash8Adapter"
-
-    def extract(
-        self,
-        records: Iterable[object],
-        source: SourceFile,
-        warning_threshold: int,
-        identities: dict[tuple[str, str, int, int], SourceFile],
-    ) -> Iterator[ProtoclusterSearchDocument]:
-        yield from _extract_records(records, source, warning_threshold, identities)
-
-
-_V8_ADAPTER = Antismash8Adapter()
-_ADAPTERS: dict[int, SourceAdapter] = {8: _V8_ADAPTER}
-
-
-def _declared_major(version: str) -> int | None:
-    match = re.match(r"(\d+)", version)
-    return int(match.group(1)) if match else None
-
-
-def _select_adapter(version: str) -> SourceAdapter:
-    major = _declared_major(version)
-    return _V8_ADAPTER if major is None else _ADAPTERS.get(major, _V8_ADAPTER)
-
-
-def _run_adapter(
-    adapter: SourceAdapter,
-    records: Iterable[object],
-    source: SourceFile,
-    warning_threshold: int,
-    identities: dict[tuple[str, str, int, int], SourceFile],
-) -> Iterator[ProtoclusterSearchDocument]:
-    try:
-        yield from adapter.extract(records, source, warning_threshold, identities)
-    except ExtractionError as error:
-        raise ExtractionError(
-            f"{source.output_file} (antiSMASH {source.antismash_version}) is "
-            f"incompatible with {adapter.name}: {error}"
-        ) from error
 
 
 _MISSING = object()
@@ -469,8 +421,8 @@ def extract(
     *,
     warning_threshold: int = 100,
     identities: dict[tuple[str, str, int, int], SourceFile] | None = None,
-) -> Iterator[ProtoclusterSearchDocument]:
-    """Extract search documents from already-decoded antiSMASH record objects.
+) -> Iterator[Document]:
+    """Extract Tantivy documents from already-decoded antiSMASH record objects.
 
     This entry point performs no file I/O: callers supply the decoded
     ``records`` iterable and a fully-populated :class:`SourceFile`, so the
@@ -481,14 +433,17 @@ def extract(
     """
     if warning_threshold < 1:
         raise ValueError("warning_threshold must be at least 1")
-    adapter = _select_adapter(source.antismash_version)
-    yield from _run_adapter(
-        adapter,
-        records,
-        source,
-        warning_threshold,
-        identities if identities is not None else {},
-    )
+    try:
+        yield from _extract_records(
+            records,
+            source,
+            warning_threshold,
+            identities if identities is not None else {},
+        )
+    except ExtractionError as error:
+        raise ExtractionError(
+            f"{source.output_file} (antiSMASH {source.antismash_version}): {error}"
+        ) from error
 
 
 def extract_documents(
@@ -496,7 +451,7 @@ def extract_documents(
     source_root: Path,
     *,
     warning_threshold: int = 100,
-) -> Iterator[ProtoclusterSearchDocument]:
+) -> Iterator[Document]:
     if warning_threshold < 1:
         raise ValueError("warning_threshold must be at least 1")
     root = source_root.resolve()

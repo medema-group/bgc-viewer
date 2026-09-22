@@ -42,8 +42,7 @@ describe('SearchResultsPopover', () => {
       props: {
         query: 'pfam:PF00512',
         level: 'protocluster',
-        response: { hits: protoclusterHits, total: 2 },
-        page: 1,
+        response: { hits: protoclusterHits, has_more: false },
         selectedHit: null
       }
     })
@@ -61,8 +60,7 @@ describe('SearchResultsPopover', () => {
       props: {
         query: 'NRPS',
         level: 'protocluster',
-        response: { hits: protoclusterHits, total: 2 },
-        page: 1,
+        response: { hits: protoclusterHits, has_more: false },
         selectedHit: protoclusterHits[1]
       }
     })
@@ -84,8 +82,7 @@ describe('SearchResultsPopover', () => {
       props: {
         query: 'terpene',
         level: 'region',
-        response: { hits: [regionHit], total: 1 },
-        page: 1,
+        response: { hits: [regionHit], has_more: false },
         selectedHit: null
       }
     })
@@ -95,7 +92,7 @@ describe('SearchResultsPopover', () => {
 
     await wrapper.setProps({
       level: 'record',
-      response: { hits: [{ ...regionHit, region: undefined }], total: 1 }
+      response: { hits: [{ ...regionHit, region: undefined }], has_more: false }
     })
     expect(wrapper.text()).not.toContain('Region 7')
     expect(wrapper.text()).toContain('record-2')
@@ -106,17 +103,16 @@ describe('SearchResultsPopover', () => {
       props: {
         query: 'terpene',
         level: 'record',
-        response: { hits: [], total: 0 },
-        page: 1,
+        response: { hits: [], has_more: false },
         selectedHit: null
       }
     })
 
     expect(wrapper.text()).toContain('No results found.')
-    expect(wrapper.find('.pagination').exists()).toBe(false)
+    expect(wrapper.find('.load-more').exists()).toBe(false)
   })
 
-  it('keeps rows visible while loading and emits page requests', async () => {
+  it('shows a load-more affordance only when more results remain', async () => {
     const recordHit = {
       score: 2,
       record: 'record-2',
@@ -127,24 +123,43 @@ describe('SearchResultsPopover', () => {
       props: {
         query: 'terpene',
         level: 'record',
-        response: { hits: [recordHit], total: 45 },
-        page: 2,
+        response: { hits: [recordHit], has_more: false },
+        selectedHit: null
+      }
+    })
+    expect(wrapper.find('.load-more').exists()).toBe(false)
+
+    await wrapper.setProps({ response: { hits: [recordHit], has_more: true } })
+    expect(wrapper.find('.load-more').exists()).toBe(true)
+  })
+
+  it('keeps rows visible while loading more and emits load-more', async () => {
+    const recordHit = {
+      score: 2,
+      record: 'record-2',
+      output_file: 'record-2.json',
+      input_file: null
+    }
+    const wrapper = mount(SearchResultsPopover, {
+      props: {
+        query: 'terpene',
+        level: 'record',
+        response: { hits: [recordHit], has_more: true },
         selectedHit: null,
-        loading: true
+        loadingMore: true
       }
     })
 
     expect(wrapper.findAll('.result-row')).toHaveLength(1)
-    expect(wrapper.text()).toContain('Updating results...')
-    expect(wrapper.text()).toContain('Page 2 of 3')
 
-    expect(wrapper.get('[aria-label="Previous search results page"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[aria-label="Next search results page"]').attributes('disabled')).toBeDefined()
+    const button = wrapper.get('.load-more button')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.text()).toContain('Loading')
 
-    await wrapper.setProps({ loading: false })
-    await wrapper.get('[aria-label="Previous search results page"]').trigger('click')
-    await wrapper.get('[aria-label="Next search results page"]').trigger('click')
+    await wrapper.setProps({ loadingMore: false })
+    expect(wrapper.get('.load-more button').attributes('disabled')).toBeUndefined()
+    await wrapper.get('.load-more button').trigger('click')
 
-    expect(wrapper.emitted('page-change')).toEqual([[1], [3]])
+    expect(wrapper.emitted('load-more')).toEqual([[]])
   })
 })

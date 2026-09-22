@@ -2,7 +2,7 @@
   <section class="search-results" aria-label="Search results">
     <header class="results-header">
       <div class="results-heading">
-        <p class="results-count">{{ response.total }} {{ resultLabel }}</p>
+        <p class="results-count">{{ response.hits.length }} {{ resultLabel }}</p>
         <h2>{{ query }}</h2>
       </div>
     </header>
@@ -48,23 +48,14 @@
       </button>
     </div>
 
-    <footer v-if="totalPages > 1" class="pagination">
+    <footer v-if="response.has_more" class="load-more">
       <button
         type="button"
-        aria-label="Previous search results page"
-        :disabled="page <= 1 || loading"
-        @click="$emit('page-change', page - 1)"
+        aria-label="Load more search results"
+        :disabled="loading || loadingMore"
+        @click="$emit('load-more')"
       >
-        &lsaquo;
-      </button>
-      <span>Page {{ page }} of {{ totalPages }}</span>
-      <button
-        type="button"
-        aria-label="Next search results page"
-        :disabled="page >= totalPages || loading"
-        @click="$emit('page-change', page + 1)"
-      >
-        &rsaquo;
+        {{ loadingMore ? 'Loading...' : 'Load more' }}
       </button>
     </footer>
   </section>
@@ -86,22 +77,22 @@ const props = withDefaults(defineProps<{
   query: string
   level: SearchLevel
   response: SearchResponse<SearchHit>
-  page: number
   selectedHit: SearchHit | null
   loading?: boolean
-  perPage?: number
+  loadingMore?: boolean
 }>(), {
   loading: false,
-  perPage: 20
+  loadingMore: false
 })
 
 defineEmits<{
-  (event: 'page-change', page: number): void
+  (event: 'load-more'): void
   (event: 'search-selected', hit: SearchHit): void
 }>()
 
-const totalPages = computed(() => Math.max(1, Math.ceil(props.response.total / props.perPage)))
-const resultLabel = computed(() => `${props.level} result${props.response.total === 1 ? '' : 's'}`)
+const resultLabel = computed(
+  () => `${props.level} result${props.response.hits.length === 1 ? '' : 's'}`
+)
 
 function protoclusterFields(hit: SearchHit) {
   return (hit as ProtoclusterSearchHit).fields
@@ -297,34 +288,34 @@ function isSelected(hit: SearchHit) {
   font-variant-numeric: tabular-nums;
 }
 
-.pagination {
-  display: grid;
-  grid-template-columns: 34px 1fr 34px;
+.load-more {
+  display: flex;
   flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
+  justify-content: center;
   padding: 10px 16px;
   border-top: 1px solid #dce3e8;
-  color: #52616d;
-  font-size: 12px;
-  text-align: center;
 }
 
-.pagination button {
-  width: 34px;
-  height: 30px;
-  border: 1px solid #b8c2cc;
+.load-more button {
+  min-width: 140px;
+  height: 34px;
+  border: 1px solid #176da7;
   border-radius: 4px;
   background: #fff;
-  color: #263442;
+  color: #145f92;
   cursor: pointer;
-  font-size: 20px;
-  line-height: 1;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.pagination button:disabled {
+.load-more button:hover:not(:disabled) {
+  background: #eef4f8;
+}
+
+.load-more button:disabled {
   cursor: default;
-  opacity: 0.45;
+  opacity: 0.55;
 }
 
 </style>

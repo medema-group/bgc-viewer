@@ -22,9 +22,9 @@
       :response="searchResults"
       :results-query="searchResultsQuery"
       :results-level="searchResultsLevel"
-      :page="searchResultsPage"
       :selected-hit="selectedSearchHit"
       :loading="searchLoading"
+      :loading-more="searchLoadingMore"
       :error="searchError"
       :schema="searchSchema"
       :schema-loading="searchSchemaLoading"
@@ -32,7 +32,7 @@
       @search="handleSearch"
       @clear="clearSearch"
       @request-help="loadSearchSchema"
-      @page-change="handleSearchPage"
+      @load-more="handleLoadMore"
       @search-selected="handleSearchSelected"
       @close="searchDialogOpen = false"
     />
@@ -199,6 +199,7 @@ export default {
     const searchResultsPage = ref(1)
     const selectedSearchHit = ref(null)
     const searchLoading = ref(false)
+    const searchLoadingMore = ref(false)
     const searchError = ref(null)
     let searchRequest = 0
     const searchDialogOpen = ref(false)
@@ -287,18 +288,14 @@ export default {
       }
     }
 
-    const handleSearch = async ({ query, level, page = 1 }) => {
-      searchQuery.value = query
-      searchLevel.value = level
-      searchError.value = null
-
-      if (!query.trim()) {
-        clearSearch()
-        return
-      }
-
+    const runSearch = async (query, level, page, append) => {
       const request = ++searchRequest
-      searchLoading.value = true
+      if (append) {
+        searchLoadingMore.value = true
+      } else {
+        searchLoading.value = true
+        searchError.value = null
+      }
 
       try {
         const provider = dataProvider.value
@@ -307,11 +304,17 @@ export default {
         }
         const results = await provider.searchLevel(level, query, page)
         if (request === searchRequest) {
-          searchResults.value = results
+          const existing = append && searchResults.value ? searchResults.value.hits : []
+          searchResults.value = {
+            hits: [...existing, ...results.hits],
+            has_more: results.has_more
+          }
           searchResultsQuery.value = query
           searchResultsLevel.value = level
           searchResultsPage.value = page
-          selectedSearchHit.value = null
+          if (!append) {
+            selectedSearchHit.value = null
+          }
         }
       } catch (error) {
         if (request === searchRequest) {
@@ -323,8 +326,19 @@ export default {
       } finally {
         if (request === searchRequest) {
           searchLoading.value = false
+          searchLoadingMore.value = false
         }
       }
+    }
+
+    const handleSearch = ({ query, level, page = 1 }) => {
+      searchQuery.value = query
+      searchLevel.value = level
+      if (!query.trim()) {
+        clearSearch()
+        return
+      }
+      runSearch(query, level, page, false)
     }
 
     const clearSearch = () => {
@@ -335,15 +349,20 @@ export default {
       searchResultsPage.value = 1
       selectedSearchHit.value = null
       searchLoading.value = false
+      searchLoadingMore.value = false
       searchError.value = null
     }
 
-    const handleSearchPage = (page) => {
-      handleSearch({
-        query: searchResultsQuery.value,
-        level: searchResultsLevel.value,
-        page
-      })
+    const handleLoadMore = () => {
+      if (!searchResultsQuery.value || searchLoadingMore.value) {
+        return
+      }
+      runSearch(
+        searchResultsQuery.value,
+        searchResultsLevel.value,
+        searchResultsPage.value + 1,
+        true
+      )
     }
 
     const handleSearchSelected = async (hit) => {
@@ -677,6 +696,7 @@ export default {
       searchResultsPage,
       selectedSearchHit,
       searchLoading,
+      searchLoadingMore,
       searchError,
       searchDialogOpen,
       searchSchema,
@@ -690,7 +710,7 @@ export default {
       handleFolderChanged,
       handleIndexChanged,
       handleSearch,
-      handleSearchPage,
+      handleLoadMore,
       handleSearchSelected,
       clearSearch,
       loadSearchSchema,

@@ -21,18 +21,14 @@ from pathlib import Path
 import pytest
 import bgc_viewer.app as app_module
 from bgc_viewer.app import app
-from bgc_viewer.search.document import (
-    Location,
-    ProtoclusterSearchDocument,
-    SearchFields,
-    SourceFile,
-)
+from bgc_viewer.search.document import Location
 from bgc_viewer.search.index import (
-    SearchIndex,
     build_index,
     open_index,
     search_protoclusters,
 )
+from tantivy import Index
+from tantivy import Document
 
 LEVELS = ("protocluster", "region", "record")
 _PROC = Path("/proc/self")
@@ -83,23 +79,22 @@ def _doc(
     record_id: str = "recA",
     region_number: int = 1,
     pfam: tuple[str, ...] = ("PF00501",),
-) -> ProtoclusterSearchDocument:
-    return ProtoclusterSearchDocument(
-        source=SourceFile("8.0.2", "rec.json", "rec.gbk"),
-        search_fields=SearchFields(
-            record_id=record_id,
-            region_number=region_number,
-            protocluster_number=protocluster_number,
-            location=Location.parse("[100:500](+)"),
-            product="NRP",
-            category="NRPS",
-            organism="His Kinase Amycolatopsis",
-            pfam=pfam,
-            pfam_name=(),
-            gene=(),
-            locus=(),
-        ),
-    )
+) -> Document:
+    location = Location.parse("[100:500](+)")
+    document = Document()
+    document.add_text("record", record_id)
+    document.add_integer("region", region_number)
+    document.add_integer("protocluster", protocluster_number)
+    document.add_integer("start", location.start)
+    document.add_integer("end", location.end)
+    document.add_text("product", "NRP")
+    document.add_text("category", "NRPS")
+    document.add_text("organism", "His Kinase Amycolatopsis")
+    for value in pfam:
+        document.add_text("pfam", value)
+    document.add_text("output_file", "rec.json")
+    document.add_text("input_file", "rec.gbk")
+    return document
 
 
 @pytest.fixture
@@ -142,7 +137,7 @@ def _retained_handles(namespace: dict) -> list[str]:
     """
     retained: list[str] = []
     for name, value in namespace.items():
-        if isinstance(value, SearchIndex):
+        if isinstance(value, Index):
             retained.append(name)
             continue
         if isinstance(value, dict):
@@ -151,7 +146,7 @@ def _retained_handles(namespace: dict) -> list[str]:
             members = tuple(value)
         else:
             members = ()
-        if any(isinstance(member, SearchIndex) for member in members):
+        if any(isinstance(member, Index) for member in members):
             retained.append(name)
     return retained
 
@@ -211,7 +206,7 @@ class TestRebuildVisibility:
         index_dir = _index_dir(db_path)
 
         first = json.loads(_search(search_client, "protocluster").data)
-        assert first["total"] == 2
+        assert len(first["hits"]) == 2
 
         shutil.rmtree(index_dir)
         build_index(
@@ -226,7 +221,7 @@ class TestRebuildVisibility:
         )
 
         second = json.loads(_search(search_client, "protocluster").data)
-        assert second["total"] == 3
+        assert len(second["hits"]) == 3
         assert {hit["fields"]["record"] for hit in second["hits"]} == {"recX", "recY"}
 
     def test_a_deleted_index_is_reported_instead_of_served_from_a_stale_reader(
@@ -348,10 +343,7 @@ class TestSchemaEndpointLifecycle:
         db_path, _ = test_database
         _select_database(search_client, db_path)
         index_dir = _index_dir(db_path)
-        meta_path = index_dir / "meta.json"
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        meta["payload"] = json.dumps({"search_schema_version": 999})
-        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        (index_dir / "version.txt").write_text("999", encoding="utf-8")
 
         assert search_client.get("/api/search/schema").status_code == 409
 

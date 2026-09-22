@@ -2,14 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-from bgc_viewer.search.document import (
-    SEARCH_FIELD_REGISTRY,
-    SEARCH_SCHEMA_VERSION,
-    Location,
-    ProtoclusterSearchDocument,
-    SearchFields,
-    SourceFile,
-)
+from bgc_viewer.search.document import SEARCH_SCHEMA_VERSION, Location
 from bgc_viewer.search.extraction import extract_documents
 from bgc_viewer.search.index import (
     EmptyQueryError,
@@ -18,7 +11,6 @@ from bgc_viewer.search.index import (
     IndexNotFoundError,
     QuerySyntaxError,
     SearchHit,
-    SearchIndex,
     SearchResults,
     UnknownFieldError,
     build_index,
@@ -27,9 +19,24 @@ from bgc_viewer.search.index import (
     search_record,
     search_region,
 )
-from tantivy import Index
+from tantivy import Document, Index
 
-BY_NAME = {definition.name: definition for definition in SEARCH_FIELD_REGISTRY}
+SCHEMA_FIELD_NAMES = (
+    "pfam",
+    "pfam_name",
+    "organism",
+    "gene",
+    "locus",
+    "product",
+    "category",
+    "record",
+    "region",
+    "protocluster",
+    "start",
+    "end",
+    "output_file",
+    "input_file",
+)
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
@@ -48,27 +55,34 @@ def _doc(
     locus: tuple[str, ...] = (),
     input_file: str = "rec.gbk",
     output_file: str = "rec.json",
-) -> ProtoclusterSearchDocument:
-    return ProtoclusterSearchDocument(
-        source=SourceFile("8.0.2", output_file, input_file),
-        search_fields=SearchFields(
-            record_id=record_id,
-            region_number=region_number,
-            protocluster_number=protocluster_number,
-            location=Location.parse(location),
-            product=product,
-            category=category,
-            organism=organism,
-            pfam=pfam,
-            pfam_name=pfam_name,
-            gene=gene,
-            locus=locus,
-        ),
-    )
+) -> Document:
+    parsed = Location.parse(location)
+    document = Document()
+    document.add_text("record", record_id)
+    document.add_integer("region", region_number)
+    document.add_integer("protocluster", protocluster_number)
+    document.add_integer("start", parsed.start)
+    document.add_integer("end", parsed.end)
+    document.add_text("product", product)
+    document.add_text("category", category)
+    if organism:
+        document.add_text("organism", organism)
+    for value in pfam:
+        document.add_text("pfam", value)
+    for value in pfam_name:
+        document.add_text("pfam_name", value)
+    for value in gene:
+        document.add_text("gene", value)
+    for value in locus:
+        document.add_text("locus", value)
+    document.add_text("output_file", output_file)
+    if input_file:
+        document.add_text("input_file", input_file)
+    return document
 
 
 @pytest.fixture
-def corpus() -> list[ProtoclusterSearchDocument]:
+def corpus() -> list[Document]:
     return [
         _doc(
             1,
@@ -125,9 +139,9 @@ def _assert_field_spec(field_spec: dict, expected: dict) -> None:
         assert field_spec["options"]["indexing"][key] == value
 
 
-def test_schema_is_derived_from_registry_not_hardcoded(tmp_path):
+def test_schema_has_the_declared_field_set(tmp_path):
     schema_dir = _empty_schema_dir(tmp_path)
-    assert set(schema_dir) == set(BY_NAME)
+    assert set(schema_dir) == set(SCHEMA_FIELD_NAMES)
 
 
 @pytest.mark.parametrize(
@@ -181,8 +195,9 @@ def test_build_index_accepts_a_generator(corpus):
 def test_build_index_persists_search_schema_version(corpus, tmp_path):
     index_dir = tmp_path / "tantivy.index"
     build_index(iter(corpus), index_dir)
-    payload = json.loads((index_dir / "meta.json").read_text())["payload"]
-    assert json.loads(payload) == {"search_schema_version": SEARCH_SCHEMA_VERSION}
+    assert (index_dir / "version.txt").read_text(encoding="utf-8") == str(
+        SEARCH_SCHEMA_VERSION
+    )
 
 
 @pytest.mark.parametrize(
@@ -301,7 +316,7 @@ def test_build_from_extracted_fixture():
     assert _hits(searcher, index, 'category:"trans-AT PKS"') == 1
 
 
-def _open(corpus, tmp_path, name="tantivy.index") -> SearchIndex:
+def _open(corpus, tmp_path, name="tantivy.index") -> Index:
     index_dir = tmp_path / name
     build_index(iter(corpus), index_dir)
     return open_index(index_dir)
@@ -313,7 +328,7 @@ def test_open_index_reopens_a_committed_index(corpus, tmp_path):
 
     reopened = open_index(index_dir)
     result = search_protoclusters(reopened, "pfam:PF00512")
-    assert result.total == 1
+    assert len(result.hits) == 1
 
 
 def test_open_index_missing_path_raises(tmp_path):
@@ -330,12 +345,9 @@ def test_open_index_empty_directory_raises(tmp_path):
 def test_open_index_rejects_mismatched_schema_version(corpus, tmp_path):
     index_dir = tmp_path / "tantivy.index"
     build_index(iter(corpus), index_dir)
-    meta_path = index_dir / "meta.json"
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    payload = json.loads(meta["payload"])
-    payload["search_schema_version"] = SEARCH_SCHEMA_VERSION + 1
-    meta["payload"] = json.dumps(payload)
-    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    (index_dir / "version.txt").write_text(
+        str(SEARCH_SCHEMA_VERSION + 1), encoding="utf-8"
+    )
 
     with pytest.raises(IndexIncompatibleError):
         open_index(index_dir)
@@ -355,10 +367,7 @@ def test_open_index_rejects_incompatible_schema(tmp_path):
     document.add_text("totally", "x")
     writer.add_document(document)
     writer.commit()
-    meta_path = index_dir / "meta.json"
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    meta["payload"] = json.dumps({"search_schema_version": SEARCH_SCHEMA_VERSION})
-    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    (index_dir / "version.txt").write_text(str(SEARCH_SCHEMA_VERSION), encoding="utf-8")
 
     with pytest.raises(IndexIncompatibleError):
         open_index(index_dir)
@@ -378,7 +387,6 @@ def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
     result = search_protoclusters(target, "pfam:PF00512")
 
     expected = SearchResults(
-        query="pfam:PF00512",
         hits=(
             SearchHit(
                 score=result.hits[0].score,
@@ -396,9 +404,7 @@ def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
                 },
             ),
         ),
-        total=1,
-        offset=0,
-        limit=10,
+        has_more=False,
     )
     assert result == expected and result.hits[0].score > 0
 
@@ -427,7 +433,7 @@ def test_search_omits_empty_optional_field(corpus, tmp_path):
 )
 def test_search_exact_fields_are_case_sensitive(corpus, tmp_path, query, expected):
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == expected
+    assert len(search_protoclusters(target, query).hits) == expected
 
 
 @pytest.mark.parametrize(
@@ -443,7 +449,7 @@ def test_search_full_text_is_lowercased_and_phrasable(
     corpus, tmp_path, query, expected
 ):
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == expected
+    assert len(search_protoclusters(target, query).hits) == expected
 
 
 @pytest.mark.parametrize(
@@ -467,7 +473,7 @@ def test_single_word_prefix_is_not_supported(corpus, tmp_path, query):
     quoted phrase; see ``test_phrase_prefix_matches_the_last_word``.
     """
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == 0
+    assert len(search_protoclusters(target, query).hits) == 0
 
 
 @pytest.mark.parametrize(
@@ -486,7 +492,7 @@ def test_search_plain_terms_are_not_typo_tolerated(corpus, tmp_path, query):
     without the searcher asking for it, so no distance is configured.
     """
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == 0
+    assert len(search_protoclusters(target, query).hits) == 0
 
 
 @pytest.mark.parametrize(
@@ -500,7 +506,7 @@ def test_search_plain_terms_are_not_typo_tolerated(corpus, tmp_path, query):
 )
 def test_search_exact_fields_do_not_match_prefixes(corpus, tmp_path, query):
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == 0
+    assert len(search_protoclusters(target, query).hits) == 0
 
 
 @pytest.mark.parametrize(
@@ -533,7 +539,7 @@ def test_path_field_matches_by_component_phrase_and_prefix(tmp_path, query, expe
     index_dir = tmp_path / "tantivy.index"
     build_index(iter(documents), index_dir)
     target = open_index(index_dir)
-    assert search_protoclusters(target, query).total == expected
+    assert len(search_protoclusters(target, query).hits) == expected
 
 
 @pytest.mark.parametrize(
@@ -554,7 +560,7 @@ def test_input_file_is_path_tokenized(tmp_path, query, expected):
     index_dir = tmp_path / "tantivy.index"
     build_index(iter(documents), index_dir)
     target = open_index(index_dir)
-    assert search_protoclusters(target, query).total == expected
+    assert len(search_protoclusters(target, query).hits) == expected
 
 
 @pytest.mark.parametrize(
@@ -579,7 +585,7 @@ def test_phrase_slop_widens_the_gap_between_words(corpus, tmp_path, query, expec
     support and only when the searcher types it.
     """
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == expected
+    assert len(search_protoclusters(target, query).hits) == expected
 
 
 @pytest.mark.parametrize(
@@ -598,7 +604,7 @@ def test_phrase_prefix_matches_the_last_word(corpus, tmp_path, query, expected):
     next to the words before it, so a reversed phrase matches nothing.
     """
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == expected
+    assert len(search_protoclusters(target, query).hits) == expected
 
 
 @pytest.mark.parametrize(
@@ -631,7 +637,7 @@ def test_tilde_on_an_unquoted_term_matches_nothing(corpus, tmp_path, query):
     unquoted term stays part of the term and cannot match.
     """
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == 0
+    assert len(search_protoclusters(target, query).hits) == 0
 
 
 @pytest.mark.parametrize(
@@ -648,16 +654,16 @@ def test_tilde_on_an_unquoted_term_matches_nothing(corpus, tmp_path, query):
 )
 def test_search_boolean_precedence_and_nesting(corpus, tmp_path, query, expected):
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == expected
+    assert len(search_protoclusters(target, query).hits) == expected
 
 
 def test_search_unqualified_covers_default_fields(corpus, tmp_path):
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, "spaA").total == 1
-    assert search_protoclusters(target, "coelicolor").total == 1
-    assert search_protoclusters(target, "SPAU_1").total == 1
+    assert len(search_protoclusters(target, "spaA").hits) == 1
+    assert len(search_protoclusters(target, "coelicolor").hits) == 1
+    assert len(search_protoclusters(target, "SPAU_1").hits) == 1
     # Numeric navigation fields are excluded from unqualified search.
-    assert search_protoclusters(target, "600").total == 0
+    assert len(search_protoclusters(target, "600").hits) == 0
 
 
 @pytest.mark.parametrize(
@@ -666,10 +672,10 @@ def test_search_unqualified_covers_default_fields(corpus, tmp_path):
 )
 def test_search_numeric_range(corpus, tmp_path, query, expected):
     target = _open(corpus, tmp_path)
-    assert search_protoclusters(target, query).total == expected
+    assert len(search_protoclusters(target, query).hits) == expected
 
 
-def test_search_pagination_and_total_counts(corpus, tmp_path):
+def test_search_pagination_and_has_more(corpus, tmp_path):
     many = [
         _doc(number, pfam=("shared",), organism=f"organism {number}")
         for number in range(5)
@@ -677,16 +683,16 @@ def test_search_pagination_and_total_counts(corpus, tmp_path):
     target = _open(many, tmp_path)
 
     page_one = search_protoclusters(target, "pfam:shared", offset=0, limit=2)
-    assert page_one.total == 5
     assert [hit.fields["protocluster"] for hit in page_one.hits] == [0, 1]
+    assert page_one.has_more is True
 
     page_two = search_protoclusters(target, "pfam:shared", offset=3, limit=2)
-    assert page_two.total == 5
     assert [hit.fields["protocluster"] for hit in page_two.hits] == [3, 4]
+    assert page_two.has_more is False
 
     beyond = search_protoclusters(target, "pfam:shared", offset=10, limit=2)
-    assert beyond.total == 5
     assert beyond.hits == ()
+    assert beyond.has_more is False
 
 
 def test_search_equal_scores_resolve_in_insertion_order(corpus, tmp_path):
@@ -726,9 +732,7 @@ def test_search_unknown_field_reports_field_and_available(corpus, tmp_path):
 
     error = excinfo.value
     assert error.field == "go"
-    assert error.available_fields == sorted(
-        definition.name for definition in SEARCH_FIELD_REGISTRY
-    )
+    assert error.available_fields == sorted(SCHEMA_FIELD_NAMES)
 
 
 @pytest.mark.parametrize("query", ["pfam:(", "(pfam:PF00512 AND", "-pfam:PF00512"])
@@ -758,11 +762,11 @@ def test_search_over_index_built_from_fixture(tmp_path):
     index_dir = tmp_path / "tantivy.index"
     build_index(iter(documents), index_dir)
     target = open_index(index_dir)
-    assert search_protoclusters(target, 'category:"trans-AT PKS"').total == 1
+    assert len(search_protoclusters(target, 'category:"trans-AT PKS"').hits) == 1
 
 
 @pytest.fixture
-def grouped() -> list[ProtoclusterSearchDocument]:
+def grouped() -> list[Document]:
     return [
         _doc(1, record_id="recA", region_number=1, pfam=("shared",)),
         _doc(2, record_id="recA", region_number=1, pfam=("shared",)),
@@ -774,7 +778,7 @@ def grouped() -> list[ProtoclusterSearchDocument]:
 def test_search_region_collapses_protoclusters_into_unique_regions(grouped, tmp_path):
     target = _open(grouped, tmp_path)
     result = search_region(target, "pfam:shared")
-    assert result.total == 3
+    assert len(result.hits) == 3
     assert [(hit.record, hit.region) for hit in result.hits] == [
         ("recA", 1),
         ("recA", 2),
@@ -788,13 +792,13 @@ def test_search_region_collapses_protoclusters_into_unique_regions(grouped, tmp_
 def test_search_record_collapses_protoclusters_into_unique_records(grouped, tmp_path):
     target = _open(grouped, tmp_path)
     result = search_record(target, "pfam:shared")
-    assert result.total == 2
+    assert len(result.hits) == 2
     assert [hit.record for hit in result.hits] == ["recA", "recB"]
     assert all(hit.output_file == "rec.json" for hit in result.hits)
     assert all(hit.input_file == "rec.gbk" for hit in result.hits)
 
 
-def test_grouped_search_totals_are_nested(tmp_path):
+def test_grouped_search_hit_counts_are_nested(tmp_path):
     documents = [
         _doc(1, record_id="recA", region_number=1, pfam=("shared",)),
         _doc(2, record_id="recA", region_number=1, pfam=("shared",)),
@@ -805,9 +809,9 @@ def test_grouped_search_totals_are_nested(tmp_path):
     protoclusters = search_protoclusters(target, "pfam:shared", limit=10)
     regions = search_region(target, "pfam:shared", limit=10)
     records = search_record(target, "pfam:shared", limit=10)
-    assert protoclusters.total == 4
-    assert regions.total == 3
-    assert records.total == 2
+    assert len(protoclusters.hits) == 4
+    assert len(regions.hits) == 3
+    assert len(records.hits) == 2
 
 
 def test_region_score_is_best_matching_protocluster(tmp_path):
@@ -845,23 +849,23 @@ def test_region_score_is_best_matching_protocluster(tmp_path):
 def test_search_region_pagination(grouped, tmp_path):
     target = _open(grouped, tmp_path)
     page = search_region(target, "pfam:shared", offset=1, limit=1)
-    assert page.total == 3
     assert [(hit.record, hit.region) for hit in page.hits] == [("recA", 2)]
+    assert page.has_more is True
 
     beyond = search_region(target, "pfam:shared", offset=5, limit=2)
-    assert beyond.total == 3
     assert beyond.hits == ()
+    assert beyond.has_more is False
 
 
 def test_search_record_pagination(grouped, tmp_path):
     target = _open(grouped, tmp_path)
     page = search_record(target, "pfam:shared", offset=1, limit=1)
-    assert page.total == 2
     assert [hit.record for hit in page.hits] == ["recB"]
+    assert page.has_more is False
 
     beyond = search_record(target, "pfam:shared", offset=3, limit=2)
-    assert beyond.total == 2
     assert beyond.hits == ()
+    assert beyond.has_more is False
 
 
 def test_grouped_search_omits_empty_input_file(tmp_path):
@@ -880,10 +884,10 @@ def test_grouped_search_excludes_non_matching_regions(tmp_path):
     ]
     target = _open(documents, tmp_path)
     regions = search_region(target, "pfam:match")
-    assert regions.total == 1
+    assert len(regions.hits) == 1
     assert (regions.hits[0].record, regions.hits[0].region) == ("recA", 1)
     records = search_record(target, "pfam:match")
-    assert records.total == 1
+    assert len(records.hits) == 1
     assert records.hits[0].record == "recA"
 
 

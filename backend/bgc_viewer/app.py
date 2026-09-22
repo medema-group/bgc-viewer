@@ -1127,7 +1127,7 @@ def _open_search_index():
     """Open a fresh handle on the current database's sibling search index.
 
     The handle is never cached. Every search request opens its own
-    :class:`~bgc_viewer.search.index.SearchIndex`, and nothing may retain it
+    :class:`~tantivy.Index`, and nothing may retain it
     past the request that created it: a live handle keeps the index memory
     mappings and the Tantivy meta lock pinned, so a cached reader would keep
     the deleted segments of an in-place rebuild alive and keep serving the

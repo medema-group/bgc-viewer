@@ -8,9 +8,9 @@ One Tantivy document is one protocluster.
 
 | Concern | Path |
 | --- | --- |
-| Field registry, schema version, canonical document | `backend/bgc_viewer/search/document.py` |
-| Index build, open, search | `backend/bgc_viewer/search/index.py` |
-| antiSMASH adapters and extraction | `backend/bgc_viewer/search/extraction.py` |
+| Public field metadata, location parsing, example templates, schema version | `backend/bgc_viewer/search/document.py` |
+| Tantivy schema, query config, index build/open/search | `backend/bgc_viewer/search/index.py` |
+| antiSMASH JSON extraction to Tantivy documents | `backend/bgc_viewer/search/extraction.py` |
 | Build sentinel and rebuild signaling | `backend/bgc_viewer/search/build_state.py` |
 | HTTP request/response contract | `backend/bgc_viewer/search/api.py` |
 | Development CLI | `backend/bgc_viewer/search/cli.py` |
@@ -18,52 +18,38 @@ One Tantivy document is one protocluster.
 | Search tests | `backend/bgc_viewer/tests/search/` |
 | antiSMASH fixtures | `backend/bgc_viewer/tests/search/fixtures/` |
 
-## Search field registry
+## Search fields
 
-The registry defined what fields are indexed and how.
+There is no single field-registry object. A searchable field is declared in
+four places that the tests keep in step:
 
-The field registry (`SEARCH_FIELD_REGISTRY`) in
-[`backend/bgc_viewer/search/document.py`](https://github.com/medema-group/bgc-viewer/blob/main/backend/bgc_viewer/search/document.py)
-is the single source of truth for searchable fields. Each entry's public
-projection — the `name`, `kind`, `unqualified`, and `description` keys
-served to searchers — is documented in the
-[search API reference](/api/search#search-schema).
+1. **Schema** — `_SCHEMA` in
+   [`backend/bgc_viewer/search/index.py`](https://github.com/medema-group/bgc-viewer/blob/main/backend/bgc_viewer/search/index.py):
+   the ordered `(name, tokenizer)` list that `build_schema()` turns into
+   Tantivy fields. The tokenizer is `raw` (exact whole-value match),
+   `default` (full-text), `path` (the custom path tokenizer), or
+   `numeric` (a stored integer with a fast field).
+2. **Query config** — also in `index.py`: `_DEFAULT_SEARCH_FIELDS`
+   (derived: every non-numeric field), `_FIELD_BOOSTS` (the per-field
+   query-time weight, never stored), and `_RETURNED_FIELDS` (which stored
+   fields come back in ordinary hits).
+3. **Public metadata** — `PUBLIC_FIELDS` in `document.py`: the
+   `PublicFieldInfo(name, kind, unqualified, description)` rows served to
+   the help popup and `GET /api/search/schema`. The public `kind`
+   (`exact` / `full_text` / `path` / `numeric`) and `unqualified` flag
+   are written here directly rather than derived from a registry.
+4. **Extraction** — `_document()` in `extraction.py`: how each field is
+   populated from antiSMASH JSON.
 
-Every entry is a `SearchFieldDefinition`. Only `name` and
-`description` keys reach the public web API directly.
+The current field set is defined in the code, not duplicated here: see
+`_SCHEMA` in `index.py` for the indexed fields and their tokenizers, and
+`PUBLIC_FIELDS` in `document.py` for the public `kind`, `unqualified`,
+and `description` of each.
 
-- `name` — the public field name, also the Tantivy field name; served as
-  `name`.
-- `description` — plain-prose description served as `description`; no
-  markup, because the help popup renders it verbatim.
-- `attribute` — which attribute of the canonical document the field
-  reads: looked up on `SearchFields` first, then on `SourceFile`.
-- `value_type` — `text`, `keyword`, or `numeric`. `numeric` is stored as
-  a Tantivy integer with a fast field; `text` and `keyword` are both
-  stored as Tantivy text fields, where the type records the intent of the
-  value — prose versus identifier — while the analyzer decides matching.
-  Together with `analyzer` this also determines the public `kind`.
-- `cardinality` — `single` or `multi`. A `multi` value is a tuple of
-  non-empty, deduplicated strings, each indexed as its own term; a
-  `single` empty string is not indexed at all.
-- `analyzer` — `exact` maps to Tantivy's `raw` tokenizer (whole value,
-  no case folding) and `full_text` to the `default` tokenizer (word
-  segmentation, lowercase, indexed positions). `path` maps to a custom
-  tokenizer registered on every index that splits on `/` and `.`, so a
-  file path is searchable by directory, stem, or extension while the
-  whole value still matches as a phrase. Only numeric fields carry
-  `None`.
-- `returned` — every registered field is stored so its value can be read
-  back for example collection and diagnostics; `returned` selects which
-  stored fields come back in ordinary search hits.
-- `default_search` — whether an unqualified term searches the field;
-  surfaced in the public API as `unqualified`.
-- `boost` — a static query-time weight handed to the Tantivy query
-  parser for every non-numeric field, scaling that field's score
-  contribution. It is never stored in the index.
-- `required` — canonical-document validation: a required field whose
-  value is an empty string or empty tuple rejects the document at
-  construction time.
+A field's `kind` and its schema tokenizer describe the same matching
+behavior from two angles: `exact`↔`raw`, `full_text`↔`default`,
+`path`↔`path`, `numeric`↔`numeric`. Every non-numeric field is
+unqualified (searched by a bare term); numeric fields are not.
 
 ## Query language
 
@@ -168,43 +154,59 @@ uv run python -m bgc_viewer.search.cli search /tmp/bgv 'pfam:PF00550' --level re
 
 ## Versioning
 
-Bump `SEARCH_SCHEMA_VERSION` in `document.py` whenever a registry change
-alters the stored Tantivy schema or the values that get stored, which means
-changing a field's:
+Bump `SEARCH_SCHEMA_VERSION` in `document.py` whenever a change alters the
+stored Tantivy schema or the values that get stored, which means changing a
+field's:
 
-- `name`
-- `value_type`
-- `analyzer`
-- `cardinality`, when the change alters what is extracted for the field
-- the extraction semantics of an existing field
+- `name` (the `_SCHEMA` entry in `index.py`)
+- tokenizer (`raw` / `default` / `path`) or its numeric-vs-text nature
+- the extraction semantics of an existing field (what value
+  `_document()` writes for it)
 
-Do **not** bump it for query-time or display-only changes: `boost`,
-`default_search`, `returned`, and `description` are applied
-when a query is parsed or a response is assembled and leave the stored index
+Do **not** bump it for query-time or display-only changes: the boost
+(`_FIELD_BOOSTS`), the unqualified/default-search set
+(`_DEFAULT_SEARCH_FIELDS`), the returned-field set
+(`_RETURNED_FIELDS`), and the public `description` are applied when a
+query is parsed or a response is assembled and leave the stored index
 untouched.
 
 ## Contributor recipes
 
 ### Adding a search field
 
-1. Add one typed `SearchFieldDefinition` to `SEARCH_FIELD_REGISTRY` in
-   `backend/bgc_viewer/search/document.py`, setting every key described
-   in [Search field registry keys](#search-field-registry) above.
-2. Add the attribute to `SearchFields` or `SourceFile` in `document.py`.
-3. Add extraction for it to each adapter in
-   `backend/bgc_viewer/search/extraction.py` that can provide it. Missing
-   optional data produces an empty value, not a failed file.
-4. Bump `SEARCH_SCHEMA_VERSION` if the change alters the stored schema, per
-   the rules above.
-5. Add a minimal fixture containing two protoclusters that differ only in the
-   new field under `backend/bgc_viewer/tests/search/fixtures/antismash8/`.
-6. Add exact or full-text, Boolean, unqualified-search, and missing-value
-   tests as appropriate in `backend/bgc_viewer/tests/search/test_index.py`.
+A new field touches four places plus tests:
+
+1. **Schema** — add `(name, tokenizer)` to `_SCHEMA` in `index.py`,
+   where `tokenizer` is `raw`, `default`, `path`, or `numeric`. This is
+   what `build_schema()` indexes and stores.
+2. **Query config** — in `index.py`: add a boost to `_FIELD_BOOSTS` for
+   a text field (numeric fields are not boosted), and add
+   `(name, "text" | "numeric")` to `_RETURNED_FIELDS` if the value
+   should come back in ordinary hits. Unqualified search is automatic for
+   every non-numeric field via `_DEFAULT_SEARCH_FIELDS`.
+3. **Public metadata** — add a `PublicFieldInfo(name, kind, unqualified,
+   description)` to `PUBLIC_FIELDS` in `document.py`. Keep `kind`
+   consistent with the schema tokenizer and `unqualified` consistent with
+   the default-search rule (true for every non-numeric field).
+4. **Extraction** — populate the field in `_document()` in
+   `extraction.py`: add each item for a multi-valued field, skip a single
+   text field when empty, and use `add_integer` for a numeric field.
+   Missing optional data produces an empty value, not a failed file.
+5. Bump `SEARCH_SCHEMA_VERSION` if the change alters the stored schema,
+   per the rules above.
+6. Add a minimal fixture containing two protoclusters that differ only in
+   the new field under `backend/bgc_viewer/tests/search/fixtures/antismash8/`.
+7. Add exact or full-text, Boolean, unqualified-search, and missing-value
+   tests as appropriate in `backend/bgc_viewer/tests/search/test_index.py`,
+   and a `PUBLIC_FIELDS` row check in `test_api.py`.
 
 ### Supporting a changed antiSMASH major version
 
-Any valid 8.x file produces the same search-document structure. 
-Other major versions run the
-same v8-compatible extraction path optimistically and are accepted whenever
-the required record, feature, location, and protocluster qualifier structures
-can be read and the generated documents validate.
+There is no per-version adapter. `extraction.py` reads the current
+antiSMASH JSON structure directly and is version-agnostic: the declared
+`version` is read only for diagnostics (the duplicate-identity message).
+Any file whose record, feature, location, and protocluster qualifier
+structure matches the expected shape extracts successfully regardless of
+the declared major version. If a future major version changes that
+structure, update `_extract_records` / `_document` in `extraction.py`
+(and bump `SEARCH_SCHEMA_VERSION` if the stored values change).

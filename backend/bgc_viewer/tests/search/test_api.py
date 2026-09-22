@@ -8,9 +8,9 @@ level-independent ``GET /api/search/schema`` endpoint.
 
 import json
 import sqlite3
-from typing import Any
 
 import pytest
+from tantivy import Document
 import bgc_viewer.app as app_module
 from bgc_viewer.app import (
     MissingDatabaseError,
@@ -30,15 +30,9 @@ from bgc_viewer.search.api import (
 )
 from bgc_viewer.search.build_state import mark_building
 from bgc_viewer.search.document import (
-    SEARCH_FIELD_REGISTRY,
+    PUBLIC_FIELDS,
     SEARCH_SCHEMA_VERSION,
     Location,
-    ProtoclusterSearchDocument,
-    SearchFieldDefinition,
-    SearchFields,
-    SourceFile,
-    public_field_metadata,
-    public_kind,
 )
 from bgc_viewer.search.index import (
     EmptyQueryError,
@@ -54,6 +48,36 @@ from bgc_viewer.search.index import (
     search_region,
 )
 
+SCHEMA_FIELD_NAMES = (
+    "pfam",
+    "pfam_name",
+    "organism",
+    "gene",
+    "locus",
+    "product",
+    "category",
+    "record",
+    "region",
+    "protocluster",
+    "start",
+    "end",
+    "output_file",
+    "input_file",
+)
+RETURNED_FIELDS = {
+    "organism",
+    "product",
+    "category",
+    "record",
+    "region",
+    "protocluster",
+    "start",
+    "end",
+    "output_file",
+    "input_file",
+}
+INDEXED_ONLY_FIELDS = {"pfam", "pfam_name", "gene", "locus"}
+
 
 def _doc(
     protocluster_number: int,
@@ -65,27 +89,27 @@ def _doc(
     category: str = "NRPS",
     organism: str = "His Kinase Amycolatopsis",
     pfam: tuple[str, ...] = (),
-) -> ProtoclusterSearchDocument:
-    return ProtoclusterSearchDocument(
-        source=SourceFile("8.0.2", "rec.json", "rec.gbk"),
-        search_fields=SearchFields(
-            record_id=record_id,
-            region_number=region_number,
-            protocluster_number=protocluster_number,
-            location=Location.parse(location),
-            product=product,
-            category=category,
-            organism=organism,
-            pfam=pfam,
-            pfam_name=(),
-            gene=(),
-            locus=(),
-        ),
-    )
+) -> Document:
+    parsed = Location.parse(location)
+    document = Document()
+    document.add_text("record", record_id)
+    document.add_integer("region", region_number)
+    document.add_integer("protocluster", protocluster_number)
+    document.add_integer("start", parsed.start)
+    document.add_integer("end", parsed.end)
+    document.add_text("product", product)
+    document.add_text("category", category)
+    if organism:
+        document.add_text("organism", organism)
+    for value in pfam:
+        document.add_text("pfam", value)
+    document.add_text("output_file", "rec.json")
+    document.add_text("input_file", "rec.gbk")
+    return document
 
 
 @pytest.fixture
-def grouped_corpus() -> list[ProtoclusterSearchDocument]:
+def grouped_corpus() -> list[Document]:
     return [
         _doc(1, record_id="recA", region_number=1, pfam=("shared",)),
         _doc(2, record_id="recA", region_number=1, pfam=("shared",)),
@@ -138,23 +162,23 @@ class TestParseSearchRequest:
 
 
 class TestResponseFromResults:
-    def test_response_carries_only_hits_and_total(self, index_dir):
+    def test_response_carries_only_hits_and_has_more(self, index_dir):
         results = search_protoclusters(
             open_index(index_dir), "pfam:shared", offset=0, limit=2
         )
         response = SearchResponse.from_results(results)
-        assert response.total == 4
+        assert response.has_more is True
         assert len(response.hits) == 2
 
-    def test_region_response_total_counts_distinct_regions(self, index_dir):
+    def test_region_response_has_more_for_distinct_regions(self, index_dir):
         results = search_region(open_index(index_dir), "pfam:shared", offset=0, limit=2)
         response = SearchResponse.from_results(results)
-        assert response.total == 3
+        assert response.has_more is True
 
-    def test_record_response_zero_total_reports_no_hits(self, index_dir):
+    def test_record_response_zero_hits_reports_no_more(self, index_dir):
         results = search_record(open_index(index_dir), "pfam:none", offset=0, limit=20)
         response = SearchResponse.from_results(results)
-        assert response.total == 0
+        assert response.has_more is False
         assert response.hits == ()
 
 
@@ -209,8 +233,8 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {"hits", "total"}
-        assert data["total"] == 2
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is False
         assert set(data["hits"][0]) == {"score", "fields"}
         assert data["hits"][0]["fields"]["record"] in {"test_record_1", "test_record_2"}
 
@@ -222,8 +246,8 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {"hits", "total"}
-        assert data["total"] == 2
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is False
         assert set(data["hits"][0]) == {
             "score",
             "record",
@@ -240,8 +264,8 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {"hits", "total"}
-        assert data["total"] == 2
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is False
         assert set(data["hits"][0]) == {"score", "record", "output_file", "input_file"}
 
     def test_pagination_limits_hits_without_echoing_request(
@@ -254,8 +278,8 @@ class TestSearchEndpoint:
             json={"query": "pfam:PF00501", "page": 1, "per_page": 1},
         )
         data = json.loads(response.data)
-        assert set(data) == {"hits", "total"}
-        assert data["total"] == 2
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is True
         assert len(data["hits"]) == 1
 
     def test_unknown_level_is_not_a_route(self, search_client, test_database):
@@ -305,7 +329,7 @@ class TestSearchEndpoint:
         data = json.loads(response.data)
         assert data["error"]["code"] == "unknown_field"
         assert data["error"]["details"]["available_fields"] == sorted(
-            definition.name for definition in SEARCH_FIELD_REGISTRY
+            SCHEMA_FIELD_NAMES
         )
 
     def test_syntax_error_returns_400_invalid_query(self, search_client, test_database):
@@ -355,12 +379,8 @@ class TestSearchEndpoint:
     def test_incompatible_index_returns_409(self, search_client, test_database):
         db_path, _ = test_database
         _select_database(search_client, db_path)
-        meta_path = db_path.parent / "tantivy.index" / "meta.json"
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        meta["payload"] = json.dumps(
-            {"search_schema_version": SEARCH_SCHEMA_VERSION + 1}
-        )
-        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        version_path = db_path.parent / "tantivy.index" / "version.txt"
+        version_path.write_text(str(SEARCH_SCHEMA_VERSION + 1), encoding="utf-8")
 
         response = search_client.post(
             "/api/search/protocluster", json={"query": "pfam:PF00501"}
@@ -375,16 +395,8 @@ class TestSearchEndpoint:
         response = search_client.post(
             "/api/search/protocluster", json={"query": "pfam:PF00501"}
         )
-        returned = {
-            definition.name
-            for definition in SEARCH_FIELD_REGISTRY
-            if definition.returned
-        }
-        indexed_only = {
-            definition.name
-            for definition in SEARCH_FIELD_REGISTRY
-            if not definition.returned
-        }
+        returned = RETURNED_FIELDS
+        indexed_only = INDEXED_ONLY_FIELDS
         for hit in json.loads(response.data)["hits"]:
             assert returned <= set(hit["fields"])
             assert not indexed_only & set(hit["fields"])
@@ -434,13 +446,16 @@ class TestSearchEndpointRanking:
     ):
         _select_database(search_client, ranked_database)
         full = self._search(search_client, per_page=10)
-        assert full["total"] == 3
+        assert full["has_more"] is False
 
         paged: list[dict] = []
-        for page in range(1, 4):
+        page = 1
+        while True:
             page_data = self._search(search_client, page=page, per_page=1)
-            assert page_data["total"] == full["total"]
             paged.extend(page_data["hits"])
+            if not page_data["has_more"]:
+                break
+            page += 1
 
         assert [hit["score"] for hit in paged] == [hit["score"] for hit in full["hits"]]
         assert [hit["fields"]["protocluster"] for hit in paged] == [
@@ -462,44 +477,24 @@ class TestSearchEndpointRanking:
             ]
             assert [hit["fields"]["protocluster"] for hit in singles] == [1, 2, 3]
 
-    def test_a_page_beyond_the_end_returns_no_hits_without_changing_the_total(
+    def test_a_page_beyond_the_end_returns_no_hits_and_no_more(
         self, search_client, ranked_database
     ):
         _select_database(search_client, ranked_database)
         data = self._search(search_client, page=9, per_page=5)
         assert data["hits"] == []
-        assert data["total"] == 3
+        assert data["has_more"] is False
 
 
 # --- Public field projection -------------------------------------------------
 
 
-def _definition(**overrides) -> SearchFieldDefinition:
-    fields: dict[str, Any] = dict(
-        name="go",
-        description="Gene Ontology term of the protocluster.",
-        attribute="go",
-        value_type="keyword",
-        cardinality="multi",
-        analyzer="exact",
-        returned=False,
-        default_search=True,
-        boost=2.0,
-        required=False,
-    )
-    fields.update(overrides)
-    return SearchFieldDefinition(**fields)
-
-
 class TestPublicFieldProjection:
-    def test_every_registered_field_is_projected_in_registry_order(self):
-        projected = public_field_metadata()
-        assert [info.name for info in projected] == [
-            definition.name for definition in SEARCH_FIELD_REGISTRY
-        ]
+    def test_every_field_is_projected_in_declared_order(self):
+        assert [info.name for info in PUBLIC_FIELDS] == list(SCHEMA_FIELD_NAMES)
 
     def test_kind_comes_from_the_analyzer_for_text_fields(self):
-        kinds = {info.name: info.kind for info in public_field_metadata()}
+        kinds = {info.name: info.kind for info in PUBLIC_FIELDS}
         assert kinds["pfam"] == "exact"
         assert kinds["product"] == "exact"
         assert kinds["output_file"] == "path"
@@ -508,33 +503,24 @@ class TestPublicFieldProjection:
         assert kinds["pfam_name"] == "full_text"
 
     def test_kind_is_numeric_for_fields_without_an_analyzer(self):
-        kinds = {info.name: info.kind for info in public_field_metadata()}
+        kinds = {info.name: info.kind for info in PUBLIC_FIELDS}
         for name in ("region", "protocluster", "start", "end"):
             assert kinds[name] == "numeric", name
 
-    def test_unqualified_mirrors_the_registry_default_search_flag(self):
-        projected = {info.name: info for info in public_field_metadata()}
-        for definition in SEARCH_FIELD_REGISTRY:
-            assert projected[definition.name].unqualified == definition.default_search
+    def test_unqualified_is_true_for_every_non_numeric_field(self):
+        for info in PUBLIC_FIELDS:
+            assert info.unqualified == (info.kind != "numeric"), info.name
 
     def test_no_numeric_field_participates_in_unqualified_search(self):
         assert [
             info.name
-            for info in public_field_metadata()
+            for info in PUBLIC_FIELDS
             if info.kind == "numeric" and info.unqualified
         ] == []
 
     def test_every_field_carries_a_non_empty_description(self):
-        empty = [
-            info.name
-            for info in public_field_metadata()
-            if not info.description.strip()
-        ]
+        empty = [info.name for info in PUBLIC_FIELDS if not info.description.strip()]
         assert empty == []
-
-    def test_public_kind_rejects_a_text_field_with_no_analyzer(self):
-        with pytest.raises(ValueError, match="no user-facing kind"):
-            public_kind(_definition(value_type="keyword", analyzer=None))
 
 
 # --- Example reads -----------------------------------------------------------
@@ -576,9 +562,7 @@ class TestReadExampleQueries:
     ):
         db_path, _ = test_database
         response = build_schema_response(db_path)
-        assert [info.name for info in response.fields] == [
-            definition.name for definition in SEARCH_FIELD_REGISTRY
-        ]
+        assert [info.name for info in response.fields] == list(SCHEMA_FIELD_NAMES)
         assert list(response.examples) == _example_queries(db_path)
         assert response.query_syntax_url == QUERY_SYNTAX_URL
 
@@ -638,9 +622,7 @@ class TestSchemaEndpoint:
         db_path, _ = test_database
         _select_database(search_client, db_path)
         data = json.loads(_schema(search_client).data)
-        assert [field["name"] for field in data["fields"]] == [
-            definition.name for definition in SEARCH_FIELD_REGISTRY
-        ]
+        assert [field["name"] for field in data["fields"]] == list(SCHEMA_FIELD_NAMES)
 
     def test_examples_are_the_generated_queries_in_template_order(
         self, search_client, test_database
@@ -692,7 +674,7 @@ class TestSchemaEndpoint:
         assert response.status_code == 200
         assert opened == [str(db_path.parent / "tantivy.index")]
         data = json.loads(response.data)
-        assert len(data["fields"]) == len(SEARCH_FIELD_REGISTRY)
+        assert len(data["fields"]) == len(SCHEMA_FIELD_NAMES)
         assert data["examples"] == SAMPLE_EXAMPLES
 
     def test_no_database_selected_returns_400(self, search_client):
@@ -717,12 +699,8 @@ class TestSchemaEndpoint:
     def test_incompatible_schema_returns_409(self, search_client, test_database):
         db_path, _ = test_database
         _select_database(search_client, db_path)
-        meta_path = db_path.parent / "tantivy.index" / "meta.json"
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        meta["payload"] = json.dumps(
-            {"search_schema_version": SEARCH_SCHEMA_VERSION + 1}
-        )
-        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        version_path = db_path.parent / "tantivy.index" / "version.txt"
+        version_path.write_text(str(SEARCH_SCHEMA_VERSION + 1), encoding="utf-8")
 
         response = _schema(search_client)
         assert response.status_code == 409
@@ -782,4 +760,4 @@ class TestSchemaEndpoint:
         assert response.status_code == 200
         data = json.loads(response.data)
         assert data["examples"] == []
-        assert len(data["fields"]) == len(SEARCH_FIELD_REGISTRY)
+        assert len(data["fields"]) == len(SCHEMA_FIELD_NAMES)

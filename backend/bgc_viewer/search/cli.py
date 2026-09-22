@@ -13,7 +13,8 @@ from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
-from .document import ProtoclusterSearchDocument
+from tantivy import Document
+
 from .extraction import ExtractionError, extract_documents
 from .index import (
     RecordHit,
@@ -34,19 +35,10 @@ class _PrintableResults(Protocol):
     """Structural view shared by the protocluster, region, and record results."""
 
     @property
-    def query(self) -> str: ...
-
-    @property
     def hits(self) -> tuple[Any, ...]: ...
 
     @property
-    def total(self) -> int: ...
-
-    @property
-    def offset(self) -> int: ...
-
-    @property
-    def limit(self) -> int: ...
+    def has_more(self) -> bool: ...
 
 
 HitFormatter = Callable[[int, Any], str]
@@ -134,18 +126,18 @@ def _format_record_hit(position: int, hit: RecordHit) -> str:
     )
 
 
-def _print_results(result: _PrintableResults, format_hit: HitFormatter) -> None:
-    print(f"query: {result.query}")
-    if result.total == 0:
-        print("0 total")
-        return
+def _print_results(
+    result: _PrintableResults, format_hit: HitFormatter, query: str, offset: int
+) -> None:
+    print(f"query: {query}")
     shown = len(result.hits)
     if shown == 0:
-        print(f"{result.total} total; no hits at offset {result.offset}")
+        print("no hits")
         return
-    first = result.offset + 1
-    last = result.offset + shown
-    print(f"{result.total} total; showing {first}-{last}")
+    first = offset + 1
+    last = offset + shown
+    more = " (more available)" if result.has_more else ""
+    print(f"showing {first}-{last}{more}")
     for position, hit in enumerate(result.hits, start=first):
         print(format_hit(position, hit))
 
@@ -162,7 +154,7 @@ def _build_command(args: argparse.Namespace) -> int:
     warnings.simplefilter("default")
     indexed = 0
 
-    def streaming() -> Iterable[ProtoclusterSearchDocument]:
+    def streaming() -> Iterable[Document]:
         nonlocal indexed
         for document in extract_documents(
             files, source_root, warning_threshold=args.warning_threshold
@@ -207,7 +199,7 @@ def _search_command(args: argparse.Namespace) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
-    _print_results(result, format_hit)
+    _print_results(result, format_hit, query, args.offset)
     return 0
 
 
