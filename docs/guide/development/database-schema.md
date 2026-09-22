@@ -1,5 +1,8 @@
 # Database Schema Documentation
 
+> **⚠️ Warning**: The database specification is still under development and subject to change. The schema may be modified in future releases, and backward compatibility is not guaranteed.
+
+
 ## Overview
 
 The BGC Viewer uses a SQLite database to index and efficiently search antiSMASH JSON files. The schema is designed to support:

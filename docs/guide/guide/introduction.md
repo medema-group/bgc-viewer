@@ -1,4 +1,4 @@
-# Getting Started
+# Introduction
 
 Welcome to BGC Viewer! This guide will help you get started with visualizing biosynthetic gene clusters.
 
@@ -41,6 +41,13 @@ The frontend has two functions, which are reflected in two separate build target
 
 ## Next Steps
 
-- [Installation Guide](./installation.md) - Set up BGC Viewer
-- [Quick Start](./quick-start.md) - Run your first visualization
+**For End Users:**
+- [Quick Start](./quick-start.md) - Install and run BGC Viewer in minutes
+
+**For Developers:**
+- [Developer Setup](./dev-setup.md) - Set up your development environment
+
+**For Component Integration:**
+- [Web Components Guide](../components/web-components.md) - Embed BGC Viewer in your app
 - [Component Reference](../components/track-viewer.md) - Explore available components
+- [REST API Reference](../api/overview.md) - Use the API directly
