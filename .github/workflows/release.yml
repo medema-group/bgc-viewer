@@ -248,6 +248,7 @@ jobs:
         merge-multiple: true
 
     - name: List downloaded wheels
+      shell: bash
       run: |
         echo "=== Wheels in dist/ ==="
         ls -la dist/ || echo "dist/ not found"
