@@ -1,85 +1,76 @@
-# Data Sources and Input Formats
+# Data sources and input formats
 
-BGC Viewer supports a number of different approaches for loading biosynthetic gene cluster (BGC) data. This guide explains how each data source works, supported file formats, and when to use each approach.
+BGC Viewer supports two main approaches for exploring biosynthetic gene cluster (BGC) data. Choose the approach that best fits your needs.
 
-### 1. BGC Viewer API (Backend with Database)
+## Quick reference
 
-A Flask backend that indexes and serves data from a directory containing antiSMASH JSON output files. If you're using the application on a public server, the data is fixed and you don't need to worry about creating an index. If you're running the application locally, you'll need to create the index yourself (see [Creating an Index](#creating-an-index)).
+| Approach | When to use | Supported formats |
+|----------|------------|-------------------|
+| **Direct file loading** | Quick exploration of a few files, no setup needed | antiSMASH JSON, GenBank |
+| **Backend API with database** | Large datasets, persistent access, advanced search | antiSMASH JSON (preprocessed) |
 
-**Different modes of use**
-- Runs locally for private use.
-- Runs on a server so you can explore your (large) data remotely.
-- Runs on a public server for demos or public datasets.
+## Direct file loading (client-side)
 
-**Key Features:**
-- Requires preprocessing/indexing of data directory
-- Currently supports antiSMASH JSON format only
-- Efficient searching and filtering across large datasets
+The fastest way to get started. Upload files directly in your browser—no server or preprocessing required.
 
-**How it works:**
-Run preprocessing through the user interface or through the command line to index a directory of antiSMASH JSON files (see [Creating an Index](#creating-an-index)). The data can then be explored. It is loaded on-demand from the indexed database.
+**How it works:** Select one or more files using the file picker or drag them into the upload area. Files are read and processed in your browser, and data stays on your computer. Perfect for quick visualization without any setup.
+
+**Supported formats:**
+- antiSMASH JSON files (`.json`)
+- GenBank format files (`.gb`, `.gbk`, `.genbank`)
+
+**Best for:**
+- Exploring a few genomes quickly
+- Testing the viewer
+- Analyzing single-genome results
+
+## BGC Viewer API (Backend with Database)
+
+For larger datasets or when you want persistent access to your data with powerful search capabilities.
+
+**How it works:** Index a directory of antiSMASH JSON files once, then explore them through the web interface. The backend creates a searchable database, enabling efficient filtering and search across your entire dataset.
+
+**Supported formats:**
+- antiSMASH JSON files (`.json`)
+- Gzip-compressed JSON (`.json.gz`)
+- Bzip2-compressed JSON (`.json.bz2`)
+
+**Best for:**
+- Exploring large collections of antiSMASH results
+- Running on a server for remote access
+- Persistent data exploration across sessions
 
 
+## Setting up the backend
 
-### 2. Direct File Loading (Client-Side)
+If you're working with a large dataset or want to host the viewer on a server, you'll need to index your data first.
 
-Load data files directly in the browser without uploading to a server.
-
-**Key Features:**
-- No server required - runs entirely in browser
-- Files are never uploaded - processed locally
-- Supports antiSMASH JSON and GenBank formats
-- Best for single genomes or small collections
-- Quick visualization without preprocessing
-
-**How it works:**
-1. User selects file(s) using browser file picker
-2. Files are read and parsed in the browser
-3. Data is stored in browser memory
-4. Visualization happens entirely client-side
-
----
-
-#### Creating an Index
-
-The indexing process scans a directory for antiSMASH output files and creates a searchable SQLite database. This enables efficient searching and filtering across large datasets.
-
-**Supported File Formats:**
-- `.json` - antiSMASH JSON output
-- `.json.gz` - Gzip-compressed JSON
-- `.json.bz2` - Bzip2-compressed JSON
-
-**Method 1: Command Line**
-
-Use the preprocessing CLI tool to index a directory:
+### Command line
 
 ```bash
-# Basic indexing
+# Index a directory of antiSMASH output files
 python -m bgc_viewer.preprocess_cli /path/to/antismash/output
 
-# Specify output database location
+# Specify where to save the database
 python -m bgc_viewer.preprocess_cli \
     /path/to/antismash/output \
     --output /path/to/attributes.db
 
-# Verbose output
+# Verbose output for debugging
 python -m bgc_viewer.preprocess_cli /path/to/antismash/output --verbose
 ```
 
-The tool will:
-1. Scan the data directory for antiSMASH JSON files
-2. Extract searchable attributes (cluster types, products, organisms, etc.)
-3. Create/update the SQLite database file
+The preprocessing tool will scan your directory for antiSMASH JSON files and create a searchable SQLite database containing extracted metadata (cluster types, products, organisms, etc.).
 
-**Method 2: User Interface**
+### Using the user interface
 
-When running BGC Viewer locally in LOCAL mode:
+When running BGC Viewer locally:
 
 1. Start the application: `python -m bgc_viewer.app`
-2. Navigate to the data management interface
+2. Navigate to the data management section
 3. Select the directory containing your antiSMASH output
 4. Click "Index Directory" to start preprocessing
 5. Monitor progress in the interface
-6. Once complete, the indexed data is available for browsing
+6. Once complete, your indexed data is ready to explore
 
-The UI method provides real-time feedback on indexing progress and any errors encountered.
+The UI method provides real-time progress feedback and error messages if anything goes wrong during indexing.

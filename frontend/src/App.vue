@@ -3,9 +3,16 @@
     <!-- Header spanning full width -->
     <header class="app-header">
       <h1>BGC Viewer</h1>
-      <div class="version-info">
-        <span v-if="appVersion">{{ appName }} v{{ appVersion }}</span>
-        <span v-else>Loading version...</span>
+      <div class="header-right">
+        <div class="version-info">
+          <span v-if="appVersion">{{ appName }} v{{ appVersion }}</span>
+          <span v-else>Loading version...</span>
+        </div>
+        <nav class="header-links">
+          •<a href="https://medema-group.github.io/bgc-viewer/" target="_blank" rel="noopener noreferrer">Docs</a>
+          •<a href="https://research-software-directory.org/projects/big-views" target="_blank" rel="noopener noreferrer">Project</a>
+          •<a href="https://github.com/medema-group/bgc-viewer" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </nav>
       </div>
     </header>
 
@@ -39,6 +46,7 @@
             :is-loading-files="isLoadingFiles"
             :needs-preprocessing="needsPreprocessing"
             @preprocessing-completed="handlePreprocessingCompleted"
+            @folder-changed="handleFolderForIndexingChanged"
             @cancel="handleCancelIndexCreation"
           />
 
@@ -58,12 +66,13 @@
         <!-- Bottom section: Record list -->
         <div class="sidebar-bottom">
           <!-- Record List Selector Section - Hidden when creating an index -->
-          <RecordListSelector 
+          <RecordListSelector
             v-if="!folderForIndexing"
             ref="recordListSelectorRef"
             :data-root="selectedDataRoot"
             :index-path="selectedIndexPath"
-            @record-selected="handleRecordSelected" 
+            :data-source="dataSource"
+            @record-selected="handleRecordSelected"
           />
         </div>
       </aside>
@@ -239,6 +248,10 @@ export default {
       availableFiles.value = files.availableFiles || []
       isLoadingFiles.value = files.isLoadingFiles || false
       needsPreprocessing.value = files.needsPreprocessing || false
+    }
+
+    const handleFolderForIndexingChanged = (newFolderPath) => {
+      folderForIndexing.value = newFolderPath
     }
     
     const handlePreprocessingCompleted = async (indexPath) => {
@@ -506,6 +519,7 @@ export default {
       handleAnnotationClicked,
       handleViewerError,
       handleCreateIndexForFolder,
+      handleFolderForIndexingChanged,
       handlePreprocessingCompleted,
       handleCancelIndexCreation,
       handleFilesLoaded,
@@ -562,10 +576,38 @@ html,
   font-size: 24px;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .app-header .version-info {
   color: #666;
   font-size: 0.85rem;
   font-weight: 500;
+}
+
+.header-links {
+  color: #777;
+  display: flex;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.header-links a {
+  color: #1976d2;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.header-links a:hover {
+  color: #1565c0;
+  text-decoration: underline;
 }
 
 /* Main content area with sidebar and viewer */
