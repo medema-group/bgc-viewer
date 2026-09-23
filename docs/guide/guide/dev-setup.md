@@ -149,6 +149,5 @@ npm run dev -- --port 3000
 
 ## Next Steps
 
-- [Developer Setup](./dev-setup.md) - Set up your development environment
-- [Contributing Guide](../../CONTRIBUTING.md) - How to contribute to the project
+- [Contributing Guide](https://github.com/medema-group/bgc-viewer/blob/main/CONTRIBUTING.md) - How to contribute to the project
 - [REST API Reference](../api/overview.md) - API documentation
