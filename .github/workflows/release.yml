@@ -150,7 +150,7 @@ jobs:
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:
-        name: wheels-${{ matrix.os }}
+        name: wheels-${{ matrix.os }}-py${{ matrix.python-version }}
         path: backend/dist/*.whl
         retention-days: 7
 
@@ -243,9 +243,18 @@ jobs:
     - name: Download wheel for this platform
       uses: actions/download-artifact@v4
       with:
-        name: wheels-${{ matrix.os }}
+        pattern: wheels-${{ matrix.os }}-py*
         path: dist/
-    
+        merge-multiple: true
+
+    - name: List downloaded wheels
+      run: |
+        echo "=== Wheels in dist/ ==="
+        ls -la dist/ || echo "dist/ not found"
+        echo ""
+        echo "=== Checking for all Python versions ==="
+        ls -1 dist/*.whl 2>/dev/null | grep -E "cp31[123]" || echo "No cp311/cp312/cp313 wheels found"
+
     - name: Test wheel installation
       shell: bash
       run: |
