@@ -259,7 +259,11 @@ jobs:
     - name: Test wheel installation
       shell: bash
       run: |
-        uv pip install --system dist/*.whl
+        PYTHON_VERSION="${{ matrix.python-version }}"
+        PY_TAG="cp${PYTHON_VERSION//./}"  # Convert 3.11 to cp311
+        WHEEL=$(ls dist/*${PY_TAG}*.whl)
+        echo "Installing wheel: $WHEEL"
+        uv pip install --system "$WHEEL"
         python -c "import bgc_viewer; print(f'Successfully imported bgc_viewer version {bgc_viewer.__version__}')"
         python -c "from bgc_viewer.app import app; print('Flask app imported successfully')"
     
