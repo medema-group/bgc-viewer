@@ -41,7 +41,7 @@ jobs:
     - name: Install Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '22'
     
     - name: Install frontend dependencies
       working-directory: frontend
@@ -346,12 +346,9 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '22'
         registry-url: 'https://registry.npmjs.org'
-    
-    - name: Update npm for trusted publishing
-      run: npm install -g npm@latest
-    
+
     - name: Download NPM build artifacts
       uses: actions/download-artifact@v4
       with:
