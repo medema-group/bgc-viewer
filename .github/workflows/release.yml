@@ -317,7 +317,7 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     environment:
       name: npm
-      url: https://www.npmjs.com/package/@kretep/bgc-viewer-components
+      url: https://www.npmjs.com/package/@medemagroup/bgc-viewer-components
     permissions:
       id-token: write  # mandatory for trusted publishing
     
@@ -423,7 +423,7 @@ jobs:
         
         ### NPM Package Installation
         \`\`\`bash
-        npm install @kretep/bgc-viewer-components@$VERSION
+        npm install @medemagroup/bgc-viewer-components@$VERSION
         \`\`\`
         
         ### Usage
@@ -432,7 +432,7 @@ jobs:
         bgc-viewer
         \`\`\`
         
-        See the [NPM package](https://www.npmjs.com/package/@kretep/bgc-viewer-components) for web component usage.
+        See the [NPM package](https://www.npmjs.com/package/@medemagroup/bgc-viewer-components) for web component usage.
         
         ### Files
         - \`bgc_viewer-$VERSION.tar.gz\` - Source distribution (requires Rust to build)
