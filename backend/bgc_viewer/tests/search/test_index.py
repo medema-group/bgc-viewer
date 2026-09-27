@@ -10,8 +10,8 @@ from bgc_viewer.search.index import (
     IndexIncompatibleError,
     IndexNotFoundError,
     QuerySyntaxError,
+    Results,
     SearchHit,
-    SearchResults,
     UnknownFieldError,
     build_index,
     open_index,
@@ -386,7 +386,7 @@ def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
     target = _open(corpus, tmp_path)
     result = search_protoclusters(target, "pfam:PF00512")
 
-    expected = SearchResults(
+    expected = Results(
         hits=(
             SearchHit(
                 score=result.hits[0].score,

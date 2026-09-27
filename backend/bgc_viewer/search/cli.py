@@ -11,7 +11,7 @@ import sys
 import warnings
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from tantivy import Document
 
@@ -19,6 +19,7 @@ from .extraction import ExtractionError, extract_documents
 from .index import (
     RecordHit,
     RegionHit,
+    Results,
     SearchError,
     SearchHit,
     build_index,
@@ -29,16 +30,6 @@ from .index import (
 )
 
 _CLI_LEVELS = ("protocluster", "region", "record")
-
-
-class _PrintableResults(Protocol):
-    """Structural view shared by the protocluster, region, and record results."""
-
-    @property
-    def hits(self) -> tuple[Any, ...]: ...
-
-    @property
-    def has_more(self) -> bool: ...
 
 
 HitFormatter = Callable[[int, Any], str]
@@ -127,7 +118,7 @@ def _format_record_hit(position: int, hit: RecordHit) -> str:
 
 
 def _print_results(
-    result: _PrintableResults, format_hit: HitFormatter, query: str, offset: int
+    result: Results[Any], format_hit: HitFormatter, query: str, offset: int
 ) -> None:
     print(f"query: {query}")
     shown = len(result.hits)
@@ -177,7 +168,7 @@ def _build_command(args: argparse.Namespace) -> int:
 
 def _search_command(args: argparse.Namespace) -> int:
     query = " ".join(args.query)
-    result: _PrintableResults
+    result: Results[Any]
     format_hit: HitFormatter
     try:
         target = open_index(args.index_directory)

@@ -176,7 +176,7 @@ PATH_TOKENIZER_PATTERN = f"[^{PATH_SEPARATORS}]+"
 
 def _path_components(value: str) -> list[str]:
     """The non-empty components a ``path`` field tokenizes ``value`` into."""
-    return [part for part in re.split(f"[{PATH_SEPARATORS}]", value) if part]
+    return re.findall(PATH_TOKENIZER_PATTERN, value)
 
 
 def strip_path_extension(value: str) -> str:
@@ -186,10 +186,8 @@ def strip_path_extension(value: str) -> str:
     ``Y16952.json`` becomes ``Y16952``. A value with no separator is
     returned unchanged.
     """
-    for index in range(len(value) - 1, -1, -1):
-        if value[index] in PATH_SEPARATORS:
-            return value[:index]
-    return value
+    cut = max(map(value.rfind, PATH_SEPARATORS))
+    return value[:cut] if cut >= 0 else value
 
 
 # Characters Tantivy's query parser must not see inside a bare term. Mirrors

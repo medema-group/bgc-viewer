@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Generic, TypeVar, cast
 
 from tantivy import (
     Document,
@@ -240,20 +240,23 @@ class IndexCorruptError(SearchError):
     code = "corrupt_index"
 
 
+HitT = TypeVar("HitT")
+
+
+@dataclass(frozen=True)
+class Results(Generic[HitT]):
+    """A page of hits plus whether more matching units remain."""
+
+    hits: tuple[HitT, ...]
+    has_more: bool
+
+
 @dataclass(frozen=True)
 class SearchHit:
     """One ranked protocluster hit with its stored summary values."""
 
     score: float
     fields: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class SearchResults:
-    """A page of search hits plus whether more matching documents remain."""
-
-    hits: tuple[SearchHit, ...]
-    has_more: bool
 
 
 @dataclass(frozen=True)
@@ -268,14 +271,6 @@ class RegionHit:
 
 
 @dataclass(frozen=True)
-class RegionResults:
-    """A page of unique regions plus whether more matching regions remain."""
-
-    hits: tuple[RegionHit, ...]
-    has_more: bool
-
-
-@dataclass(frozen=True)
 class RecordHit:
     """One ranked record, scored by its best-matching protocluster."""
 
@@ -283,14 +278,6 @@ class RecordHit:
     record: str
     output_file: str
     input_file: str | None
-
-
-@dataclass(frozen=True)
-class RecordResults:
-    """A page of unique records plus whether more matching records remain."""
-
-    hits: tuple[RecordHit, ...]
-    has_more: bool
 
 
 def _index_present(path: Path) -> bool:
@@ -419,7 +406,7 @@ def search_protoclusters(
     query: str,
     offset: int = 0,
     limit: int = 10,
-) -> SearchResults:
+) -> Results[SearchHit]:
     """Run ``query`` against an open ``index`` and return a page of hits.
 
     An empty query raises :class:`EmptyQueryError`. Unknown fields raise
@@ -444,7 +431,7 @@ def search_protoclusters(
         SearchHit(score=score, fields=_stored_fields(searcher, address))
         for score, address in fetched[:limit]
     )
-    return SearchResults(hits=hits, has_more=has_more)
+    return Results(hits=hits, has_more=has_more)
 
 
 # Number of raw Tantivy hits pulled per round when collapsing matches. Keeps the
@@ -492,7 +479,7 @@ def search_region(
     query: str,
     offset: int = 0,
     limit: int = 10,
-) -> RegionResults:
+) -> Results[RegionHit]:
     """Run ``query`` and return a page of unique regions.
 
     A region is identified by its output file, record, and region number. Every
@@ -521,7 +508,7 @@ def search_region(
         )
         for score, fields in unique[offset : offset + limit]
     )
-    return RegionResults(hits=hits, has_more=has_more)
+    return Results(hits=hits, has_more=has_more)
 
 
 def search_record(
@@ -529,7 +516,7 @@ def search_record(
     query: str,
     offset: int = 0,
     limit: int = 10,
-) -> RecordResults:
+) -> Results[RecordHit]:
     """Run ``query`` and return a page of unique records.
 
     A record is identified by its output file and record id. Every protocluster
@@ -557,4 +544,4 @@ def search_record(
         )
         for score, fields in unique[offset : offset + limit]
     )
-    return RecordResults(hits=hits, has_more=has_more)
+    return Results(hits=hits, has_more=has_more)

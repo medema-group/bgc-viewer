@@ -20,12 +20,10 @@ from typing import Any
 from .document import PUBLIC_FIELDS, PublicFieldInfo
 from .index import (
     RecordHit,
-    RecordResults,
     RegionHit,
-    RegionResults,
+    Results,
     SearchError,
     SearchHit,
-    SearchResults,
     UnknownFieldError,
 )
 
@@ -101,9 +99,7 @@ class SearchResponse:
     has_more: bool
 
     @classmethod
-    def from_results(
-        cls, results: SearchResults | RegionResults | RecordResults
-    ) -> "SearchResponse":
+    def from_results(cls, results: Results[Any]) -> "SearchResponse":
         return cls(hits=results.hits, has_more=results.has_more)
 
 
