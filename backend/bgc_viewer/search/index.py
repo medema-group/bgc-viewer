@@ -1,9 +1,9 @@
 """Build protocluster search indexes on top of the ``tantivy`` engine.
 
 The Tantivy schema, the query-time default fields and boosts, and the fields
-returned in hits are declared here as plain constants. The search schema
-version is persisted as index metadata so a reader can validate
-compatibility when it opens the index.
+returned in hits are projected from the single field registry in
+``document.py``. The search schema version is persisted as index metadata so a
+reader can validate compatibility when it opens the index.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Any, Generic, TypeVar, cast
 
 from tantivy import (
-    Document,
     DocAddress,
+    Document,
     Index,
     Schema,
     SchemaBuilder,
@@ -26,9 +26,9 @@ from tantivy import (
 )
 from tantivy import query_parser_error as parser_errors  # type: ignore[attr-defined]
 
-from .document import PATH_TOKENIZER_PATTERN, SEARCH_SCHEMA_VERSION
+from .document import PATH_TOKENIZER_PATTERN, SEARCH_FIELDS, SEARCH_SCHEMA_VERSION
 
-# The custom ``path`` analyzer matches the runs *between* separators rather
+# The custom ``path`` tokenizer matches the runs *between* separators rather
 # than the separators themselves, so ``nested/NC_003888.3.json`` tokenizes
 # to ``nested``, ``NC_003888``, ``3``, ``json``. Splitting on ``/`` (the
 # directory separator) and ``.`` (the extension separator) keeps each path
@@ -36,76 +36,44 @@ from .document import PATH_TOKENIZER_PATTERN, SEARCH_SCHEMA_VERSION
 # ``document.py`` so the example templates strip an extension the same way.
 _PATH_TOKENIZER_NAME = "path"
 
-# The Tantivy schema, declared in field order. Each entry is ``(name,
-# tokenizer)``; ``"numeric"`` marks an integer field. Text tokenizers are:
-# ``raw`` -- one whole-value token, no case folding, used for exact-match
-# fields; ``default`` -- Unicode word segmentation with lowercase
-# normalization and indexed positions, used for full-text fields; and the
-# custom ``path`` tokenizer (see ``_register_custom_tokenizers``), which
-# splits on ``/`` and ``.`` so a file path is searchable by directory, stem,
-# or extension while the whole value still matches as a phrase.
-_SCHEMA: tuple[tuple[str, str], ...] = (
-    ("pfam", "raw"),
-    ("pfam_name", "default"),
-    ("organism", "default"),
-    ("gene", "raw"),
-    ("locus", "raw"),
-    ("product", "raw"),
-    ("category", "raw"),
-    ("record", "raw"),
-    ("region", "numeric"),
-    ("protocluster", "numeric"),
-    ("start", "numeric"),
-    ("end", "numeric"),
-    ("output_file", _PATH_TOKENIZER_NAME),
-    ("input_file", _PATH_TOKENIZER_NAME),
+# The Tantivy schema, query-time config, and hit projection are all projected
+# from the single field registry in ``document.py``. A registry entry's
+# tokenizer is ``raw`` -- one whole-value token, no case folding, for exact
+# matches; ``default`` -- Unicode word segmentation with lowercase
+# normalization and indexed positions, for full text; ``path`` -- the custom
+# tokenizer (see ``_register_custom_tokenizers``) that splits on ``/`` and
+# ``.``; or ``numeric`` -- a stored integer.
+_SCHEMA: tuple[tuple[str, str], ...] = tuple(
+    (field.name, field.tokenizer) for field in SEARCH_FIELDS
 )
 
 # All indexed field names, in schema order.
-_FIELD_NAMES: tuple[str, ...] = tuple(name for name, _ in _SCHEMA)
+_FIELD_NAMES: tuple[str, ...] = tuple(field.name for field in SEARCH_FIELDS)
 
-# Fields an unqualified term searches: every text field.
+# Fields a bare term searches: every non-numeric field.
 _DEFAULT_SEARCH_FIELDS: tuple[str, ...] = tuple(
-    name for name, tokenizer in _SCHEMA if tokenizer != "numeric"
+    field.name for field in SEARCH_FIELDS if field.default_search
 )
 
-# Per-field relevance boosts applied to unqualified and fielded terms. Numeric
-# fields are not boosted.
+# Per-field relevance boosts applied to bare and fielded terms. Numeric fields
+# declare no boost.
 _FIELD_BOOSTS: dict[str, float] = {
-    "pfam": 2.0,
-    "pfam_name": 1.0,
-    "organism": 1.0,
-    "gene": 2.0,
-    "locus": 2.0,
-    "product": 2.0,
-    "category": 2.0,
-    "record": 2.0,
-    "output_file": 2.0,
-    "input_file": 2.0,
+    field.name: field.boost for field in SEARCH_FIELDS if field.boost is not None
 }
 
-# Fields read back into ordinary hits, in display order. Every other field is
+# Fields read back into ordinary hits, in registry order. Every other field is
 # still stored in the index for example collection and diagnostics.
-_RETURNED_FIELDS: tuple[tuple[str, str], ...] = (
-    ("organism", "text"),
-    ("product", "text"),
-    ("category", "text"),
-    ("record", "text"),
-    ("region", "numeric"),
-    ("protocluster", "numeric"),
-    ("start", "numeric"),
-    ("end", "numeric"),
-    ("output_file", "text"),
-    ("input_file", "text"),
+_RETURNED_FIELDS: tuple[tuple[str, str], ...] = tuple(
+    (field.name, field.returned_kind) for field in SEARCH_FIELDS if field.in_hits
 )
 
 
 def _register_custom_tokenizers(index: Index) -> None:
-    """Register the custom analyzers the schema references by name.
+    """Register the custom tokenizers the schema references by name.
 
     Tantivy records only the tokenizer *name* in the schema, so every Index
     that reads or writes a ``path`` field -- whether freshly built or
-    reopened from disk -- must register the analyzer under that name before
+    reopened from disk -- must register the tokenizer under that name before
     the field is used, or query parsing fails with ``tokenizer 'path' is
     unknown``.
     """

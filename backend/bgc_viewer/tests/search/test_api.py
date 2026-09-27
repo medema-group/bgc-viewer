@@ -493,7 +493,7 @@ class TestPublicFieldProjection:
     def test_every_field_is_projected_in_declared_order(self):
         assert [info.name for info in PUBLIC_FIELDS] == list(SCHEMA_FIELD_NAMES)
 
-    def test_kind_comes_from_the_analyzer_for_text_fields(self):
+    def test_kind_comes_from_the_tokenizer_for_text_fields(self):
         kinds = {info.name: info.kind for info in PUBLIC_FIELDS}
         assert kinds["pfam"] == "exact"
         assert kinds["product"] == "exact"
@@ -502,20 +502,20 @@ class TestPublicFieldProjection:
         assert kinds["organism"] == "full_text"
         assert kinds["pfam_name"] == "full_text"
 
-    def test_kind_is_numeric_for_fields_without_an_analyzer(self):
+    def test_kind_is_numeric_for_fields_without_a_tokenizer(self):
         kinds = {info.name: info.kind for info in PUBLIC_FIELDS}
         for name in ("region", "protocluster", "start", "end"):
             assert kinds[name] == "numeric", name
 
-    def test_unqualified_is_true_for_every_non_numeric_field(self):
+    def test_default_search_is_true_for_every_non_numeric_field(self):
         for info in PUBLIC_FIELDS:
-            assert info.unqualified == (info.kind != "numeric"), info.name
+            assert info.default_search == (info.kind != "numeric"), info.name
 
-    def test_no_numeric_field_participates_in_unqualified_search(self):
+    def test_no_numeric_field_participates_in_default_search(self):
         assert [
             info.name
             for info in PUBLIC_FIELDS
-            if info.kind == "numeric" and info.unqualified
+            if info.kind == "numeric" and info.default_search
         ] == []
 
     def test_every_field_carries_a_non_empty_description(self):
@@ -604,7 +604,7 @@ class TestSchemaEndpoint:
         _select_database(search_client, db_path)
         data = json.loads(_schema(search_client).data)
         for field in data["fields"]:
-            assert set(field) == {"name", "kind", "unqualified", "description"}
+            assert set(field) == {"name", "kind", "default_search", "description"}
 
     def test_internal_registry_details_are_not_exposed(
         self, search_client, test_database
@@ -613,7 +613,7 @@ class TestSchemaEndpoint:
         _select_database(search_client, db_path)
         data = json.loads(_schema(search_client).data)
         for field in data["fields"]:
-            for internal in ("boost", "cardinality", "stored", "returned", "analyzer"):
+            for internal in ("boost", "cardinality", "stored", "returned", "tokenizer"):
                 assert internal not in field, f"{internal} leaked via {field['name']}"
 
     def test_fields_cover_the_whole_registry_in_order(

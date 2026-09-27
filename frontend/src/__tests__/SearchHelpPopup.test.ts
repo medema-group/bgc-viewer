@@ -8,13 +8,13 @@ const schema = {
     {
       name: 'pfam',
       kind: 'exact' as const,
-      unqualified: true,
+      default_search: true,
       description: 'PFAM accessions overlapping the protocluster.'
     },
     {
       name: 'region',
       kind: 'numeric' as const,
-      unqualified: false,
+      default_search: false,
       description: 'Parent region number.'
     }
   ],
@@ -30,7 +30,7 @@ describe('SearchHelpPopup', () => {
 
     expect(wrapper.text()).toContain('pfam')
     expect(wrapper.text()).toContain('exact')
-    expect(wrapper.text()).toContain('Included in unqualified search')
+    expect(wrapper.text()).toContain('Searched by a bare term')
     expect(wrapper.text()).toContain('pfam:PF00512')
     expect(wrapper.text()).toContain('"a b"~N')
     expect(wrapper.text()).toContain('"a b"*')

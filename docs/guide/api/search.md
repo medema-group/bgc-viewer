@@ -133,13 +133,13 @@ Searchable fields and examples for search help popup.
     {
       "name": "pfam",
       "kind": "exact",
-      "unqualified": true,
+      "default_search": true,
       "description": "PFAM accession of a PFAM_domain overlapping the protocluster, with the version suffix removed, so PF00512.28 is searched as PF00512."
     },
     {
       "name": "region",
       "kind": "numeric",
-      "unqualified": false,
+      "default_search": false,
       "description": "Region number of the smallest region feature containing the protocluster."
     }
   ],
@@ -168,8 +168,9 @@ Searchable fields and examples for search help popup.
       work.
     - `numeric` — the value is stored as an integer and matched as a
       number.
-  - `unqualified` — whether a bare term with no `field:` prefix is
-    searched against this field. Numeric fields are never unqualified.
+  - `default_search` — whether a bare term with no `field:` prefix is
+    searched against this field. Numeric fields never participate in
+    default search.
   - `description` — a short plain-prose description of what the field
     holds and where its values come from. The search help popup renders it
     verbatim.

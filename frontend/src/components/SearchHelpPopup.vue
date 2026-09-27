@@ -33,8 +33,8 @@
                 <div class="field-heading">
                   <code>{{ field.name }}</code>
                   <span class="kind-badge">{{ field.kind }}</span>
-                  <span v-if="field.unqualified" class="unqualified-marker">
-                    Included in unqualified search
+                  <span v-if="field.default_search" class="default-search-marker">
+                    Searched by a bare term
                   </span>
                 </div>
                 <p>{{ field.description }}</p>
@@ -159,7 +159,7 @@ code {
   font-weight: 700;
 }
 
-.unqualified-marker {
+.default-search-marker {
   color: #24704b;
   font-size: 11px;
   font-weight: 600;

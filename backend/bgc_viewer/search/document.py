@@ -1,14 +1,16 @@
-"""Search field metadata, antiSMASH location parsing, and example generation.
+"""Search field registry, antiSMASH location parsing, and example generation.
 
-This module holds the data the search layer needs that is not itself the Tantivy
-schema or the extraction code: the user-facing field descriptions served to the
-help popup, the location parser, the path/escaping helpers shared with the index
-tokenizer, and the runnable example-query templates.
+This module holds the single field registry (``SEARCH_FIELDS``) from which the
+Tantivy schema and query config in ``index.py`` and the public help metadata
+(``PUBLIC_FIELDS``) are projected, plus the location parser, the path/escaping
+helpers shared with the index tokenizer, and the runnable example-query
+templates.
 """
 
 import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Callable, Literal, Mapping
+from typing import Literal
 
 SEARCH_SCHEMA_VERSION = 1
 
@@ -18,125 +20,175 @@ SEARCH_SCHEMA_VERSION = 1
 # matches by directory, stem, or extension.
 FieldKind = Literal["exact", "full_text", "path", "numeric"]
 
+# Tantivy tokenizer name -> public field kind. ``raw`` indexes the whole value
+# as one case-sensitive token, ``default`` tokenizes words with lowercase
+# normalization, ``path`` is the custom path tokenizer, and ``numeric`` is a
+# stored integer. The public kind, whether a bare term searches the field, and
+# how its value is read back are all derived from this single name.
+_TOKENIZER_KINDS: dict[str, FieldKind] = {
+    "raw": "exact",
+    "default": "full_text",
+    "path": "path",
+    "numeric": "numeric",
+}
+
+
+@dataclass(frozen=True)
+class SearchField:
+    """One searchable field, declared once and projected everywhere.
+
+    ``tokenizer`` is the Tantivy tokenizer name (``raw``, ``default``,
+    ``path``, or ``numeric``). The public ``kind``, whether a bare term
+    searches the field (``default_search``), and how the stored value is read
+    back (``returned_kind``) are derived from it. ``boost`` is the query-time
+    relevance weight, or ``None`` when the field is not boosted. ``in_hits``
+    reports whether the stored value comes back in ordinary hits.
+    ``description`` is the user-facing help text.
+    """
+
+    name: str
+    tokenizer: str
+    description: str
+    boost: float | None = None
+    in_hits: bool = False
+
+    @property
+    def kind(self) -> FieldKind:
+        return _TOKENIZER_KINDS[self.tokenizer]
+
+    @property
+    def default_search(self) -> bool:
+        return self.tokenizer != "numeric"
+
+    @property
+    def returned_kind(self) -> str:
+        return "numeric" if self.tokenizer == "numeric" else "text"
+
 
 @dataclass(frozen=True)
 class PublicFieldInfo:
     """One searchable field as served to searchers.
 
-    Cardinality and boosts are deliberately absent: they are internal indexing
-    details. ``unqualified`` reports whether an unqualified term searches the
-    field.
+    Internal indexing details (tokenizer, boost, and in-hits status) are
+    deliberately absent; this is the public projection of a :class:`SearchField`.
+    ``default_search`` reports whether a bare term searches the field.
     """
 
     name: str
     kind: FieldKind
-    unqualified: bool
+    default_search: bool
     description: str
 
 
-# The public field list, in the order the help popup shows it. This is the single
-# place the user-facing description of each field lives; the Tantivy schema in
-# ``index.py`` and the extraction in ``extraction.py`` are kept in step with it
-# by the tests rather than by a shared registry.
-PUBLIC_FIELDS: tuple[PublicFieldInfo, ...] = (
-    PublicFieldInfo(
+# The single field registry: every searchable field, in schema and display
+# order, declared in one place. The Tantivy schema and query config in
+# ``index.py`` and the public help metadata below are projected from it rather
+# than repeated. The extraction in ``extraction.py`` is kept in step with it by
+# the tests.
+SEARCH_FIELDS: tuple[SearchField, ...] = (
+    SearchField(
         name="pfam",
-        kind="exact",
-        unqualified=True,
+        tokenizer="raw",
+        boost=2.0,
         description=(
             "PFAM accession of a PFAM_domain overlapping the protocluster, "
             "with the version suffix removed, so PF00512.28 is searched as "
             "PF00512."
         ),
     ),
-    PublicFieldInfo(
+    SearchField(
         name="pfam_name",
-        kind="full_text",
-        unqualified=True,
+        tokenizer="default",
+        boost=1.0,
         description=(
             "Description of a PFAM_domain overlapping the protocluster, from "
             "the domain's description qualifier."
         ),
     ),
-    PublicFieldInfo(
+    SearchField(
         name="organism",
-        kind="full_text",
-        unqualified=True,
+        tokenizer="default",
+        boost=1.0,
+        in_hits=True,
         description=(
             "Organism of the parent record, from the organism qualifier of its "
             "first source feature; empty when the record declares none."
         ),
     ),
-    PublicFieldInfo(
+    SearchField(
         name="gene",
-        kind="exact",
-        unqualified=True,
+        tokenizer="raw",
+        boost=2.0,
         description="Gene name of a gene feature overlapping the protocluster.",
     ),
-    PublicFieldInfo(
+    SearchField(
         name="locus",
-        kind="exact",
-        unqualified=True,
+        tokenizer="raw",
+        boost=2.0,
         description="Locus tag of a gene feature overlapping the protocluster.",
     ),
-    PublicFieldInfo(
+    SearchField(
         name="product",
-        kind="exact",
-        unqualified=True,
+        tokenizer="raw",
+        boost=2.0,
+        in_hits=True,
         description="Product of the protocluster, from its own product qualifier.",
     ),
-    PublicFieldInfo(
+    SearchField(
         name="category",
-        kind="exact",
-        unqualified=True,
+        tokenizer="raw",
+        boost=2.0,
+        in_hits=True,
         description=(
             "Product category of the protocluster, from its own "
             "product_category qualifier."
         ),
     ),
-    PublicFieldInfo(
+    SearchField(
         name="record",
-        kind="exact",
-        unqualified=True,
+        tokenizer="raw",
+        boost=2.0,
+        in_hits=True,
         description="antiSMASH record ID the protocluster belongs to.",
     ),
-    PublicFieldInfo(
+    SearchField(
         name="region",
-        kind="numeric",
-        unqualified=False,
+        tokenizer="numeric",
+        in_hits=True,
         description=(
             "Region number of the smallest region feature containing the "
             "protocluster."
         ),
     ),
-    PublicFieldInfo(
+    SearchField(
         name="protocluster",
-        kind="numeric",
-        unqualified=False,
+        tokenizer="numeric",
+        in_hits=True,
         description="Protocluster number of the protocluster itself.",
     ),
-    PublicFieldInfo(
+    SearchField(
         name="start",
-        kind="numeric",
-        unqualified=False,
+        tokenizer="numeric",
+        in_hits=True,
         description=(
             "Lowest coordinate of the protocluster location, across every part "
             "of a compound location."
         ),
     ),
-    PublicFieldInfo(
+    SearchField(
         name="end",
-        kind="numeric",
-        unqualified=False,
+        tokenizer="numeric",
+        in_hits=True,
         description=(
             "Highest coordinate of the protocluster location, across every "
             "part of a compound location."
         ),
     ),
-    PublicFieldInfo(
+    SearchField(
         name="output_file",
-        kind="path",
-        unqualified=True,
+        tokenizer="path",
+        boost=2.0,
+        in_hits=True,
         description=(
             "Path of the antiSMASH JSON file the protocluster was indexed "
             "from, relative to the source directory that was indexed. "
@@ -145,10 +197,11 @@ PUBLIC_FIELDS: tuple[PublicFieldInfo, ...] = (
             "each match on their own."
         ),
     ),
-    PublicFieldInfo(
+    SearchField(
         name="input_file",
-        kind="path",
-        unqualified=True,
+        tokenizer="path",
+        boost=2.0,
+        in_hits=True,
         description=(
             "Input sequence filename antiSMASH reported for the source JSON; "
             "empty when absent. Searched as a path: the whole value matches, "
@@ -159,9 +212,21 @@ PUBLIC_FIELDS: tuple[PublicFieldInfo, ...] = (
 )
 
 
-# Fields an unqualified term searches: every field except the numeric ones.
+# The public field list, in registry order, projected from SEARCH_FIELDS.
+PUBLIC_FIELDS: tuple[PublicFieldInfo, ...] = tuple(
+    PublicFieldInfo(
+        name=field.name,
+        kind=field.kind,
+        default_search=field.default_search,
+        description=field.description,
+    )
+    for field in SEARCH_FIELDS
+)
+
+
+# Field names a bare term searches: every field except the numeric ones.
 DEFAULT_SEARCH_FIELD_NAMES: tuple[str, ...] = tuple(
-    info.name for info in PUBLIC_FIELDS if info.unqualified
+    field.name for field in SEARCH_FIELDS if field.default_search
 )
 
 
@@ -249,7 +314,7 @@ class ExampleSlot:
     """One value placeholder consumed by an example template.
 
     ``candidates`` lists public field names in priority order; an empty tuple
-    means every field that participates in unqualified search. ``value_filter``
+    means every field that participates in default search. ``value_filter``
     narrows which collected values the slot accepts, ``transform`` rewrites the
     selected value before it is filtered and rendered (used to drop a file
     extension for a path prefix), and ``quoted`` renders the value inside

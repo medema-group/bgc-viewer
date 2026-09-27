@@ -488,7 +488,7 @@ def test_search_plain_terms_are_not_typo_tolerated(corpus, tmp_path, query):
     """Nothing widens a plain term to nearby spellings.
 
     Tantivy offers Levenshtein tolerance only as a per-field parser option applied
-    to every term on the field, which would make an unqualified search fuzzy
+    to every term on the field, which would make a bare-term search fuzzy
     without the searcher asking for it, so no distance is configured.
     """
     target = _open(corpus, tmp_path)
@@ -657,12 +657,12 @@ def test_search_boolean_precedence_and_nesting(corpus, tmp_path, query, expected
     assert len(search_protoclusters(target, query).hits) == expected
 
 
-def test_search_unqualified_covers_default_fields(corpus, tmp_path):
+def test_search_bare_terms_cover_default_fields(corpus, tmp_path):
     target = _open(corpus, tmp_path)
     assert len(search_protoclusters(target, "spaA").hits) == 1
     assert len(search_protoclusters(target, "coelicolor").hits) == 1
     assert len(search_protoclusters(target, "SPAU_1").hits) == 1
-    # Numeric navigation fields are excluded from unqualified search.
+    # Numeric navigation fields are excluded from default search.
     assert len(search_protoclusters(target, "600").hits) == 0
 
 

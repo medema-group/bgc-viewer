@@ -8,8 +8,8 @@ One Tantivy document is one protocluster.
 
 | Concern | Path |
 | --- | --- |
-| Public field metadata, location parsing, example templates, schema version | `backend/bgc_viewer/search/document.py` |
-| Tantivy schema, query config, index build/open/search | `backend/bgc_viewer/search/index.py` |
+| Field registry, location parsing, example templates, schema version | `backend/bgc_viewer/search/document.py` |
+| Tantivy schema and query config, index build/open/search | `backend/bgc_viewer/search/index.py` |
 | antiSMASH JSON extraction to Tantivy documents | `backend/bgc_viewer/search/extraction.py` |
 | Build sentinel and rebuild signaling | `backend/bgc_viewer/search/build_state.py` |
 | HTTP request/response contract | `backend/bgc_viewer/search/api.py` |
@@ -20,36 +20,37 @@ One Tantivy document is one protocluster.
 
 ## Search fields
 
-There is no single field-registry object. A searchable field is declared in
-four places that the tests keep in step:
+A searchable field is declared once, in the single registry `SEARCH_FIELDS` in
+[`backend/bgc_viewer/search/document.py`](https://github.com/medema-group/bgc-viewer/blob/main/backend/bgc_viewer/search/document.py):
+an ordered tuple of `SearchField(name, tokenizer, description, boost, in_hits)`
+entries. Everything else is projected from it:
 
 1. **Schema** — `_SCHEMA` in
-   [`backend/bgc_viewer/search/index.py`](https://github.com/medema-group/bgc-viewer/blob/main/backend/bgc_viewer/search/index.py):
-   the ordered `(name, tokenizer)` list that `build_schema()` turns into
-   Tantivy fields. The tokenizer is `raw` (exact whole-value match),
-   `default` (full-text), `path` (the custom path tokenizer), or
-   `numeric` (a stored integer with a fast field).
-2. **Query config** — also in `index.py`: `_DEFAULT_SEARCH_FIELDS`
-   (derived: every non-numeric field), `_FIELD_BOOSTS` (the per-field
-   query-time weight, never stored), and `_RETURNED_FIELDS` (which stored
-   fields come back in ordinary hits).
-3. **Public metadata** — `PUBLIC_FIELDS` in `document.py`: the
-   `PublicFieldInfo(name, kind, unqualified, description)` rows served to
-   the help popup and `GET /api/search/schema`. The public `kind`
-   (`exact` / `full_text` / `path` / `numeric`) and `unqualified` flag
-   are written here directly rather than derived from a registry.
+   [`backend/bgc_viewer/search/index.py`](https://github.com/medema-group/bgc-viewer/blob/main/backend/bgc_viewer/search/index.py),
+   the `(name, tokenizer)` pairs that `build_schema()` turns into Tantivy
+   fields. The tokenizer is `raw` (exact whole-value match), `default`
+   (full-text), `path` (the custom path tokenizer), or `numeric` (a stored
+   integer with a fast field).
+2. **Query config** — also in `index.py`, derived from the registry:
+   `_DEFAULT_SEARCH_FIELDS` (every field whose tokenizer is not `numeric`),
+   `_FIELD_BOOSTS` (the per-field query-time weight, never stored), and
+   `_RETURNED_FIELDS` (which stored fields come back in ordinary hits).
+3. **Public metadata** — `PUBLIC_FIELDS` in `document.py`, projected from
+   the registry: the `PublicFieldInfo(name, kind, default_search,
+   description)` rows served to the help popup and `GET /api/search/schema`.
+   Both `kind` (`exact` / `full_text` / `path` / `numeric`) and
+   `default_search` are derived from the tokenizer rather than declared
+   separately.
 4. **Extraction** — `_document()` in `extraction.py`: how each field is
    populated from antiSMASH JSON.
 
 The current field set is defined in the code, not duplicated here: see
-`_SCHEMA` in `index.py` for the indexed fields and their tokenizers, and
-`PUBLIC_FIELDS` in `document.py` for the public `kind`, `unqualified`,
-and `description` of each.
+`SEARCH_FIELDS` in `document.py`.
 
-A field's `kind` and its schema tokenizer describe the same matching
-behavior from two angles: `exact`↔`raw`, `full_text`↔`default`,
-`path`↔`path`, `numeric`↔`numeric`. Every non-numeric field is
-unqualified (searched by a bare term); numeric fields are not.
+A field's `kind` and its tokenizer describe the same matching behavior from
+two angles: `exact`↔`raw`, `full_text`↔`default`, `path`↔`path`,
+`numeric`↔`numeric`. Every non-numeric field participates in default search
+(a bare term searches it); numeric fields do not.
 
 ## Query language
 
@@ -158,45 +159,39 @@ Bump `SEARCH_SCHEMA_VERSION` in `document.py` whenever a change alters the
 stored Tantivy schema or the values that get stored, which means changing a
 field's:
 
-- `name` (the `_SCHEMA` entry in `index.py`)
+- `name` (the `SEARCH_FIELDS` entry in `document.py`)
 - tokenizer (`raw` / `default` / `path`) or its numeric-vs-text nature
 - the extraction semantics of an existing field (what value
   `_document()` writes for it)
 
 Do **not** bump it for query-time or display-only changes: the boost
-(`_FIELD_BOOSTS`), the unqualified/default-search set
-(`_DEFAULT_SEARCH_FIELDS`), the returned-field set
-(`_RETURNED_FIELDS`), and the public `description` are applied when a
-query is parsed or a response is assembled and leave the stored index
-untouched.
+(`boost`), the default-search flag (`default_search`), the returned-field
+flag (`in_hits`), and the public `description` are projected from the
+registry and applied when a query is parsed or a response is assembled,
+leaving the stored index untouched.
 
 ## Contributor recipes
 
 ### Adding a search field
 
-A new field touches four places plus tests:
+A new field touches two places plus tests:
 
-1. **Schema** — add `(name, tokenizer)` to `_SCHEMA` in `index.py`,
-   where `tokenizer` is `raw`, `default`, `path`, or `numeric`. This is
-   what `build_schema()` indexes and stores.
-2. **Query config** — in `index.py`: add a boost to `_FIELD_BOOSTS` for
-   a text field (numeric fields are not boosted), and add
-   `(name, "text" | "numeric")` to `_RETURNED_FIELDS` if the value
-   should come back in ordinary hits. Unqualified search is automatic for
-   every non-numeric field via `_DEFAULT_SEARCH_FIELDS`.
-3. **Public metadata** — add a `PublicFieldInfo(name, kind, unqualified,
-   description)` to `PUBLIC_FIELDS` in `document.py`. Keep `kind`
-   consistent with the schema tokenizer and `unqualified` consistent with
-   the default-search rule (true for every non-numeric field).
-4. **Extraction** — populate the field in `_document()` in
+1. **Registry** — add a `SearchField(name, tokenizer, description, boost,
+   in_hits)` entry to `SEARCH_FIELDS` in `document.py`, where `tokenizer`
+   is `raw`, `default`, `path`, or `numeric`. Set `boost` for a text field
+   (numeric fields declare none) and `in_hits=True` when the value should
+   come back in ordinary hits. The Tantivy schema, query config, and
+   public metadata are projected from this entry; default search is
+   automatic for every non-numeric field.
+2. **Extraction** — populate the field in `_document()` in
    `extraction.py`: add each item for a multi-valued field, skip a single
    text field when empty, and use `add_integer` for a numeric field.
    Missing optional data produces an empty value, not a failed file.
-5. Bump `SEARCH_SCHEMA_VERSION` if the change alters the stored schema,
+3. Bump `SEARCH_SCHEMA_VERSION` if the change alters the stored schema,
    per the rules above.
-6. Add a minimal fixture containing two protoclusters that differ only in
+4. Add a minimal fixture containing two protoclusters that differ only in
    the new field under `backend/bgc_viewer/tests/search/fixtures/antismash8/`.
-7. Add exact or full-text, Boolean, unqualified-search, and missing-value
+5. Add exact or full-text, Boolean, default-search, and missing-value
    tests as appropriate in `backend/bgc_viewer/tests/search/test_index.py`,
    and a `PUBLIC_FIELDS` row check in `test_api.py`.
 

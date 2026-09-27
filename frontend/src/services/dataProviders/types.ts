@@ -119,7 +119,7 @@ export type SearchLevel = 'protocluster' | 'region' | 'record'
 export interface SearchFieldInfo {
   name: string
   kind: 'exact' | 'full_text' | 'numeric' | 'path'
-  unqualified: boolean
+  default_search: boolean
   description: string
 }
 
