@@ -217,7 +217,6 @@
     <button onclick="viewer.resetZoom()">Reset Zoom</button>
     <button onclick="viewer.zoomTo(20, 60)">Zoom to 20-60</button>
     <button onclick="addTrack()">Add Track</button>
-    <button onclick="updateDomain()">Update Domain (0-200)</button>
   </div>
 
   <div id="viewer-container"></div>
@@ -335,11 +334,6 @@
         viewer.addTrack(newTrack, newAnnotations);
         trackCounter++;
         logEvent(`Added ${newTrack.label}`);
-      };
-
-      window.updateDomain = function() {
-        viewer.updateDomain([0, 200]);
-        logEvent('Updated domain to 0-200');
       };
 
       logEvent('TrackViewer initialized');
