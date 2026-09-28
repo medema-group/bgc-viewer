@@ -26,7 +26,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from os import PathLike
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -60,7 +59,7 @@ class IndexInterruptedError(SearchError):
 
     code = "index_interrupted"
 
-    def __init__(self, output_dir: str | PathLike[str] | None = None) -> None:
+    def __init__(self, output_dir: Path | None = None) -> None:
         message = (
             "The previous preprocessing run was interrupted. "
             "Rerun preprocessing to rebuild the search index."
@@ -70,12 +69,12 @@ class IndexInterruptedError(SearchError):
         super().__init__(message)
 
 
-def sentinel_path(output_dir: str | PathLike[str]) -> Path:
+def sentinel_path(output_dir: Path) -> Path:
     """Return the sentinel file path for a preprocessing output directory."""
-    return Path(output_dir) / SENTINEL_NAME
+    return output_dir / SENTINEL_NAME
 
 
-def mark_building(output_dir: str | PathLike[str]) -> Path:
+def mark_building(output_dir: Path) -> Path:
     """Mark an output directory as having a preprocessing run in progress."""
     path = sentinel_path(output_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,7 +82,7 @@ def mark_building(output_dir: str | PathLike[str]) -> Path:
     return path
 
 
-def clear_building(output_dir: str | PathLike[str]) -> None:
+def clear_building(output_dir: Path) -> None:
     """Remove the sentinel after a build completes; a no-op when absent."""
     try:
         sentinel_path(output_dir).unlink()
@@ -91,13 +90,13 @@ def clear_building(output_dir: str | PathLike[str]) -> None:
         pass
 
 
-def is_building(output_dir: str | PathLike[str]) -> bool:
+def is_building(output_dir: Path) -> bool:
     """Whether a sentinel is present, regardless of any build being live."""
     return sentinel_path(output_dir).exists()
 
 
 @contextmanager
-def building(output_dir: str | PathLike[str]) -> Iterator[Path]:
+def building(output_dir: Path) -> Iterator[Path]:
     """Mark ``output_dir`` as building for the duration of the block.
 
     Yields the sentinel path. The sentinel is removed only when the block
@@ -115,7 +114,7 @@ def building(output_dir: str | PathLike[str]) -> Iterator[Path]:
 
 
 def guard_build_state(
-    output_dir: str | PathLike[str], *, build_is_live: Callable[[], bool]
+    output_dir: Path, *, build_is_live: Callable[[], bool]
 ) -> None:
     """Raise the error matching the current build state, or return ``None``.
 

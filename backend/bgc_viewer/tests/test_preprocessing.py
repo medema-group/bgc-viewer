@@ -257,7 +257,7 @@ class TestSearchIndexIntegration:
         assert search_index_dir.exists()
 
         # The generated index is directly usable through the search API.
-        index = open_index(str(search_index_dir))
+        index = open_index(search_index_dir)
         hits = search_protoclusters(index, "product:polyketide")
         assert len(hits.hits) == 1
         assert hits.hits[0].fields["record"] == "test_record_1"

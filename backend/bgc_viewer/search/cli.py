@@ -171,7 +171,7 @@ def _search_command(args: argparse.Namespace) -> int:
     result: Results[Any]
     format_hit: HitFormatter
     try:
-        target = open_index(args.index_directory)
+        target = open_index(Path(args.index_directory))
         if args.level == "region":
             result = search_region(target, query, offset=args.offset, limit=args.limit)
             format_hit = _format_region_hit

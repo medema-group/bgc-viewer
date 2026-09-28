@@ -1142,7 +1142,7 @@ def _open_search_index():
     """
     output_dir = _current_search_database().parent
     guard_build_state(output_dir, build_is_live=_build_is_live)
-    return open_index(str(output_dir / "tantivy.index"))
+    return open_index(output_dir / "tantivy.index")
 
 
 def search_errors(view):
@@ -1207,7 +1207,7 @@ def search_schema_endpoint():
     db_path = _current_search_database()
     output_dir = db_path.parent
     guard_build_state(output_dir, build_is_live=_build_is_live)
-    open_index(str(output_dir / "tantivy.index"))
+    open_index(output_dir / "tantivy.index")
     return jsonify(build_schema_response(db_path)), 200
 
 

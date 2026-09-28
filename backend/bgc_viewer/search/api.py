@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from os import PathLike
+from pathlib import Path
 from typing import Any
 
 from .document import PUBLIC_FIELDS, PublicFieldInfo
@@ -118,7 +118,7 @@ class SchemaResponse:
     query_syntax_url: str
 
 
-def read_example_queries(db_path: str | PathLike[str]) -> tuple[str, ...]:
+def read_example_queries(db_path: Path) -> tuple[str, ...]:
     """Read generated example queries from a database in template order.
 
     Preprocessing inserts the rows in template order against an autoincrement
@@ -137,7 +137,7 @@ def read_example_queries(db_path: str | PathLike[str]) -> tuple[str, ...]:
     return tuple(row[0] for row in rows)
 
 
-def build_schema_response(db_path: str | PathLike[str]) -> SchemaResponse:
+def build_schema_response(db_path: Path) -> SchemaResponse:
     """Assemble the schema response from the registry and the example table."""
     return SchemaResponse(
         fields=PUBLIC_FIELDS,

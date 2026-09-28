@@ -8,6 +8,7 @@ level-independent ``GET /api/search/schema`` endpoint.
 
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 from tantivy import Document
@@ -119,10 +120,10 @@ def grouped_corpus() -> list[Document]:
 
 
 @pytest.fixture
-def index_dir(grouped_corpus, tmp_path) -> str:
+def index_dir(grouped_corpus, tmp_path) -> Path:
     target = tmp_path / "tantivy.index"
     build_index(iter(grouped_corpus), target)
-    return str(target)
+    return target
 
 
 class TestParseSearchRequest:
@@ -672,7 +673,7 @@ class TestSchemaEndpoint:
         response = _schema(search_client)
 
         assert response.status_code == 200
-        assert opened == [str(db_path.parent / "tantivy.index")]
+        assert opened == [db_path.parent / "tantivy.index"]
         data = json.loads(response.data)
         assert len(data["fields"]) == len(SCHEMA_FIELD_NAMES)
         assert data["examples"] == SAMPLE_EXAMPLES
