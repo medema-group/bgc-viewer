@@ -287,7 +287,12 @@ def open_index(index_path: Path) -> Index:
         raise IndexCorruptError(f"Search index at {path} is corrupt") from error
     _register_custom_tokenizers(index)
 
-    stored_version = _read_schema_version(path)
+    try:
+        stored_version = _read_schema_version(path)
+    except (ValueError, UnicodeError) as error:
+        raise IndexIncompatibleError(
+            f"Search index at {path} has an invalid schema version"
+        ) from error
     if stored_version != SEARCH_SCHEMA_VERSION:
         raise IndexIncompatibleError(
             f"Search index at {path} has schema version {stored_version!r}; "

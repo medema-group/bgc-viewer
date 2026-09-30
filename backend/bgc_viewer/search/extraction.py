@@ -410,7 +410,7 @@ def _read_file_metadata(source_path: Path) -> tuple[str, str]:
                 version = value
             elif prefix == "input_file" and input_file is _MISSING:
                 input_file = value
-            elif prefix == "records" and version is not _MISSING:
+            if version is not _MISSING and input_file is not _MISSING:
                 break
     text_version = _text(None if version is _MISSING else version, "version")
     text_input = input_file.strip() if isinstance(input_file, str) else ""

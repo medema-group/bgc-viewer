@@ -71,11 +71,13 @@ def parse_search_request(body: Any) -> SearchRequest:
     if not isinstance(query, str):
         raise InvalidRequestError("'query' must be a string")
 
-    try:
-        page = int(body.get("page", 1))
-        per_page = int(body.get("per_page", DEFAULT_PAGE_SIZE))
-    except (TypeError, ValueError):
-        raise InvalidRequestError("'page' and 'per_page' must be integers") from None
+    page = body.get("page", 1)
+    per_page = body.get("per_page", DEFAULT_PAGE_SIZE)
+    if any(
+        not isinstance(value, int) or isinstance(value, bool)
+        for value in (page, per_page)
+    ):
+        raise InvalidRequestError("'page' and 'per_page' must be integers")
 
     if page < 1:
         raise InvalidRequestError("'page' must be at least 1")

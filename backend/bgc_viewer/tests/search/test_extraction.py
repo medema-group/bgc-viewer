@@ -137,6 +137,39 @@ def test_extract_documents_from_compressed_json(tmp_path, suffix, compress):
     assert _values(document, "output_file") == [relative_path.as_posix()]
 
 
+def test_extracts_input_file_after_records(tmp_path):
+    source = {
+        "version": "8.0.2",
+        "records": [
+            {
+                "id": "record-1",
+                "features": [
+                    {
+                        "type": "region",
+                        "location": "[0:500](+)",
+                        "qualifiers": {"region_number": ["1"]},
+                    },
+                    {
+                        "type": "protocluster",
+                        "location": "[100:400](+)",
+                        "qualifiers": {
+                            "protocluster_number": ["1"],
+                            "product": ["NRPS"],
+                            "product_category": ["NRPS"],
+                        },
+                    },
+                ],
+            }
+        ],
+        "input_file": "late.gbk",
+    }
+    (tmp_path / "sample.json").write_text(json.dumps(source))
+
+    [document] = extract_documents([Path("sample.json")], tmp_path)
+
+    assert _values(document, "input_file") == ["late.gbk"]
+
+
 def test_extracts_from_data_without_reading_a_file():
     source = {
         "version": "8.0.2",

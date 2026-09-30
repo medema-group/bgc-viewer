@@ -590,8 +590,7 @@ def _build_pair(
 
     # Build the protocluster search index as a fixed sibling of the database.
     # The source files are the same explicit set used for the SQLite build,
-    # resolved to paths relative to the input directory. Only uncompressed
-    # JSON files are indexed; compressed files remain a SQLite-only path.
+    # resolved to paths relative to the input directory.
     search_files = []
     for json_file in files_to_process:
         resolved = json_file.resolve()
@@ -600,7 +599,7 @@ def _build_pair(
         except ValueError:
             # Path outside the source root; the SQLite pass skips it too.
             continue
-        if relative.suffix == ".json":
+        if relative.name.endswith((".json", ".json.gz", ".json.bz2")):
             search_files.append(relative)
 
     # Remove any existing index before rebuilding so a stale index is never
