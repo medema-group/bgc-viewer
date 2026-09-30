@@ -32,7 +32,8 @@ export async function fetchPfamColorMap(url: string = '/domain-colors.csv'): Pro
   try {
     // Resolve URL relative to the application's base path
     const baseUrl = import.meta.env.BASE_URL || '/'
-    const fullUrl = new URL(url.replace(/^\//, ''), baseUrl).href
+    const basePath = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/'
+    const fullUrl = new URL(basePath + url.replace(/^\//, ''), window.location.origin).href
 
     const response = await fetch(fullUrl)
     if (!response.ok) {

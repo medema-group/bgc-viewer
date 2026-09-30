@@ -10,17 +10,20 @@
 A viewer for biosynthetic gene cluster data.
 
 You are reading the README for developers. The [full documentation](https://medema-group.github.io/bgc-viewer) describes various aspects of the package in detail. In addition, there are a few other READMEs:
-- The README for end-users: [backend/README.md](backend/README.md) (it's the readme of the Python package)
-- The README for users of the bgc-viewer-components: [frontend/README.md](frontend/README.md) (the readme of the npm package with web components)
+- The README for end-users of the Python package: [backend/README.md](backend/README.md)
+- The README for users of the bgc-viewer-components (the NPM package): [frontend/README.md](frontend/README.md)
 - The README on building the documentation: [docs/README.md](docs/README.md).
 
 
 ## Project Structure
 
-The projects consists of a number of modules, which are available in their respective folders as self-contained packages:
+The project roughly consists of the backend and frontend.
 
 - **backend**: Python Flask server that serves the API and statically built frontend.
 - **frontend**: The frontend folder contains the code for both the web components (npm package) and the viewer as a stand-alone web application (separate build target).
+
+![alt text](package-structure.png)
+
 
 The backend has two functions:
 - An API that preprocesses, searches and serves data from a root directory containing huge amounts of data. The backend serves from the local file system in local mode, or from a fixed data directory in public mode [see configuration](#configuration).

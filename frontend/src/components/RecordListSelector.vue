@@ -142,11 +142,15 @@ export default {
     showSearch: {
       type: Boolean,
       default: true
+    },
+    dataSource: {
+      type: String,
+      default: 'api'
     }
   },
   emits: ['record-selected'],
   setup(props, { emit }) {
-    const { dataRoot, indexPath } = toRefs(props)
+    const { dataRoot, indexPath, dataSource } = toRefs(props)
     
     const entriesData = ref([])
     const loading = ref(false)
@@ -376,8 +380,8 @@ export default {
     
     // Watch for index path changes - tell backend which database to use
     watch(indexPath, async (newPath, oldPath) => {
-      // Ensure provider exists
-      if (!dataProvider.value) {
+      // Only initialize API provider if dataSource is 'api' and no provider exists yet
+      if (!dataProvider.value && dataSource.value === 'api') {
         dataProvider.value = new BGCViewerAPIProvider()
         isDirectMode.value = false
       }

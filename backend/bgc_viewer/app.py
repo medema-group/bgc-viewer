@@ -1257,12 +1257,14 @@ if not PUBLIC_MODE:
             json_files_to_process = None
 
             if selected_files and len(selected_files) > 0:
-                # Use the selected files
-                json_files_to_process = [
-                    Path(f)
-                    for f in selected_files
-                    if Path(f).suffix == ".json" and Path(f).exists()
-                ]
+                # Use the selected files (support .json, .json.gz, .json.bz2)
+                json_files_to_process = []
+                for f in selected_files:
+                    path = Path(f)
+                    if path.exists() and path.name.endswith(
+                        (".json", ".json.gz", ".json.bz2")
+                    ):
+                        json_files_to_process.append(path)
                 if not json_files_to_process:
                     return (
                         jsonify(
@@ -1273,7 +1275,9 @@ if not PUBLIC_MODE:
                 total_count = len(json_files_to_process)
             else:
                 # Fallback to all JSON files in the folder (recursive scan)
-                all_json_files = list(resolved_path.rglob("*.json"))
+                all_json_files = []
+                for pattern in ["*.json", "*.json.gz", "*.json.bz2"]:
+                    all_json_files.extend(resolved_path.rglob(pattern))
                 if not all_json_files:
                     return jsonify({"error": "No JSON files found in the folder"}), 400
                 json_files_to_process = all_json_files
