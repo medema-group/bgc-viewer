@@ -37,7 +37,7 @@ The request body carries no level: the URL path is authoritative.
 
 **Response:**
 
-A successful response contains exactly `hits` and `total`.
+A successful response contains exactly `hits` and `has_more`.
 
 `protocluster` returns one hit per matching protocluster, with the stored
 identity and display values:
@@ -61,7 +61,7 @@ identity and display values:
       }
     }
   ],
-  "total": 1
+  "has_more": false
 }
 ```
 
@@ -79,7 +79,7 @@ best-matching protocluster:
       "input_file": "NC_003888.3.gbk"
     }
   ],
-  "total": 3
+  "has_more": false
 }
 ```
 
@@ -95,7 +95,7 @@ best-matching protocluster:
       "input_file": "NC_003888.3.gbk"
     }
   ],
-  "total": 2
+  "has_more": false
 }
 ```
 
@@ -111,9 +111,9 @@ const response = await fetch('/api/search/protocluster', {
     per_page: 20,
   }),
 });
-const { hits, total } = await response.json();
+const { hits, has_more } = await response.json();
 
-console.log(`Found ${total} matching protoclusters`);
+console.log(`Has more results: ${has_more}`);
 hits.forEach((hit) => {
   console.log(`${hit.fields.record} region ${hit.fields.region}: ${hit.fields.product}`);
 });
