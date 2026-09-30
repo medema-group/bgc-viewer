@@ -113,9 +113,7 @@ def building(output_dir: Path) -> Iterator[Path]:
     clear_building(output_dir)
 
 
-def guard_build_state(
-    output_dir: Path, *, build_is_live: Callable[[], bool]
-) -> None:
+def guard_build_state(output_dir: Path, *, build_is_live: Callable[[], bool]) -> None:
     """Raise the error matching the current build state, or return ``None``.
 
     The in-process flag is consulted first so a request arriving after a run

@@ -1,3 +1,5 @@
+import bz2
+import gzip
 import json
 from pathlib import Path
 
@@ -89,6 +91,50 @@ def test_extracts_canonical_protocluster_document(tmp_path):
         "output_file": ["nested/sample.json"],
         "input_file": ["sample.gbk"],
     }
+
+
+@pytest.mark.parametrize(
+    "suffix,compress",
+    [("gz", gzip.compress), ("bz2", bz2.compress)],
+)
+def test_extract_documents_from_compressed_json(tmp_path, suffix, compress):
+    source = {
+        "version": "8.0.2",
+        "input_file": "sample.gbk",
+        "records": [
+            {
+                "id": "record-1",
+                "features": [
+                    {
+                        "type": "region",
+                        "location": "[0:500](+)",
+                        "qualifiers": {"region_number": ["1"]},
+                    },
+                    {
+                        "type": "protocluster",
+                        "location": "[100:400](+)",
+                        "qualifiers": {
+                            "protocluster_number": ["1"],
+                            "product": ["NRPS"],
+                            "category": ["NRPS"],
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+    relative_path = Path(f"nested/sample.json.{suffix}")
+    source_file = tmp_path / relative_path
+    source_file.parent.mkdir()
+    source_file.write_bytes(compress(json.dumps(source).encode("utf-8")))
+
+    [document] = extract_documents([relative_path], tmp_path)
+
+    assert _values(document, "record") == ["record-1"]
+    assert _values(document, "protocluster") == [1]
+    assert _values(document, "product") == ["NRPS"]
+    assert _values(document, "input_file") == ["sample.gbk"]
+    assert _values(document, "output_file") == [relative_path.as_posix()]
 
 
 def test_extracts_from_data_without_reading_a_file():

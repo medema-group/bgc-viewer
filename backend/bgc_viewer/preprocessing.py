@@ -609,7 +609,9 @@ def _build_pair(
         shutil.rmtree(search_index_dir)
 
     try:
-        index = build_index(extract_documents(search_files, input_path), search_index_dir)
+        index = build_index(
+            extract_documents(search_files, input_path), search_index_dir
+        )
     except Exception:
         # A failed build must not leave a partial index artifact.
         if search_index_dir.exists():
