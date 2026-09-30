@@ -8,7 +8,13 @@ import {
   MiBIGEntriesResponse,
   TFBSHitsResponse,
   TTACodonsResponse,
-  ResistanceFeaturesResponse
+  ResistanceFeaturesResponse,
+  SearchLevel,
+  SearchSchema,
+  ProtoclusterSearchHit,
+  RegionSearchHit,
+  RecordSearchHit,
+  SearchResponse
 } from './types'
 import { fetchPfamColorMap } from './colorMapUtils'
 
@@ -117,6 +123,49 @@ export class BGCViewerAPIProvider extends DataProvider {
       totalPages: response.data.total_pages,
       currentPage: response.data.page
     }
+  }
+
+  async searchLevel(
+    level: 'protocluster',
+    query: string,
+    page?: number,
+    perPage?: number
+  ): Promise<SearchResponse<ProtoclusterSearchHit>>
+  async searchLevel(
+    level: 'region',
+    query: string,
+    page?: number,
+    perPage?: number
+  ): Promise<SearchResponse<RegionSearchHit>>
+  async searchLevel(
+    level: 'record',
+    query: string,
+    page?: number,
+    perPage?: number
+  ): Promise<SearchResponse<RecordSearchHit>>
+  async searchLevel(
+    level: SearchLevel,
+    query: string,
+    page?: number,
+    perPage?: number
+  ): Promise<SearchResponse<ProtoclusterSearchHit | RegionSearchHit | RecordSearchHit>>
+  async searchLevel(
+    level: SearchLevel,
+    query: string,
+    page: number = 1,
+    perPage: number = 20
+  ): Promise<SearchResponse<ProtoclusterSearchHit | RegionSearchHit | RecordSearchHit>> {
+    const response = await this.axiosInstance.post(`/api/search/${level}`, {
+      query,
+      page,
+      per_page: perPage
+    })
+    return response.data
+  }
+
+  async getSearchSchema(): Promise<SearchSchema> {
+    const response = await this.axiosInstance.get<SearchSchema>('/api/search/schema')
+    return response.data
   }
 
   /**

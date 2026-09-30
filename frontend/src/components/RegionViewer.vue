@@ -156,6 +156,10 @@ export default {
       type: String,
       default: ''
     },
+    initialProtoclusterNumber: {
+      type: Number,
+      default: null
+    },
     // Data provider for fetching additional data
     dataProvider: {
       type: Object,
@@ -211,6 +215,20 @@ export default {
     let allTrackData = {} // Store all generated tracks
     const selectedAnnotation = ref(null) // Track the selected annotation for highlighting
     const ANNOTATION_THRESHOLD = 500 // Max annotations to render before showing placeholder
+
+    const focusInitialProtocluster = () => {
+      if (props.initialProtoclusterNumber === null || !regionViewer) return
+
+      const annotationId = `protocluster-${props.initialProtoclusterNumber}`
+      const track = Object.values(allTrackData).find(candidate =>
+        candidate.annotations.some(annotation => annotation.id === annotationId)
+      )
+      const annotation = track?.annotations.find(candidate => candidate.id === annotationId)
+      if (!annotation) return
+
+      handleAnnotationClick(annotation, track)
+      regionViewer.zoomTo(annotation.start, annotation.end)
+    }
     
     // Derive selected element from selected annotation
     const selectedElement = computed(() => {
@@ -331,6 +349,7 @@ export default {
         }
         
         updateViewer()
+        focusInitialProtocluster()
         console.log('Viewer initialized and updated')
         
       } catch (err) {
@@ -923,6 +942,16 @@ export default {
         regionViewer.drawTracks()
       }
     }
+
+    watch(() => props.initialProtoclusterNumber, (newNumber) => {
+      if (newNumber === null) {
+        selectedAnnotation.value = null
+        updateAnnotationHighlighting()
+        regionViewer?.drawTracks()
+        return
+      }
+      focusInitialProtocluster()
+    })
     
     // Clear selected element
     const clearSelectedElement = () => {

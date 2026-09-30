@@ -149,6 +149,7 @@
 import { ref, computed, watch, h } from 'vue'
 import SimpleTable from './SimpleTable.vue'
 import SortableTable from './SortableTable.vue'
+import { copyText } from '@/utils/clipboard'
 
 export default {
   name: 'FeatureDetails',
@@ -394,11 +395,10 @@ export default {
     }
     
     const copyToClipboard = async (text, type) => {
-      try {
-        await navigator.clipboard.writeText(text)
+      if (await copyText(text)) {
         alert(`${type} sequence copied to clipboard!`)
-      } catch (err) {
-        console.error('Failed to copy to clipboard:', err)
+      } else {
+        console.error('Failed to copy to clipboard')
         alert('Failed to copy to clipboard')
       }
     }

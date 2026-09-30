@@ -57,6 +57,7 @@ export default defineConfig({
           { text: 'Data Loading', link: '/api/data-loading' },
           { text: 'Records & Features', link: '/api/records' },
           { text: 'Database', link: '/api/database' },
+          { text: 'Protocluster Search', link: '/api/search' },
           { text: 'File System (Local)', link: '/api/filesystem' }
         ]
       },
@@ -64,6 +65,7 @@ export default defineConfig({
         text: 'Development',
         items: [
           { text: 'Database schema', link: '/development/database-schema' },
+          { text: 'Search index', link: '/development/search-index' },
         ]
       }
     ],
