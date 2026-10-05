@@ -63,22 +63,22 @@ py_positions = []
 
 for i in range(pos, len(content)):
     byte = content[i:i+1]
-    
+
     if escape_next:
         escape_next = False
         continue
-    
+
     if byte == b'\\':
         escape_next = True
         continue
-    
+
     if byte == b'"':
         in_string = not in_string
         continue
-    
+
     if in_string:
         continue
-    
+
     if byte == b'{':
         if brace_depth == 0:
             record_start = i

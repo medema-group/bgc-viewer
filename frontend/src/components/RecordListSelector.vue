@@ -16,7 +16,7 @@
     <div v-else class="entries-section">
       <!-- Search and Controls - Always visible -->
       <div class="controls-bar">
-        <div class="search-container">
+        <div v-if="showSearch" class="search-container">
           <input
             v-model="searchQuery"
             @input="debouncedSearch"
@@ -139,6 +139,10 @@ export default {
       type: String,
       default: ''
     },
+    showSearch: {
+      type: Boolean,
+      default: true
+    },
     dataSource: {
       type: String,
       default: 'api'
@@ -204,6 +208,10 @@ export default {
         recordId: record.record_id,
         filename: record.filename
       })
+    }
+
+    const setSelectedEntry = (entryId) => {
+      selectedEntryId.value = entryId
     }
     
     const searchRecords = async (query, page = null) => {
@@ -405,6 +413,7 @@ export default {
       loadEntries,
       goToPage,
       selectRecord,
+      setSelectedEntry,
       debouncedSearch,
       clearSearch,
       refreshEntries,

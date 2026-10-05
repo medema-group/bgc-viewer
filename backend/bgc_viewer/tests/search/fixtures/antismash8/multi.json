@@ -1,0 +1,139 @@
+{
+  "version": "8.0.2",
+  "input_file": "multi.gbk",
+  "records": [
+    {
+      "id": "recA",
+      "features": [
+        {
+          "type": "source",
+          "location": "[0:6000](+)",
+          "qualifiers": {
+            "organism": [
+              "Streptomyces coelicolor"
+            ]
+          }
+        },
+        {
+          "type": "region",
+          "location": "[0:3000](+)",
+          "qualifiers": {
+            "region_number": [
+              "1"
+            ]
+          }
+        },
+        {
+          "type": "region",
+          "location": "[0:6000](+)",
+          "qualifiers": {
+            "region_number": [
+              "2"
+            ]
+          }
+        },
+        {
+          "type": "protocluster",
+          "location": "[500:1500](+)",
+          "qualifiers": {
+            "protocluster_number": [
+              "1"
+            ],
+            "product": [
+              "PKS"
+            ],
+            "product_category": [
+              "trans-AT PKS"
+            ]
+          }
+        },
+        {
+          "type": "gene",
+          "location": "[600:900](+)",
+          "qualifiers": {
+            "gene": [
+              "chsA"
+            ],
+            "locus_tag": [
+              "SCO_0001"
+            ]
+          }
+        },
+        {
+          "type": "PFAM_domain",
+          "location": "[700:850](+)",
+          "qualifiers": {
+            "db_xref": [
+              "PF00668.30"
+            ],
+            "description": [
+              "Trans-AT acyltransferase"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "recB",
+      "features": [
+        {
+          "type": "source",
+          "location": "[0:4000](-)",
+          "qualifiers": {
+            "organism": [
+              "Bacillus subtilis"
+            ]
+          }
+        },
+        {
+          "type": "region",
+          "location": "[<100:3900](+)",
+          "qualifiers": {
+            "region_number": [
+              "1"
+            ]
+          }
+        },
+        {
+          "type": "protocluster",
+          "location": "join{[<200:300](+), [3500:>3800](+)}",
+          "qualifiers": {
+            "protocluster_number": [
+              "1"
+            ],
+            "product": [
+              "ranthipeptide"
+            ],
+            "product_category": [
+              "RiPP"
+            ]
+          }
+        },
+        {
+          "type": "gene",
+          "location": "[3600:3700](+)",
+          "qualifiers": {
+            "gene": [
+              "sunA"
+            ],
+            "locus_tag": [
+              "BSU_0001"
+            ]
+          }
+        },
+        {
+          "type": "PFAM_domain",
+          "location": "[3650:3680](+)",
+          "qualifiers": {
+            "db_xref": [
+              "PF04818.15"
+            ],
+            "description": [
+              "RiPP heterocyclase"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

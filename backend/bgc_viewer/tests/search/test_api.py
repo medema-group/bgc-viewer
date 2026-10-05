@@ -1,0 +1,785 @@
+"""Tests for the protocluster search HTTP layer.
+
+Covers request parsing (:func:`parse_search_request`), the minimal
+:class:`SearchResponse` body built from the core result types, the structured
+error mapping, the Flask ``POST /api/search/<level>`` routes, and the
+level-independent ``GET /api/search/schema`` endpoint.
+"""
+
+import json
+import sqlite3
+from pathlib import Path
+
+import pytest
+from tantivy import Document
+import bgc_viewer.app as app_module
+from bgc_viewer.app import (
+    MissingDatabaseError,
+    NoDatabaseError,
+    app,
+)
+from bgc_viewer.search.api import (
+    MAX_PAGE_SIZE,
+    QUERY_SYNTAX_URL,
+    InvalidRequestError,
+    SearchRequest,
+    SearchResponse,
+    build_schema_response,
+    error_response,
+    parse_search_request,
+    read_example_queries,
+)
+from bgc_viewer.search.build_state import mark_building
+from bgc_viewer.search.document import (
+    PUBLIC_FIELDS,
+    SEARCH_SCHEMA_VERSION,
+    Location,
+)
+from bgc_viewer.search.index import (
+    EmptyQueryError,
+    IndexCorruptError,
+    IndexIncompatibleError,
+    IndexNotFoundError,
+    QuerySyntaxError,
+    UnknownFieldError,
+    build_index,
+    open_index,
+    search_protoclusters,
+    search_record,
+    search_region,
+)
+
+SCHEMA_FIELD_NAMES = (
+    "pfam",
+    "pfam_name",
+    "organism",
+    "gene",
+    "locus",
+    "product",
+    "category",
+    "record",
+    "region",
+    "protocluster",
+    "start",
+    "end",
+    "output_file",
+    "input_file",
+)
+RETURNED_FIELDS = {
+    "organism",
+    "product",
+    "category",
+    "record",
+    "region",
+    "protocluster",
+    "start",
+    "end",
+    "output_file",
+    "input_file",
+}
+INDEXED_ONLY_FIELDS = {"pfam", "pfam_name", "gene", "locus"}
+
+
+def _doc(
+    protocluster_number: int,
+    *,
+    record_id: str = "recA",
+    region_number: int = 1,
+    location: str = "[100:500](+)",
+    product: str = "NRP",
+    category: str = "NRPS",
+    organism: str = "His Kinase Amycolatopsis",
+    pfam: tuple[str, ...] = (),
+) -> Document:
+    parsed = Location.parse(location)
+    document = Document()
+    document.add_text("record", record_id)
+    document.add_integer("region", region_number)
+    document.add_integer("protocluster", protocluster_number)
+    document.add_integer("start", parsed.start)
+    document.add_integer("end", parsed.end)
+    document.add_text("product", product)
+    document.add_text("category", category)
+    if organism:
+        document.add_text("organism", organism)
+    for value in pfam:
+        document.add_text("pfam", value)
+    document.add_text("output_file", "rec.json")
+    document.add_text("input_file", "rec.gbk")
+    return document
+
+
+@pytest.fixture
+def grouped_corpus() -> list[Document]:
+    return [
+        _doc(1, record_id="recA", region_number=1, pfam=("shared",)),
+        _doc(2, record_id="recA", region_number=1, pfam=("shared",)),
+        _doc(1, record_id="recA", region_number=2, pfam=("shared",)),
+        _doc(1, record_id="recB", region_number=1, pfam=("shared",)),
+    ]
+
+
+@pytest.fixture
+def index_dir(grouped_corpus, tmp_path) -> Path:
+    target = tmp_path / "tantivy.index"
+    build_index(iter(grouped_corpus), target)
+    return target
+
+
+class TestParseSearchRequest:
+    def test_defaults(self):
+        req = parse_search_request({"query": "pfam:shared"})
+        assert req == SearchRequest(query="pfam:shared", page=1, per_page=20)
+        assert req.offset == 0
+
+    def test_offset_is_derived_from_page_and_per_page(self):
+        req = parse_search_request({"query": "q", "page": 3, "per_page": 15})
+        assert req.offset == 30
+
+    def test_per_page_clamped_to_maximum(self):
+        req = parse_search_request({"query": "q", "per_page": 500})
+        assert req.per_page == MAX_PAGE_SIZE
+
+    def test_non_object_body_rejected(self):
+        for body in (None, [], "text", 5):
+            with pytest.raises(InvalidRequestError):
+                parse_search_request(body)
+
+    def test_non_string_query_rejected(self):
+        with pytest.raises(InvalidRequestError):
+            parse_search_request({"query": 123})
+
+    def test_non_integer_pagination_rejected(self):
+        with pytest.raises(InvalidRequestError):
+            parse_search_request({"query": "q", "page": "x"})
+
+    @pytest.mark.parametrize("field", ["page", "per_page"])
+    @pytest.mark.parametrize("value", [1.5, True, "2", None])
+    def test_non_integer_json_pagination_rejected(self, field, value):
+        with pytest.raises(InvalidRequestError):
+            parse_search_request({"query": "q", field: value})
+
+    def test_page_below_one_rejected(self):
+        with pytest.raises(InvalidRequestError):
+            parse_search_request({"query": "q", "page": 0})
+
+    def test_per_page_below_one_rejected(self):
+        with pytest.raises(InvalidRequestError):
+            parse_search_request({"query": "q", "per_page": 0})
+
+
+class TestResponseFromResults:
+    def test_response_carries_only_hits_and_has_more(self, index_dir):
+        results = search_protoclusters(
+            open_index(index_dir), "pfam:shared", offset=0, limit=2
+        )
+        response = SearchResponse.from_results(results)
+        assert response.has_more is True
+        assert len(response.hits) == 2
+
+    def test_region_response_has_more_for_distinct_regions(self, index_dir):
+        results = search_region(open_index(index_dir), "pfam:shared", offset=0, limit=2)
+        response = SearchResponse.from_results(results)
+        assert response.has_more is True
+
+    def test_record_response_zero_hits_reports_no_more(self, index_dir):
+        results = search_record(open_index(index_dir), "pfam:none", offset=0, limit=20)
+        response = SearchResponse.from_results(results)
+        assert response.has_more is False
+        assert response.hits == ()
+
+
+class TestErrorResponse:
+    def test_unknown_field_includes_available_fields(self):
+        payload, status = error_response(UnknownFieldError("go", ["organism", "pfam"]))
+        assert status == 400
+        assert payload["error"]["code"] == "unknown_field"
+        assert payload["error"]["details"]["available_fields"] == ["organism", "pfam"]
+
+    @pytest.mark.parametrize(
+        "error, status",
+        [
+            (EmptyQueryError(), 400),
+            (QuerySyntaxError("bad"), 400),
+            (NoDatabaseError(), 400),
+            (MissingDatabaseError("/nope.db"), 404),
+            (IndexNotFoundError("none"), 404),
+            (IndexIncompatibleError("bad"), 409),
+            (IndexCorruptError("bad"), 500),
+        ],
+    )
+    def test_search_error_status_mapping(self, error, status):
+        payload, got = error_response(error)
+        assert got == status
+        assert payload["error"]["code"] == error.code
+
+    def test_unexpected_error_is_500(self):
+        payload, status = error_response(RuntimeError("boom"))
+        assert status == 500
+        assert payload["error"]["code"] == "search_failed"
+
+
+@pytest.fixture
+def search_client():
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        yield client
+
+
+def _select_database(client, db_path):
+    with client.session_transaction() as sess:
+        sess["current_database_path"] = str(db_path)
+
+
+class TestSearchEndpoint:
+    def test_protocluster_endpoint_json_shape(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is False
+        assert set(data["hits"][0]) == {"score", "fields"}
+        assert data["hits"][0]["fields"]["record"] in {"test_record_1", "test_record_2"}
+
+    def test_region_endpoint_json_shape(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/region", json={"query": "pfam:PF00501"}
+        )
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is False
+        assert set(data["hits"][0]) == {
+            "score",
+            "record",
+            "region",
+            "output_file",
+            "input_file",
+        }
+
+    def test_record_endpoint_json_shape(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/record", json={"query": "pfam:PF00501"}
+        )
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is False
+        assert set(data["hits"][0]) == {"score", "record", "output_file", "input_file"}
+
+    def test_pagination_limits_hits_without_echoing_request(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/protocluster",
+            json={"query": "pfam:PF00501", "page": 1, "per_page": 1},
+        )
+        data = json.loads(response.data)
+        assert set(data) == {"hits", "has_more"}
+        assert data["has_more"] is True
+        assert len(data["hits"]) == 1
+
+    def test_unknown_level_is_not_a_route(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/bogus", json={"query": "pfam:PF00501"}
+        )
+        # No dedicated unknown-level handler: the GET-only SPA fallback matches
+        # the path but rejects POST, so Flask answers 405 Method Not Allowed.
+        assert response.status_code == 405
+
+    def test_invalid_body_returns_400(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post("/api/search/record", json={"query": 123})
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data["error"]["code"] == "invalid_request"
+
+    def test_no_database_selected_returns_400(self, search_client):
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data["error"]["code"] == "no_database"
+
+    def test_missing_index_returns_404(self, search_client, temp_dir):
+        empty_db = temp_dir / "attributes.db"
+        empty_db.write_text("")
+        _select_database(search_client, empty_db)
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+        assert response.status_code == 404
+        data = json.loads(response.data)
+        assert data["error"]["code"] == "missing_index"
+
+    def test_unknown_field_returns_400(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "go:x"}
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data["error"]["code"] == "unknown_field"
+        assert data["error"]["details"]["available_fields"] == sorted(
+            SCHEMA_FIELD_NAMES
+        )
+
+    def test_syntax_error_returns_400_invalid_query(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "(pfam:PF00501 AND"}
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data["error"]["code"] == "invalid_query"
+        assert "Syntax Error" in data["error"]["message"]
+
+    def test_query_errors_report_no_character_position(
+        self, search_client, test_database
+    ):
+        """The contract omits the parser position rather than guessing it."""
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post("/api/search/protocluster", json={"query": "("})
+        error = json.loads(response.data)["error"]
+        assert error["code"] == "invalid_query"
+        assert "position" not in error
+
+    def test_negative_only_query_is_rejected(self, search_client, test_database):
+        """Tantivy rejects negative-only queries and so does the endpoint."""
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "-pfam:PF00501"}
+        )
+        assert response.status_code == 400
+        assert json.loads(response.data)["error"]["code"] == "invalid_query"
+
+    def test_corrupt_index_returns_500(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        meta_path = db_path.parent / "tantivy.index" / "meta.json"
+        meta_path.write_text("{not json", encoding="utf-8")
+
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+        assert response.status_code == 500
+        assert json.loads(response.data)["error"]["code"] == "corrupt_index"
+
+    def test_incompatible_index_returns_409(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        version_path = db_path.parent / "tantivy.index" / "version.txt"
+        version_path.write_text(str(SEARCH_SCHEMA_VERSION + 1), encoding="utf-8")
+
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+        assert response.status_code == 409
+        assert json.loads(response.data)["error"]["code"] == "incompatible_schema"
+
+    def test_malformed_schema_version_returns_structured_409(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        version_path = db_path.parent / "tantivy.index" / "version.txt"
+        version_path.write_text("broken", encoding="utf-8")
+
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+
+        assert response.status_code == 409
+        assert json.loads(response.data)["error"]["code"] == "incompatible_schema"
+
+    def test_protocluster_hits_are_self_contained(self, search_client, test_database):
+        """Every display value comes off the index; nothing needs hydrating."""
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+        returned = RETURNED_FIELDS
+        indexed_only = INDEXED_ONLY_FIELDS
+        for hit in json.loads(response.data)["hits"]:
+            assert returned <= set(hit["fields"])
+            assert not indexed_only & set(hit["fields"])
+            assert hit["fields"]["record"]
+            assert hit["fields"]["output_file"] == "test_sample.json"
+
+
+@pytest.fixture
+def ranked_database(temp_dir):
+    """A selected database whose sibling index yields distinctly scored hits."""
+    database = temp_dir / "attributes.db"
+    database.write_text("")
+    build_index(
+        iter(
+            [
+                _doc(1, record_id="recA", pfam=("PF00512", "PF00513")),
+                _doc(2, record_id="recA", pfam=("PF00512",)),
+                _doc(3, record_id="recB", pfam=("PF00513",)),
+            ]
+        ),
+        temp_dir / "tantivy.index",
+    )
+    return database
+
+
+class TestSearchEndpointRanking:
+    """Ranked pagination and stable ordering through the endpoint."""
+
+    QUERY = "pfam:PF00512 OR pfam:PF00513"
+
+    def _search(self, client, **pagination):
+        response = client.post(
+            "/api/search/protocluster", json={"query": self.QUERY, **pagination}
+        )
+        assert response.status_code == 200
+        return json.loads(response.data)
+
+    def test_hits_are_ordered_by_descending_score(self, search_client, ranked_database):
+        _select_database(search_client, ranked_database)
+        data = self._search(search_client, per_page=10)
+        scores = [hit["score"] for hit in data["hits"]]
+        assert scores == sorted(scores, reverse=True)
+        assert [hit["fields"]["protocluster"] for hit in data["hits"]] == [1, 2, 3]
+
+    def test_paged_requests_reproduce_the_full_ranked_order(
+        self, search_client, ranked_database
+    ):
+        _select_database(search_client, ranked_database)
+        full = self._search(search_client, per_page=10)
+        assert full["has_more"] is False
+
+        paged: list[dict] = []
+        page = 1
+        while True:
+            page_data = self._search(search_client, page=page, per_page=1)
+            paged.extend(page_data["hits"])
+            if not page_data["has_more"]:
+                break
+            page += 1
+
+        assert [hit["score"] for hit in paged] == [hit["score"] for hit in full["hits"]]
+        assert [hit["fields"]["protocluster"] for hit in paged] == [
+            hit["fields"]["protocluster"] for hit in full["hits"]
+        ]
+
+    def test_tied_scores_keep_insertion_order_across_pages(
+        self, search_client, ranked_database
+    ):
+        """Equal scores resolve by document order, so paging cannot reshuffle them."""
+        _select_database(search_client, ranked_database)
+        data = self._search(search_client, per_page=10)
+        assert data["hits"][1]["score"] == data["hits"][2]["score"]
+
+        for _ in range(3):
+            singles = [
+                self._search(search_client, page=page, per_page=1)["hits"][0]
+                for page in range(1, 4)
+            ]
+            assert [hit["fields"]["protocluster"] for hit in singles] == [1, 2, 3]
+
+    def test_a_page_beyond_the_end_returns_no_hits_and_no_more(
+        self, search_client, ranked_database
+    ):
+        _select_database(search_client, ranked_database)
+        data = self._search(search_client, page=9, per_page=5)
+        assert data["hits"] == []
+        assert data["has_more"] is False
+
+
+# --- Public field projection -------------------------------------------------
+
+
+class TestPublicFieldProjection:
+    def test_every_field_is_projected_in_declared_order(self):
+        assert [info.name for info in PUBLIC_FIELDS] == list(SCHEMA_FIELD_NAMES)
+
+    def test_kind_comes_from_the_tokenizer_for_text_fields(self):
+        kinds = {info.name: info.kind for info in PUBLIC_FIELDS}
+        assert kinds["pfam"] == "exact"
+        assert kinds["product"] == "exact"
+        assert kinds["output_file"] == "path"
+        assert kinds["input_file"] == "path"
+        assert kinds["organism"] == "full_text"
+        assert kinds["pfam_name"] == "full_text"
+
+    def test_kind_is_numeric_for_fields_without_a_tokenizer(self):
+        kinds = {info.name: info.kind for info in PUBLIC_FIELDS}
+        for name in ("region", "protocluster", "start", "end"):
+            assert kinds[name] == "numeric", name
+
+    def test_default_search_is_true_for_every_non_numeric_field(self):
+        for info in PUBLIC_FIELDS:
+            assert info.default_search == (info.kind != "numeric"), info.name
+
+    def test_no_numeric_field_participates_in_default_search(self):
+        assert [
+            info.name
+            for info in PUBLIC_FIELDS
+            if info.kind == "numeric" and info.default_search
+        ] == []
+
+    def test_every_field_carries_a_non_empty_description(self):
+        empty = [info.name for info in PUBLIC_FIELDS if not info.description.strip()]
+        assert empty == []
+
+
+# --- Example reads -----------------------------------------------------------
+
+
+def _example_queries(db_path) -> list[str]:
+    conn = sqlite3.connect(db_path)
+    try:
+        return [
+            row[0]
+            for row in conn.execute(
+                "SELECT query FROM search_examples ORDER BY id"
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+
+
+def _database_without_example_table(db_path) -> None:
+    """Create a database that has no ``search_examples`` table at all."""
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
+    conn.commit()
+    conn.close()
+
+
+class TestReadExampleQueries:
+    def test_reads_rows_in_the_order_preprocessing_wrote_them(self, test_database):
+        db_path, _ = test_database
+        assert list(read_example_queries(db_path)) == _example_queries(db_path)
+
+    def test_missing_table_yields_no_examples(self, temp_dir):
+        database = temp_dir / "attributes.db"
+        _database_without_example_table(database)
+        assert read_example_queries(database) == ()
+
+    def test_build_schema_response_pairs_registry_fields_with_stored_examples(
+        self, test_database
+    ):
+        db_path, _ = test_database
+        response = build_schema_response(db_path)
+        assert [info.name for info in response.fields] == list(SCHEMA_FIELD_NAMES)
+        assert list(response.examples) == _example_queries(db_path)
+        assert response.query_syntax_url == QUERY_SYNTAX_URL
+
+
+# --- Schema endpoint ---------------------------------------------------------
+
+
+def _schema(search_client):
+    return search_client.get("/api/search/schema")
+
+
+SAMPLE_EXAMPLES = [
+    "PF00501",
+    "category:PKS",
+    '"Streptomyces coelicolor"',
+    "category:PKS AND product:polyketide",
+    'organism:"Streptomyces coelicolor" NOT product:polyketide',
+]
+
+
+class TestSchemaEndpoint:
+    def test_response_carries_exactly_fields_examples_and_syntax_url(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = _schema(search_client)
+        assert response.status_code == 200
+        assert set(json.loads(response.data)) == {
+            "fields",
+            "examples",
+            "query_syntax_url",
+        }
+
+    def test_field_objects_expose_only_the_public_keys(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        data = json.loads(_schema(search_client).data)
+        for field in data["fields"]:
+            assert set(field) == {"name", "kind", "default_search", "description"}
+
+    def test_internal_registry_details_are_not_exposed(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        data = json.loads(_schema(search_client).data)
+        for field in data["fields"]:
+            for internal in ("boost", "cardinality", "stored", "returned", "tokenizer"):
+                assert internal not in field, f"{internal} leaked via {field['name']}"
+
+    def test_fields_cover_the_whole_registry_in_order(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        data = json.loads(_schema(search_client).data)
+        assert [field["name"] for field in data["fields"]] == list(SCHEMA_FIELD_NAMES)
+
+    def test_examples_are_the_generated_queries_in_template_order(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        data = json.loads(_schema(search_client).data)
+        assert data["examples"] == SAMPLE_EXAMPLES
+
+    def test_query_syntax_url_is_the_generic_latest_parser_link(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        data = json.loads(_schema(search_client).data)
+        assert data["query_syntax_url"] == (
+            "https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html"
+        )
+        assert "0.26" not in data["query_syntax_url"]
+
+    def test_response_carries_no_level(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        assert "level" not in json.loads(_schema(search_client).data)
+
+    def test_repeated_requests_are_identical(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        assert _schema(search_client).data == _schema(search_client).data
+
+    def test_post_is_not_allowed(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        assert search_client.post("/api/search/schema", json={}).status_code == 405
+
+    def test_the_index_is_opened_only_for_availability_signaling(
+        self, search_client, test_database, monkeypatch
+    ):
+        """A stub handle still yields a complete response: nothing is read from it."""
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        opened: list = []
+        monkeypatch.setattr(
+            app_module, "open_index", lambda path: opened.append(path) or object()
+        )
+
+        response = _schema(search_client)
+
+        assert response.status_code == 200
+        assert opened == [db_path.parent / "tantivy.index"]
+        data = json.loads(response.data)
+        assert len(data["fields"]) == len(SCHEMA_FIELD_NAMES)
+        assert data["examples"] == SAMPLE_EXAMPLES
+
+    def test_no_database_selected_returns_400(self, search_client):
+        response = _schema(search_client)
+        assert response.status_code == 400
+        assert json.loads(response.data)["error"]["code"] == "no_database"
+
+    def test_missing_database_file_returns_404(self, search_client, temp_dir):
+        _select_database(search_client, temp_dir / "gone.db")
+        response = _schema(search_client)
+        assert response.status_code == 404
+        assert json.loads(response.data)["error"]["code"] == "missing_database"
+
+    def test_missing_index_returns_404(self, search_client, temp_dir):
+        database = temp_dir / "attributes.db"
+        database.write_text("")
+        _select_database(search_client, database)
+        response = _schema(search_client)
+        assert response.status_code == 404
+        assert json.loads(response.data)["error"]["code"] == "missing_index"
+
+    def test_incompatible_schema_returns_409(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        version_path = db_path.parent / "tantivy.index" / "version.txt"
+        version_path.write_text(str(SEARCH_SCHEMA_VERSION + 1), encoding="utf-8")
+
+        response = _schema(search_client)
+        assert response.status_code == 409
+        assert json.loads(response.data)["error"]["code"] == "incompatible_schema"
+
+    def test_live_build_returns_409_rebuilding(
+        self, monkeypatch, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        monkeypatch.setitem(app_module.PREPROCESSING_STATUS, "is_running", True)
+        response = _schema(search_client)
+        assert response.status_code == 409
+        assert json.loads(response.data)["error"]["code"] == "index_rebuilding"
+
+    def test_stale_sentinel_returns_409_interrupted(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        mark_building(db_path.parent)
+        response = _schema(search_client)
+        assert response.status_code == 409
+        assert json.loads(response.data)["error"]["code"] == "index_interrupted"
+
+    def test_guard_runs_before_any_handle_is_opened(
+        self, search_client, test_database, monkeypatch
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        opened: list = []
+        monkeypatch.setattr(app_module, "open_index", lambda path: opened.append(path))
+        mark_building(db_path.parent)
+
+        assert _schema(search_client).status_code == 409
+        assert opened == []
+
+    def test_a_read_request_does_not_clear_a_stale_sentinel(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        mark_building(db_path.parent)
+        _schema(search_client)
+        from bgc_viewer.search.build_state import is_building
+
+        assert is_building(db_path.parent)
+
+    def test_fields_are_served_when_the_example_table_is_absent(
+        self, search_client, temp_dir
+    ):
+        """A database without examples still gets the full registry-driven fields."""
+        database = temp_dir / "attributes.db"
+        _database_without_example_table(database)
+        build_index(iter([_doc(1)]), temp_dir / "tantivy.index")
+        _select_database(search_client, database)
+
+        response = _schema(search_client)
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["examples"] == []
+        assert len(data["fields"]) == len(SCHEMA_FIELD_NAMES)

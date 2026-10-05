@@ -3,7 +3,11 @@
     <!-- Header spanning full width -->
     <header class="app-header">
       <h1>BGC Viewer</h1>
-      <div class="header-right">
+      <div class="header-tools">
+        <SearchBar
+          v-if="dataSource === 'api' && !folderForIndexing"
+          @open="searchDialogOpen = true"
+        />
         <div class="version-info">
           <span v-if="appVersion">{{ appName }} v{{ appVersion }}</span>
           <span v-else>Loading version...</span>
@@ -15,6 +19,28 @@
         </nav>
       </div>
     </header>
+
+    <SearchDialog
+      v-if="searchDialogOpen"
+      v-model:query="searchQuery"
+      v-model:level="searchLevel"
+      :response="searchResults"
+      :results-query="searchResultsQuery"
+      :results-level="searchResultsLevel"
+      :selected-hit="selectedSearchHit"
+      :loading="searchLoading"
+      :loading-more="searchLoadingMore"
+      :error="searchError"
+      :schema="searchSchema"
+      :schema-loading="searchSchemaLoading"
+      :schema-error="searchSchemaError"
+      @search="handleSearch"
+      @clear="clearSearch"
+      @request-help="loadSearchSchema"
+      @load-more="handleLoadMore"
+      @search-selected="handleSearchSelected"
+      @close="searchDialogOpen = false"
+    />
 
     <!-- Main content area with sidebar and viewer -->
     <div class="main-content">
@@ -71,6 +97,7 @@
             ref="recordListSelectorRef"
             :data-root="selectedDataRoot"
             :index-path="selectedIndexPath"
+            :show-search="dataSource !== 'api'"
             :data-source="dataSource"
             @record-selected="handleRecordSelected"
           />
@@ -92,6 +119,7 @@
           :record-id="currentRecordId"
           :record-data="currentRecordData"
           :initial-region-id="initialRegionId"
+          :initial-protocluster-number="initialProtoclusterNumber"
           @region-changed="handleRegionChanged"
           @annotation-clicked="handleAnnotationClicked"
           @error="handleViewerError"
@@ -100,6 +128,7 @@
           <p>Select a record from the sidebar to view details</p>
         </div>
       </main>
+
     </div>
   </div>
 </template>
@@ -113,7 +142,14 @@ import IndexCreation from './components/IndexCreation.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
 import DataSourceSelector from './components/DataSourceSelector.vue'
 import FileUpload from './components/FileUpload.vue'
+import SearchBar from './components/SearchBar.vue'
+import SearchDialog from './components/SearchDialog.vue'
 import { BGCViewerAPIProvider, JSONFileProvider, GenbankFileProvider } from '@/services/dataProviders'
+import {
+  protoclusterNumberFromHit,
+  recordSelectionFromHit,
+  regionIdFromHit
+} from '@/services/searchNavigation'
 
 export default {
   name: 'App',
@@ -123,7 +159,9 @@ export default {
     IndexCreation,
     RecordListSelector,
     DataSourceSelector,
-    FileUpload
+    FileUpload,
+    SearchBar,
+    SearchDialog
   },
   setup() {
     const regionViewerRef = ref(null)
@@ -157,6 +195,25 @@ export default {
     const currentRecordId = ref('')
     const currentRecordData = ref(null)
     const initialRegionId = ref('')
+    const initialProtoclusterNumber = ref(null)
+
+    // Advanced backend search state
+    const searchQuery = ref('')
+    const searchLevel = ref('protocluster')
+    const searchResults = ref(null)
+    const searchResultsQuery = ref('')
+    const searchResultsLevel = ref('protocluster')
+    const searchResultsPage = ref(1)
+    const selectedSearchHit = ref(null)
+    const searchLoading = ref(false)
+    const searchLoadingMore = ref(false)
+    const searchError = ref(null)
+    let searchRequest = 0
+    const searchDialogOpen = ref(false)
+    const searchSchema = ref(null)
+    const searchSchemaLoading = ref(false)
+    const searchSchemaError = ref(null)
+    let searchSchemaRequest = 0
     
     // Draggable divider state
     const savedSidebarWidth = localStorage.getItem('bgc-viewer-sidebar-width')
@@ -186,20 +243,148 @@ export default {
       selectedDataRoot.value = folderPath
     }
 
+    const loadSearchSchema = async () => {
+      if (searchSchema.value || searchSchemaLoading.value) return
+
+      const request = ++searchSchemaRequest
+      searchSchemaLoading.value = true
+      searchSchemaError.value = null
+
+      try {
+        const provider = dataProvider.value
+        if (!(provider instanceof BGCViewerAPIProvider)) {
+          throw new Error('Advanced search is only available for backend datasets')
+        }
+        const schema = await provider.getSearchSchema()
+        if (request === searchSchemaRequest) {
+          searchSchema.value = schema
+        }
+      } catch (error) {
+        if (request === searchSchemaRequest) {
+          const apiError = error?.response?.data?.error
+          searchSchemaError.value = apiError && apiError.code && apiError.message
+            ? { code: apiError.code, message: apiError.message }
+            : { code: 'schema_failed', message: error?.message || 'Failed to load search reference' }
+        }
+      } finally {
+        if (request === searchSchemaRequest) {
+          searchSchemaLoading.value = false
+        }
+      }
+    }
+
+    const invalidateSearchSchema = () => {
+      searchSchemaRequest += 1
+      searchSchema.value = null
+      searchSchemaLoading.value = false
+      searchSchemaError.value = null
+    }
+
     const handleIndexChanged = async (indexPath) => {
       // Clear the viewer when the index changes
       currentRecordId.value = ''
       initialRegionId.value = ''
+      clearSearch()
       
       // Store the index file path (not data root)
       selectedIndexPath.value = indexPath
+      invalidateSearchSchema()
       // Refresh the record list when index has changed
       if (recordListSelectorRef.value) {
         await recordListSelectorRef.value.refreshEntries()
       }
     }
 
-    const handleRecordSelected = async (recordData) => {
+    const runSearch = async (query, level, page, append) => {
+      const request = ++searchRequest
+      if (append) {
+        searchLoadingMore.value = true
+      } else {
+        searchLoading.value = true
+        searchError.value = null
+      }
+
+      try {
+        const provider = dataProvider.value
+        if (!(provider instanceof BGCViewerAPIProvider)) {
+          throw new Error('Advanced search is only available for backend datasets')
+        }
+        const results = await provider.searchLevel(level, query, page)
+        if (request === searchRequest) {
+          const existing = append && searchResults.value ? searchResults.value.hits : []
+          searchResults.value = {
+            hits: [...existing, ...results.hits],
+            has_more: results.has_more
+          }
+          searchResultsQuery.value = query
+          searchResultsLevel.value = level
+          searchResultsPage.value = page
+          if (!append) {
+            selectedSearchHit.value = null
+          }
+        }
+      } catch (error) {
+        if (request === searchRequest) {
+          const apiError = error?.response?.data?.error
+          searchError.value = apiError && apiError.code && apiError.message
+            ? { code: apiError.code, message: apiError.message }
+            : { code: 'search_failed', message: error?.message || 'Search failed' }
+        }
+      } finally {
+        if (request === searchRequest) {
+          searchLoading.value = false
+          searchLoadingMore.value = false
+        }
+      }
+    }
+
+    const handleSearch = ({ query, level, page = 1 }) => {
+      searchQuery.value = query
+      searchLevel.value = level
+      if (!query.trim()) {
+        clearSearch()
+        return
+      }
+      runSearch(query, level, page, false)
+    }
+
+    const clearSearch = () => {
+      searchRequest += 1
+      searchQuery.value = ''
+      searchResults.value = null
+      searchResultsQuery.value = ''
+      searchResultsPage.value = 1
+      selectedSearchHit.value = null
+      searchLoading.value = false
+      searchLoadingMore.value = false
+      searchError.value = null
+    }
+
+    const handleLoadMore = () => {
+      if (!searchResultsQuery.value || searchLoadingMore.value) {
+        return
+      }
+      runSearch(
+        searchResultsQuery.value,
+        searchResultsLevel.value,
+        searchResultsPage.value + 1,
+        true
+      )
+    }
+
+    const handleSearchSelected = async (hit) => {
+      selectedSearchHit.value = hit
+      await handleRecordSelected(
+        recordSelectionFromHit(searchResultsLevel.value, hit),
+        regionIdFromHit(searchResultsLevel.value, hit),
+        protoclusterNumberFromHit(searchResultsLevel.value, hit)
+      )
+      searchDialogOpen.value = false
+    }
+
+    const handleRecordSelected = async (recordData, regionId = '', protoclusterNumber = null) => {
+      recordListSelectorRef.value?.setSelectedEntry(recordData.entryId)
+
       // Store the selected entry ID - container will load it through the provider
       currentRecordData.value = {
         entryId: recordData.entryId,
@@ -221,7 +406,8 @@ export default {
       // Set the record ID to trigger the container to load
       // Use entryId (which includes filename) for uniqueness, not recordId
       currentRecordId.value = recordData.entryId
-      initialRegionId.value = '' // Reset region selection for new record
+      initialRegionId.value = regionId
+      initialProtoclusterNumber.value = protoclusterNumber
       
       console.log('Record selected:', recordData.recordId, 'from', recordData.filename, '(entryId:', recordData.entryId, ')')
     }
@@ -265,6 +451,7 @@ export default {
       // Update the selected index path - this will trigger the watcher in RecordListSelector
       // which will call setDatabasePath and loadEntries automatically
       selectedIndexPath.value = indexPath
+      invalidateSearchSchema()
       
       // Give the watcher time to process the change
       await new Promise(resolve => setTimeout(resolve, 100))
@@ -348,6 +535,7 @@ export default {
       currentRecordId.value = ''
       currentRecordData.value = null
       initialRegionId.value = ''
+      clearSearch()
       
       // Pass all providers to RecordListSelector for searching
       if (recordListSelectorRef.value) {
@@ -364,6 +552,7 @@ export default {
       currentRecordId.value = ''
       currentRecordData.value = null
       initialRegionId.value = ''
+      clearSearch()
 
       // Reset data provider based on source
       if (newSource === 'api') {
@@ -375,6 +564,8 @@ export default {
           await recordListSelectorRef.value.setRecordsFromProvider(apiProvider, false)
         }
       } else if (newSource === 'upload') {
+        searchDialogOpen.value = false
+        invalidateSearchSchema()
         // Clear records and wait for file upload
         if (recordListSelectorRef.value) {
           recordListSelectorRef.value.clearRecords()
@@ -508,12 +699,32 @@ export default {
       dataProvider,
       currentRecordId,
       currentRecordData,
+      searchQuery,
+      searchLevel,
+      searchResults,
+      searchResultsQuery,
+      searchResultsLevel,
+      searchResultsPage,
+      selectedSearchHit,
+      searchLoading,
+      searchLoadingMore,
+      searchError,
+      searchDialogOpen,
+      searchSchema,
+      searchSchemaLoading,
+      searchSchemaError,
       sidebarTopHeight,
       initialRegionId,
+      initialProtoclusterNumber,
       sidebarWidth,
       handleFolderSelected,
       handleFolderChanged,
       handleIndexChanged,
+      handleSearch,
+      handleLoadMore,
+      handleSearchSelected,
+      clearSearch,
+      loadSearchSchema,
       handleRecordSelected,
       handleRegionChanged,
       handleAnnotationClicked,
@@ -576,16 +787,37 @@ html,
   font-size: 24px;
 }
 
-.header-right {
+.header-tools {
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: flex-end;
+  gap: 16px;
+  min-width: 0;
 }
 
 .app-header .version-info {
   color: #666;
   font-size: 0.85rem;
   font-weight: 500;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .app-header {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .header-tools {
+    align-items: flex-end;
+    flex-direction: column-reverse;
+    gap: 4px;
+    width: min(70%, 560px);
+  }
+
+  .header-tools .search-bar {
+    width: 100%;
+  }
 }
 
 .header-links {
@@ -612,6 +844,7 @@ html,
 
 /* Main content area with sidebar and viewer */
 .main-content {
+  position: relative;
   display: flex;
   flex: 1;
   overflow: hidden;
