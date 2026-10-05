@@ -8,6 +8,8 @@ from pathlib import Path
 import ijson
 from tantivy import Document
 
+from bgc_viewer.data_loader import open_file
+
 from .document import Location, SourceFile
 
 
@@ -402,13 +404,13 @@ _MISSING = object()
 def _read_file_metadata(source_path: Path) -> tuple[str, str]:
     version: object = _MISSING
     input_file: object = _MISSING
-    with source_path.open("rb") as handle:
+    with open_file(source_path, "rb") as handle:
         for prefix, _event, value in ijson.parse(handle):
             if prefix == "version" and version is _MISSING:
                 version = value
             elif prefix == "input_file" and input_file is _MISSING:
                 input_file = value
-            elif prefix == "records" and version is not _MISSING:
+            if version is not _MISSING and input_file is not _MISSING:
                 break
     text_version = _text(None if version is _MISSING else version, "version")
     text_input = input_file.strip() if isinstance(input_file, str) else ""
@@ -467,7 +469,7 @@ def extract_documents(
 
         version, input_file = _read_file_metadata(source_path)
         source = SourceFile(version, relative_path, input_file)
-        with source_path.open("rb") as handle:
+        with open_file(source_path, "rb") as handle:
             records = ijson.items(handle, "records.item")
             yield from extract(
                 records,

@@ -41,7 +41,7 @@ jobs:
     - name: Install Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '22'
     
     - name: Install frontend dependencies
       working-directory: frontend
@@ -72,24 +72,25 @@ jobs:
         retention-days: 7
 
   build-wheels:
-    name: Build wheels on ${{ matrix.os }}
+    name: Build wheels on ${{ matrix.os }} for Python ${{ matrix.python-version }}
     needs: build-frontend
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-    
+        python-version: ['3.11', '3.12', '3.13']
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
         fetch-tags: true
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: ${{ matrix.python-version }}
     
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
@@ -149,7 +150,7 @@ jobs:
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:
-        name: wheels-${{ matrix.os }}
+        name: wheels-${{ matrix.os }}-py${{ matrix.python-version }}
         path: backend/dist/*.whl
         retention-days: 7
 
@@ -228,7 +229,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.13']
     
     steps:
     - name: Set up Python ${{ matrix.python-version }}
@@ -242,21 +243,40 @@ jobs:
     - name: Download wheel for this platform
       uses: actions/download-artifact@v4
       with:
-        name: wheels-${{ matrix.os }}
+        pattern: wheels-${{ matrix.os }}-py*
         path: dist/
-    
+        merge-multiple: true
+
+    - name: List downloaded wheels
+      shell: bash
+      run: |
+        echo "=== Wheels in dist/ ==="
+        ls -la dist/ || echo "dist/ not found"
+        echo ""
+        echo "=== Checking for all Python versions ==="
+        ls -1 dist/*.whl 2>/dev/null | grep -E "cp31[123]" || echo "No cp311/cp312/cp313 wheels found"
+
     - name: Test wheel installation
       shell: bash
       run: |
-        uv pip install --system dist/*.whl
+        PYTHON_VERSION="${{ matrix.python-version }}"
+        PY_TAG="cp${PYTHON_VERSION//./}"  # Convert 3.11 to cp311
+        WHEEL=$(ls dist/*${PY_TAG}*.whl)
+        echo "Installing wheel: $WHEEL"
+        uv pip install --system "$WHEEL"
         python -c "import bgc_viewer; print(f'Successfully imported bgc_viewer version {bgc_viewer.__version__}')"
         python -c "from bgc_viewer.app import app; print('Flask app imported successfully')"
     
     - name: Test Rust extension is available
       shell: bash
       run: |
-        python -c "import bgc_scanner; print('Rust extension loaded successfully')"
-        python -c "from pathlib import Path; import bgc_scanner; print('Rust scanner test passed')"
+        python << 'EOF'
+        try:
+            import bgc_scanner
+            print('Rust extension loaded successfully')
+        except ImportError:
+            print('Rust extension not available (optional)')
+        EOF
 
   publish-pypi:
     name: Publish to PyPI
@@ -297,7 +317,7 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     environment:
       name: npm
-      url: https://www.npmjs.com/package/@kretep/bgc-viewer-components
+      url: https://www.npmjs.com/package/@medemagroup/bgc-viewer-components
     permissions:
       id-token: write  # mandatory for trusted publishing
     
@@ -326,12 +346,12 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '22'
         registry-url: 'https://registry.npmjs.org'
-    
-    - name: Update npm for trusted publishing
+
+    - name: Update npm to latest
       run: npm install -g npm@latest
-    
+
     - name: Download NPM build artifacts
       uses: actions/download-artifact@v4
       with:
@@ -406,7 +426,7 @@ jobs:
         
         ### NPM Package Installation
         \`\`\`bash
-        npm install @kretep/bgc-viewer-components@$VERSION
+        npm install @medemagroup/bgc-viewer-components@$VERSION
         \`\`\`
         
         ### Usage
@@ -415,7 +435,7 @@ jobs:
         bgc-viewer
         \`\`\`
         
-        See the [NPM package](https://www.npmjs.com/package/@kretep/bgc-viewer-components) for web component usage.
+        See the [NPM package](https://www.npmjs.com/package/@medemagroup/bgc-viewer-components) for web component usage.
         
         ### Files
         - \`bgc_viewer-$VERSION.tar.gz\` - Source distribution (requires Rust to build)

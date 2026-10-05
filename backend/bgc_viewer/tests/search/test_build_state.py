@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 import bgc_viewer.app as app_module
@@ -122,10 +123,10 @@ class TestGuardBuildState:
 
     def test_both_map_to_conflict(self):
         assert error_response(IndexRebuildingError())[1] == 409
-        assert error_response(IndexInterruptedError("/tmp/out"))[1] == 409
+        assert error_response(IndexInterruptedError(Path("/tmp/out")))[1] == 409
 
     def test_error_envelope_carries_code_and_message(self):
-        payload, status = error_response(IndexInterruptedError("/tmp/out"))
+        payload, status = error_response(IndexInterruptedError(Path("/tmp/out")))
         assert status == 409
         assert payload["error"]["code"] == "index_interrupted"
         assert "Rerun preprocessing" in payload["error"]["message"]

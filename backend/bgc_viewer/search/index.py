@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from os import PathLike
 from pathlib import Path
 from typing import Any, Generic, TypeVar, cast
 
@@ -115,7 +114,7 @@ def _persist_schema_version(index_dir: Path, version: int) -> None:
 
 def build_index(
     documents: Iterable[Document],
-    index_path: str | PathLike[str] | None = None,
+    index_path: Path | None = None,
 ) -> Index:
     """Stream Tantivy ``documents`` into a new index and return it.
 
@@ -130,7 +129,7 @@ def build_index(
     retains the whole corpus and equal-score results resolve deterministically.
     A single writer thread is used to keep document order stable.
     """
-    index_dir = None if index_path is None else Path(index_path)
+    index_dir = index_path
     if index_dir is not None:
         index_dir.mkdir(parents=True, exist_ok=True)
         index = Index(build_schema(), path=str(index_dir))
@@ -264,14 +263,14 @@ def _read_schema_version(path: Path) -> int | None:
     return int(version_path.read_text(encoding="utf-8"))
 
 
-def open_index(index_path: str | PathLike[str]) -> Index:
+def open_index(index_path: Path) -> Index:
     """Open a previously built index for querying.
 
     The expected schema is rebuilt from the constants in this module, then the
     stored index is checked for schema and search-schema-version compatibility
     before it is returned.
     """
-    path = Path(index_path)
+    path = index_path
     if not _index_present(path):
         raise IndexNotFoundError(f"No search index found at {path}")
 
@@ -288,7 +287,12 @@ def open_index(index_path: str | PathLike[str]) -> Index:
         raise IndexCorruptError(f"Search index at {path} is corrupt") from error
     _register_custom_tokenizers(index)
 
-    stored_version = _read_schema_version(path)
+    try:
+        stored_version = _read_schema_version(path)
+    except (ValueError, UnicodeError) as error:
+        raise IndexIncompatibleError(
+            f"Search index at {path} has an invalid schema version"
+        ) from error
     if stored_version != SEARCH_SCHEMA_VERSION:
         raise IndexIncompatibleError(
             f"Search index at {path} has schema version {stored_version!r}; "
@@ -421,7 +425,8 @@ def _unique_matching_protoclusters(
     returned length whether more groups remain.
     """
     searcher: Searcher = index.searcher()
-    total = searcher.search(parsed, limit=1, count=True).count
+    # Tantivy exposes count at runtime, but its SearchResult stub omits it.
+    total = searcher.search(parsed, limit=1, count=True).count  # type: ignore[attr-defined]
     seen: set[tuple[Any, ...]] = set()
     unique: list[tuple[float, dict[str, Any]]] = []
     for offset in range(0, total, _FETCH_BATCH_SIZE):

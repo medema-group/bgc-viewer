@@ -8,6 +8,7 @@ level-independent ``GET /api/search/schema`` endpoint.
 
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 from tantivy import Document
@@ -119,10 +120,10 @@ def grouped_corpus() -> list[Document]:
 
 
 @pytest.fixture
-def index_dir(grouped_corpus, tmp_path) -> str:
+def index_dir(grouped_corpus, tmp_path) -> Path:
     target = tmp_path / "tantivy.index"
     build_index(iter(grouped_corpus), target)
-    return str(target)
+    return target
 
 
 class TestParseSearchRequest:
@@ -151,6 +152,12 @@ class TestParseSearchRequest:
     def test_non_integer_pagination_rejected(self):
         with pytest.raises(InvalidRequestError):
             parse_search_request({"query": "q", "page": "x"})
+
+    @pytest.mark.parametrize("field", ["page", "per_page"])
+    @pytest.mark.parametrize("value", [1.5, True, "2", None])
+    def test_non_integer_json_pagination_rejected(self, field, value):
+        with pytest.raises(InvalidRequestError):
+            parse_search_request({"query": "q", field: value})
 
     def test_page_below_one_rejected(self):
         with pytest.raises(InvalidRequestError):
@@ -385,6 +392,21 @@ class TestSearchEndpoint:
         response = search_client.post(
             "/api/search/protocluster", json={"query": "pfam:PF00501"}
         )
+        assert response.status_code == 409
+        assert json.loads(response.data)["error"]["code"] == "incompatible_schema"
+
+    def test_malformed_schema_version_returns_structured_409(
+        self, search_client, test_database
+    ):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        version_path = db_path.parent / "tantivy.index" / "version.txt"
+        version_path.write_text("broken", encoding="utf-8")
+
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+
         assert response.status_code == 409
         assert json.loads(response.data)["error"]["code"] == "incompatible_schema"
 
@@ -672,7 +694,7 @@ class TestSchemaEndpoint:
         response = _schema(search_client)
 
         assert response.status_code == 200
-        assert opened == [str(db_path.parent / "tantivy.index")]
+        assert opened == [db_path.parent / "tantivy.index"]
         data = json.loads(response.data)
         assert len(data["fields"]) == len(SCHEMA_FIELD_NAMES)
         assert data["examples"] == SAMPLE_EXAMPLES

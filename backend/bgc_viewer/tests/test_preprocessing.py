@@ -2,6 +2,9 @@
 Tests for preprocessing functionality.
 """
 
+import bz2
+import gzip
+
 import pytest
 import json
 import sqlite3
@@ -257,10 +260,31 @@ class TestSearchIndexIntegration:
         assert search_index_dir.exists()
 
         # The generated index is directly usable through the search API.
-        index = open_index(str(search_index_dir))
+        index = open_index(search_index_dir)
         hits = search_protoclusters(index, "product:polyketide")
         assert len(hits.hits) == 1
         assert hits.hits[0].fields["record"] == "test_record_1"
+
+    @pytest.mark.parametrize(
+        "suffix,compress", [("gz", gzip.compress), ("bz2", bz2.compress)]
+    )
+    def test_preprocessing_indexes_compressed_json(
+        self, temp_dir, sample_antismash_data, suffix, compress
+    ):
+        filename = f"test_sample.json.{suffix}"
+        (temp_dir / filename).write_bytes(
+            compress(json.dumps(sample_antismash_data).encode("utf-8"))
+        )
+
+        result = preprocess_antismash_files(
+            str(temp_dir), str(temp_dir / "attributes.db")
+        )
+        assert result["indexed_protoclusters"] == 2
+
+        index = open_index(temp_dir / "tantivy.index")
+        hits = search_protoclusters(index, "product:polyketide")
+        assert len(hits.hits) == 1
+        assert hits.hits[0].fields["output_file"] == filename
 
     def test_preprocessing_rebuild_removes_previous_index(self, sample_json_file):
         """A rebuild deletes the previous index before creating the new one."""

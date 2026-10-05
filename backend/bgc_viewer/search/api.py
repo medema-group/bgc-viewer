@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from os import PathLike
+from pathlib import Path
 from typing import Any
 
 from .document import PUBLIC_FIELDS, PublicFieldInfo
@@ -71,11 +71,13 @@ def parse_search_request(body: Any) -> SearchRequest:
     if not isinstance(query, str):
         raise InvalidRequestError("'query' must be a string")
 
-    try:
-        page = int(body.get("page", 1))
-        per_page = int(body.get("per_page", DEFAULT_PAGE_SIZE))
-    except (TypeError, ValueError):
-        raise InvalidRequestError("'page' and 'per_page' must be integers") from None
+    page = body.get("page", 1)
+    per_page = body.get("per_page", DEFAULT_PAGE_SIZE)
+    if any(
+        not isinstance(value, int) or isinstance(value, bool)
+        for value in (page, per_page)
+    ):
+        raise InvalidRequestError("'page' and 'per_page' must be integers")
 
     if page < 1:
         raise InvalidRequestError("'page' must be at least 1")
@@ -118,7 +120,7 @@ class SchemaResponse:
     query_syntax_url: str
 
 
-def read_example_queries(db_path: str | PathLike[str]) -> tuple[str, ...]:
+def read_example_queries(db_path: Path) -> tuple[str, ...]:
     """Read generated example queries from a database in template order.
 
     Preprocessing inserts the rows in template order against an autoincrement
@@ -137,7 +139,7 @@ def read_example_queries(db_path: str | PathLike[str]) -> tuple[str, ...]:
     return tuple(row[0] for row in rows)
 
 
-def build_schema_response(db_path: str | PathLike[str]) -> SchemaResponse:
+def build_schema_response(db_path: Path) -> SchemaResponse:
     """Assemble the schema response from the registry and the example table."""
     return SchemaResponse(
         fields=PUBLIC_FIELDS,
