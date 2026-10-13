@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BGC Viewer Web Components - Simple Test</title>
-  <link rel="stylesheet" href="../../frontend/dist/web-components/style.css">
   <style>
     * {
       margin: 0;
@@ -333,8 +332,29 @@
         log('info', `Data fetched successfully`, `Records: ${jsonData.records?.length || 0}`);
         console.log('Loaded JSON data:', jsonData);
 
-        // Create a new provider with the loaded data
-        provider = new window.JSONFileProvider(jsonData);
+        // Fetch domain colors
+        let pfamColorMap = {};
+        try {
+          const colorResponse = await fetch('../../frontend/dist/web-components/domain-colors.csv');
+          if (colorResponse.ok) {
+            const csvText = await colorResponse.text();
+            // Parse CSV: each line is "domain_id,hex_color"
+            pfamColorMap = Object.fromEntries(
+              csvText.split('\n')
+                .filter(line => line.trim() && !line.startsWith('#'))
+                .map(line => {
+                  const [domain, color] = line.split(',');
+                  return [domain.trim(), color.trim()];
+                })
+            );
+            console.log('Loaded domain colors:', Object.keys(pfamColorMap).length, 'domains');
+          }
+        } catch (err) {
+          console.warn('Could not load domain colors:', err);
+        }
+
+        // Create a new provider with the loaded data and colors
+        provider = new window.JSONFileProvider(jsonData, { pfamColorMap });
         console.log('Created provider:', provider);
         viewer.dataProvider = provider;
         console.log('Set dataProvider on viewer');

@@ -61,7 +61,6 @@ The BGC Viewer provides reusable web components for visualizing genomic data (an
   import { JSONFileProvider } from '../../frontend/dist/web-components/bgc-viewer-components.es.js';
   window.JSONFileProvider = JSONFileProvider;
 </script>
-<link rel="stylesheet" href="../../frontend/dist/web-components/style.css">
 ```
 
 ### 2. Use the Container Component (Recommended)
