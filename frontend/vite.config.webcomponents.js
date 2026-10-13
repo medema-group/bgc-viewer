@@ -35,7 +35,9 @@ export default defineConfig({
           vue: 'Vue',
           d3: 'd3'
         }
-      }
+      },
+      // Preserve side effects (customElements.define calls)
+      preserveEntrySignatures: 'strict'
     },
     outDir: 'dist/web-components'
   },

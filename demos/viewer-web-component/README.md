@@ -7,6 +7,34 @@ The BGC Viewer provides reusable web components for visualizing genomic data (an
 - **`<bgc-region-viewer-container>`** - Smart component that handles data loading and management (recommended for most cases)
 - **`<bgc-region-viewer>`** - Pure presentation component for displaying genomic features (advanced usage)
 
+
+## Running the Demos
+
+### Prerequisites
+
+1. Build the web components:
+   ```bash
+   cd frontend
+   npm run build:web-components
+   ```
+
+2. Start a web server from the repository root (required for ES modules):
+   ```bash
+   python3 -m http.server 8080
+   ```
+   
+   **Note:** The server must be started from the repository root to allow access to both the demo files and the built web components in `frontend/dist/web-components/`.
+
+3. Open in browser:
+   ```
+   http://localhost:8080/demos/viewer-web-component/index.html
+   ```
+
+### Demo Files
+
+- **`viewer-web-component/index.html`** - Interactive test page showing how to use the viewer component
+- **`../data/`** - Sample JSON data files (NC_003888.3.json, Y16952.json)
+
 ## Quick Start
 
 ### 1. Load Required Dependencies and Web Components
@@ -15,8 +43,24 @@ The BGC Viewer provides reusable web components for visualizing genomic data (an
 <!-- Required: D3.js -->
 <script src="https://d3js.org/d3.v7.min.js"></script>
 
-<!-- Web components library -->
-<script type="module" src="../../frontend/dist/web-components/bgc-viewer-components.es.js"></script>
+<!-- Required: Vue (as a peer dependency of the web components) -->
+<script src="https://unpkg.com/vue@3.3.0/dist/vue.global.prod.js"></script>
+
+<!-- Import map for module resolution (required for module imports) -->
+<script type="importmap">
+{
+  "imports": {
+    "vue": "https://unpkg.com/vue@3.3.0/dist/vue.esm-browser.prod.js",
+    "d3": "https://cdn.jsdelivr.net/npm/d3@7/+esm"
+  }
+}
+</script>
+
+<!-- Web components library and styles -->
+<script type="module">
+  import { JSONFileProvider } from '../../frontend/dist/web-components/bgc-viewer-components.es.js';
+  window.JSONFileProvider = JSONFileProvider;
+</script>
 <link rel="stylesheet" href="../../frontend/dist/web-components/style.css">
 ```
 
@@ -25,30 +69,37 @@ The BGC Viewer provides reusable web components for visualizing genomic data (an
 The container component handles all data loading automatically:
 
 ```html
-<bgc-region-viewer-container
-  id="viewer"
-  record-id="NC_003888.3"
-></bgc-region-viewer-container>
+<bgc-region-viewer-container id="viewer"></bgc-region-viewer-container>
 
-<script type="module">
-  import '../../frontend/dist/web-components/bgc-viewer-components.es.js';
+<script>
+  async function loadRecord(jsonUrl, recordId) {
+    const viewer = document.getElementById('viewer');
+    
+    // Fetch the JSON data
+    const response = await fetch(jsonUrl);
+    const jsonData = await response.json();
+    
+    // Create a data provider instance
+    const provider = new window.JSONFileProvider(jsonData);
+    viewer.dataProvider = provider;
+    
+    // Get the first record from the JSON
+    const firstRecordId = jsonData.records?.[0]?.id || recordId;
+    const filename = jsonUrl.split('/').pop();
+    
+    // Set record data
+    viewer.recordData = {
+      entryId: `${filename}:${firstRecordId}`,
+      recordId: firstRecordId,
+      filename: filename
+    };
+    
+    // Trigger loading by setting the recordId attribute
+    viewer.setAttribute('record-id', firstRecordId);
+  }
   
-  // Create a data provider instance
-  const provider = new BGCViewerComponents.JSONFileProvider({
-    'NC_003888.3': '../data/NC_003888.3.json',
-    'Y16952': '../data/Y16952.json'
-  });
-  
-  // Set it on the component
-  const viewer = document.getElementById('viewer');
-  viewer.dataProvider = provider;
-  
-  // Set record data
-  viewer.recordData = {
-    entryId: 'NC_003888.3',
-    recordId: 'NC_003888.3',
-    filename: 'NC_003888.3.json'
-  };
+  // Load a record
+  loadRecord('../data/NC_003888.3.json', 'NC_003888.3');
 </script>
 ```
 
@@ -100,16 +151,15 @@ viewer.addEventListener('error', (event) => {
 
 ### JSONFileProvider
 
-For standalone demos without a backend API:
+For standalone demos without a backend API, create a provider instance with the loaded JSON data:
 
 ```javascript
-const provider = new BGCViewerComponents.JSONFileProvider({
-  'NC_003888.3': '../data/NC_003888.3.json',
-  'Y16952': '../data/Y16952.json',
-  // Or use remote URLs
-  'remote': 'https://antismash.secondarymetabolites.org/output/GCF_001457455.1/GCF_001457455.1.json'
-});
+// First, fetch the JSON data
+const response = await fetch('../data/NC_003888.3.json');
+const jsonData = await response.json();
 
+// Create a provider instance with the data
+const provider = new JSONFileProvider(jsonData);
 viewer.dataProvider = provider;
 ```
 
@@ -122,31 +172,6 @@ const provider = new BGCViewerComponents.BGCViewerAPIProvider();
 viewer.dataProvider = provider;
 ```
 
-## Running the Demos
-
-### Prerequisites
-
-1. Build the web components:
-   ```bash
-   cd frontend
-   npm run build:web-components
-   ```
-
-2. Start a web server from the repository root (required for ES modules):
-   ```bash
-   cd bgc-viewer
-   python3 -m http.server 8080
-   ```
-   
-   **Note:** The server must be started from the repository root to allow access to both the demo files and the built web components in `frontend/dist/web-components/`.
-
-3. Open in browser:
-   - Interactive test: http://localhost:8080/demos/viewer-web-component/index.html
-
-### Demo Files
-
-- **`viewer-web-component/index.html`** - Simple example on how to use the viewer component
-- **`../data/`** - Sample JSON data files
 
 ## Component Properties
 
@@ -180,9 +205,24 @@ function BGCViewer() {
   const viewerRef = useRef(null);
   
   useEffect(() => {
-    const viewer = viewerRef.current;
-    viewer.dataProvider = new BGCViewerComponents.JSONFileProvider({...});
-    viewer.recordData = { entryId: 'NC_003888.3', ... };
+    const loadData = async () => {
+      const viewer = viewerRef.current;
+      const response = await fetch('../data/NC_003888.3.json');
+      const jsonData = await response.json();
+      
+      const provider = new window.JSONFileProvider(jsonData);
+      viewer.dataProvider = provider;
+      
+      const firstRecordId = jsonData.records?.[0]?.id;
+      viewer.recordData = { 
+        entryId: firstRecordId, 
+        recordId: firstRecordId, 
+        filename: 'NC_003888.3.json' 
+      };
+      viewer.setAttribute('record-id', firstRecordId);
+    };
+    
+    loadData();
   }, []);
   
   return <bgc-region-viewer-container ref={viewerRef} />;
@@ -200,9 +240,20 @@ import { ref, onMounted } from 'vue';
 
 const viewer = ref(null);
 
-onMounted(() => {
-  viewer.value.dataProvider = new BGCViewerComponents.JSONFileProvider({...});
-  viewer.value.recordData = { entryId: 'NC_003888.3', ... };
+onMounted(async () => {
+  const response = await fetch('../data/NC_003888.3.json');
+  const jsonData = await response.json();
+  
+  const provider = new window.JSONFileProvider(jsonData);
+  viewer.value.dataProvider = provider;
+  
+  const firstRecordId = jsonData.records?.[0]?.id;
+  viewer.value.recordData = { 
+    entryId: firstRecordId, 
+    recordId: firstRecordId, 
+    filename: 'NC_003888.3.json' 
+  };
+  viewer.value.setAttribute('record-id', firstRecordId);
 });
 </script>
 ```
@@ -218,23 +269,37 @@ import { Component, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
 export class BGCViewerComponent implements AfterViewInit {
   @ViewChild('viewer') viewer: ElementRef;
   
-  ngAfterViewInit() {
-    this.viewer.nativeElement.dataProvider = new BGCViewerComponents.JSONFileProvider({...});
-    this.viewer.nativeElement.recordData = { entryId: 'NC_003888.3', ... };
+  async ngAfterViewInit() {
+    const response = await fetch('../data/NC_003888.3.json');
+    const jsonData = await response.json();
+    
+    const provider = new (window as any).JSONFileProvider(jsonData);
+    this.viewer.nativeElement.dataProvider = provider;
+    
+    const firstRecordId = jsonData.records?.[0]?.id;
+    this.viewer.nativeElement.recordData = { 
+      entryId: firstRecordId, 
+      recordId: firstRecordId, 
+      filename: 'NC_003888.3.json' 
+    };
+    this.viewer.nativeElement.setAttribute('record-id', firstRecordId);
   }
 }
 ```
 
 ## Troubleshooting
 
-### Components not registering
-- Ensure you're using a web server (not `file://` protocol)
+### Components not registering or CORS errors
+- **Ensure you're using a web server** (not `file://` protocol) — see "Running the Demos" section
 - Check that the build was successful in `frontend/dist/web-components/`
+- Browser console should show: "✅ Web components loaded successfully"
 
 ### Data not loading
-- Verify the data provider is set before setting `recordData`
+- Verify the web server is started from the repository root
 - Check browser console for error messages
-- Ensure JSON files are in the correct location
+- Ensure JSON files are in the correct location: `demos/data/`
+- Verify the data provider is set BEFORE setting `recordData`
 
 ### Styling issues
 - Make sure to include the CSS file: `<link rel="stylesheet" href="../../frontend/dist/web-components/style.css">`
+- Check that D3.js is loaded: `<script src="https://d3js.org/d3.v7.min.js"></script>`
