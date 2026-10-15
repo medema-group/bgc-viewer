@@ -8,6 +8,7 @@
     >
       <option value="api">BGC Viewer API</option>
       <option value="upload">Load local file</option>
+      <option value="antismash-db">antiSMASH DB</option>
     </select>
   </div>
 </template>

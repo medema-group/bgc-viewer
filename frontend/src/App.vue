@@ -55,6 +55,12 @@
             v-if="dataSource === 'upload'"
             @files-loaded="handleFilesLoaded"
           />
+
+          <!-- antiSMASH DB Mode: Accession input -->
+          <AntismashDBLoader
+            v-if="dataSource === 'antismash-db'"
+            @files-loaded="handleFilesLoaded"
+          />
         </div>
 
         <!-- Horizontal draggable divider -->
@@ -113,6 +119,7 @@ import IndexCreation from './components/IndexCreation.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
 import DataSourceSelector from './components/DataSourceSelector.vue'
 import FileUpload from './components/FileUpload.vue'
+import AntismashDBLoader from './components/AntismashDBLoader.vue'
 import { BGCViewerAPIProvider, JSONFileProvider, GenbankFileProvider } from '@/services/dataProviders'
 
 export default {
@@ -123,7 +130,8 @@ export default {
     IndexCreation,
     RecordListSelector,
     DataSourceSelector,
-    FileUpload
+    FileUpload,
+    AntismashDBLoader
   },
   setup() {
     const regionViewerRef = ref(null)
@@ -138,7 +146,7 @@ export default {
     
     // Restore data source from localStorage, default to 'api'
     const savedDataSource = localStorage.getItem('bgc-viewer-data-source')
-    const dataSource = ref(savedDataSource || 'api') // 'api' or 'upload'
+    const dataSource = ref(savedDataSource || 'api') // 'api', 'upload' or 'antismash-db'
     
     // Data root and index tracking
     const selectedDataRoot = ref('')
@@ -374,8 +382,8 @@ export default {
         if (recordListSelectorRef.value) {
           await recordListSelectorRef.value.setRecordsFromProvider(apiProvider, false)
         }
-      } else if (newSource === 'upload') {
-        // Clear records and wait for file upload
+      } else if (newSource === 'upload' || newSource === 'antismash-db') {
+        // Clear records and wait for file upload / accession load
         if (recordListSelectorRef.value) {
           recordListSelectorRef.value.clearRecords()
         }

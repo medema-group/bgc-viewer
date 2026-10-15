@@ -1,9 +1,12 @@
-from flask import Flask, jsonify, request, send_from_directory, session
+from flask import Flask, Response, jsonify, request, send_from_directory, session, stream_with_context
 from flask_cors import CORS
 from flask_session import Session
 import json
 import os
+import re
 import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 from functools import lru_cache
@@ -593,6 +596,38 @@ def get_version():
         "version": __version__,
         "name": "BGC Viewer"
     })
+
+ANTISMASH_DB_OUTPUT_URL = "https://antismash-db.secondarymetabolites.org/output"
+ACCESSION_PATTERN = re.compile(r'^[A-Za-z0-9_.-]+$')
+
+@app.route('/api/antismash-db/<accession>')
+def proxy_antismash_db(accession):
+    """API endpoint to fetch an antiSMASH JSON file from antiSMASH DB.
+
+    antiSMASH DB does not send CORS headers, so the browser can't fetch it directly.
+    """
+    if not ACCESSION_PATTERN.match(accession) or accession in ('.', '..'):
+        return jsonify({"error": "Invalid accession number"}), 400
+
+    url = f"{ANTISMASH_DB_OUTPUT_URL}/{accession}/{accession}.json"
+    try:
+        upstream = urllib.request.urlopen(url, timeout=30)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return jsonify({"error": f"Accession {accession} not found in antiSMASH DB"}), 404
+        return jsonify({"error": f"antiSMASH DB returned HTTP {e.code}"}), 502
+    except (urllib.error.URLError, TimeoutError) as e:
+        return jsonify({"error": f"Could not reach antiSMASH DB: {e}"}), 502
+
+    def generate():
+        with upstream:
+            while chunk := upstream.read(64 * 1024):
+                yield chunk
+
+    headers = {}
+    if upstream.headers.get('Content-Length'):
+        headers['Content-Length'] = upstream.headers['Content-Length']
+    return Response(stream_with_context(generate()), mimetype='application/json', headers=headers)
 
 @app.route('/api/records/<record_id>/mibig-entries/<locus_tag>')
 def get_mibig_entries(record_id, locus_tag):
