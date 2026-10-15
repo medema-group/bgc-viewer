@@ -16,6 +16,7 @@
       :tfbs-hits="tfbsHits"
       :tta-codons="ttaCodons"
       :resistance-features="resistanceFeatures"
+      :initial-protocluster-number="initialProtoclusterNumber"
       @region-changed="handleRegionChanged"
       @annotation-clicked="handleAnnotationClicked"
       @error="handleError"
@@ -54,6 +55,10 @@ export default {
     initialRegionId: {
       type: String,
       default: ''
+    },
+    initialProtoclusterNumber: {
+      type: Number,
+      default: null
     }
   },
   emits: [

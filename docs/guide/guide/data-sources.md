@@ -47,20 +47,16 @@ If you're working with a large dataset or want to host the viewer on a server, y
 
 ### Command line
 
+Run from the `backend/` directory:
+
 ```bash
-# Index a directory of antiSMASH output files
-python -m bgc_viewer.preprocess_cli /path/to/antismash/output
-
-# Specify where to save the database
-python -m bgc_viewer.preprocess_cli \
-    /path/to/antismash/output \
-    --output /path/to/attributes.db
-
-# Verbose output for debugging
-python -m bgc_viewer.preprocess_cli /path/to/antismash/output --verbose
+# Index antiSMASH output
+uv run python preprocess_cli.py /path/to/antismash/output \
+    --output /path/to/index-output/attributes.db
 ```
 
-The preprocessing tool will scan your directory for antiSMASH JSON files and create a searchable SQLite database containing extracted metadata (cluster types, products, organisms, etc.).
+Recursively indexes JSON files, including compressed files, into SQLite and a sibling
+`tantivy.index/` directory.
 
 ### Using the user interface
 

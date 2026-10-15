@@ -153,6 +153,9 @@ backend/dist/
 backend/build/
 backend/bgc_viewer.egg-info/
 
+# Generated demo search index (rebuilt by preprocessing alongside attributes.db)
+demos/data/tantivy.index/
+
 # Built frontend assets in backend
 backend/bgc_viewer/static/
 
