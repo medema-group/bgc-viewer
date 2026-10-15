@@ -10,9 +10,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-import pytest
-from tantivy import Document
 import bgc_viewer.app as app_module
+import pytest
 from bgc_viewer.app import (
     MissingDatabaseError,
     NoDatabaseError,
@@ -48,6 +47,7 @@ from bgc_viewer.search.index import (
     search_record,
     search_region,
 )
+from tantivy import Document
 
 SCHEMA_FIELD_NAMES = (
     "pfam",
@@ -461,7 +461,8 @@ class TestSearchEndpointRanking:
         data = self._search(search_client, per_page=10)
         scores = [hit["score"] for hit in data["hits"]]
         assert scores == sorted(scores, reverse=True)
-        assert [hit["fields"]["protocluster"] for hit in data["hits"]] == [1, 2, 3]
+        assert data["hits"][0]["fields"]["protocluster"] == 1
+        assert {hit["fields"]["protocluster"] for hit in data["hits"][1:]} == {2, 3}
 
     def test_paged_requests_reproduce_the_full_ranked_order(
         self, search_client, ranked_database
@@ -484,10 +485,10 @@ class TestSearchEndpointRanking:
             hit["fields"]["protocluster"] for hit in full["hits"]
         ]
 
-    def test_tied_scores_keep_insertion_order_across_pages(
+    def test_tied_scores_keep_same_order_across_pages(
         self, search_client, ranked_database
     ):
-        """Equal scores resolve by document order, so paging cannot reshuffle them."""
+        """Ties must stay stable within this completed index, regardless of build order."""
         _select_database(search_client, ranked_database)
         data = self._search(search_client, per_page=10)
         assert data["hits"][1]["score"] == data["hits"][2]["score"]
@@ -497,7 +498,7 @@ class TestSearchEndpointRanking:
                 self._search(search_client, page=page, per_page=1)["hits"][0]
                 for page in range(1, 4)
             ]
-            assert [hit["fields"]["protocluster"] for hit in singles] == [1, 2, 3]
+            assert singles == data["hits"]
 
     def test_a_page_beyond_the_end_returns_no_hits_and_no_more(
         self, search_client, ranked_database
@@ -596,15 +597,6 @@ def _schema(search_client):
     return search_client.get("/api/search/schema")
 
 
-SAMPLE_EXAMPLES = [
-    "PF00501",
-    "category:PKS",
-    '"Streptomyces coelicolor"',
-    "category:PKS AND product:polyketide",
-    'organism:"Streptomyces coelicolor" NOT product:polyketide',
-]
-
-
 class TestSchemaEndpoint:
     def test_response_carries_exactly_fields_examples_and_syntax_url(
         self, search_client, test_database
@@ -652,7 +644,7 @@ class TestSchemaEndpoint:
         db_path, _ = test_database
         _select_database(search_client, db_path)
         data = json.loads(_schema(search_client).data)
-        assert data["examples"] == SAMPLE_EXAMPLES
+        assert data["examples"] == _example_queries(db_path)
 
     def test_query_syntax_url_is_the_generic_latest_parser_link(
         self, search_client, test_database
@@ -697,7 +689,7 @@ class TestSchemaEndpoint:
         assert opened == [db_path.parent / "tantivy.index"]
         data = json.loads(response.data)
         assert len(data["fields"]) == len(SCHEMA_FIELD_NAMES)
-        assert data["examples"] == SAMPLE_EXAMPLES
+        assert data["examples"] == _example_queries(db_path)
 
     def test_no_database_selected_returns_400(self, search_client):
         response = _schema(search_client)

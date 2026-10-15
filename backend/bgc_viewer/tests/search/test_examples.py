@@ -225,7 +225,7 @@ def test_generate_example_queries_empty_values_yields_no_rows():
 # --- collect_first_values ---------------------------------------------------
 
 
-def test_collect_first_values_reads_first_non_empty_value_per_field():
+def test_collect_first_values_samples_non_empty_stored_values():
     docs = [
         _doc(
             pfam=("PF00512", "PF00513"),
@@ -241,10 +241,10 @@ def test_collect_first_values_reads_first_non_empty_value_per_field():
         ),
     ]
     values = collect_first_values(build_index(iter(docs)))
-    assert values["pfam"] == "PF00512"
-    assert values["pfam_name"] == "Alpha"
-    assert values["gene"] == "gA"
-    assert values["locus"] == "L1"
+    assert values["pfam"] in {"PF00512", "PF99999"}
+    assert values["pfam_name"] in {"Alpha", "Beta"}
+    assert values["gene"] in {"gA", "gB"}
+    assert values["locus"] in {"L1", "L2"}
     assert values["organism"] == "Org One"
     assert values["product"] == "Prod"
     assert values["category"] == "Cat"
@@ -310,15 +310,21 @@ def test_preprocessing_stores_generated_examples_in_template_order(test_database
         "negation",
     ]
     queries = dict(rows)
-    # The first protocluster of the sample corpus drives every collected value.
+    # Either source record may supply the samples after parallel indexing.
     assert queries["unqualified_word"] == "PF00501"
-    assert queries["fielded_word"] == "category:PKS"
-    assert queries["quoted_phrase"] == '"Streptomyces coelicolor"'
-    assert queries["and_fields"] == "category:PKS AND product:polyketide"
-    assert (
-        queries["negation"]
-        == 'organism:"Streptomyces coelicolor" NOT product:polyketide'
-    )
+    assert queries["fielded_word"] in {"category:PKS", "category:NRPS"}
+    assert queries["quoted_phrase"] in {
+        '"Streptomyces coelicolor"',
+        '"Bacillus subtilis"',
+    }
+    assert queries["and_fields"] in {
+        "category:PKS AND product:polyketide",
+        "category:NRPS AND product:NRPS",
+    }
+    assert queries["negation"] in {
+        'organism:"Streptomyces coelicolor" NOT product:polyketide',
+        'organism:"Bacillus subtilis" NOT product:NRPS',
+    }
 
 
 def test_preprocessing_reports_example_count(test_database):

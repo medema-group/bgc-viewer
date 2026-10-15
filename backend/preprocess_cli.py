@@ -26,10 +26,18 @@ except ImportError:
     sys.exit(1)
 
 
+def format_duration(seconds):
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        return f"{seconds / 60:.1f}m"
+    return f"{seconds / 3600:.2f}h"
+
+
 def main():
     """Command-line interface for preprocessing."""
     parser = argparse.ArgumentParser(
-        description="Preprocess AntiSMASH JSON files and extract attributes into SQLite database"
+        description="Build SQLite with extracted attributes and Tantivy indexes from antiSMASH JSON files"
     )
     parser.add_argument(
         "input_directory", help="Directory containing AntiSMASH JSON files"
@@ -67,10 +75,12 @@ def main():
     print("-" * 50)
 
     # Track timing
-    start_time = time.time()
+    start_time = time.perf_counter()
 
     # Create progress bar (will be initialized with total in the callback)
     pbar = None
+    search_pbar = None
+    search_phase = None
 
     # Progress callback using tqdm
     def progress_callback(current_file, files_processed, total_files):
@@ -80,7 +90,7 @@ def main():
         if pbar is None:
             pbar = tqdm(
                 total=total_files,
-                desc="Processing",
+                desc="SQLite",
                 unit="file",
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
             )
@@ -98,22 +108,34 @@ def main():
             # Final update
             pbar.close()
 
+    def search_progress_callback(phase, indexed):
+        nonlocal search_pbar, search_phase
+        if search_pbar is None:
+            search_pbar = tqdm(
+                unit="doc",
+                desc="Tantivy (indexing)",
+                bar_format="{desc}: {n_fmt} doc [{elapsed}, {rate_fmt}]",
+            )
+        if phase != search_phase:
+            search_pbar.set_description_str(f"Tantivy ({phase})", refresh=False)
+            search_phase = phase
+        search_pbar.update(indexed - search_pbar.n)
+        if phase == "complete":
+            search_pbar.close()
+        elif phase != "indexing":
+            search_pbar.refresh()
+
     try:
         # Run the preprocessing
         results = preprocess_antismash_files(
-            args.input_directory, str(index_path), progress_callback
+            args.input_directory,
+            str(index_path),
+            progress_callback,
+            search_progress_callback=search_progress_callback,
         )
 
         # Calculate total time
-        total_time = time.time() - start_time
-
-        # Format total time
-        if total_time < 60:
-            time_str = f"{total_time:.1f}s"
-        elif total_time < 3600:
-            time_str = f"{total_time / 60:.1f}m"
-        else:
-            time_str = f"{total_time / 3600:.2f}h"
+        total_time = time.perf_counter() - start_time
 
         # Print summary
         print("\n" + "=" * 50)
@@ -122,7 +144,10 @@ def main():
         print(f"Files processed:     {results['files_processed']}")
         print(f"Total records:       {results['total_records']}")
         print(f"Total attributes:    {results['total_attributes']}")
-        print(f"Time elapsed:        {time_str}")
+        print(f"Protoclusters indexed: {results['indexed_protoclusters']}")
+        print(f"SQLite time:         {format_duration(results['sqlite_seconds'])}")
+        print(f"Tantivy time:        {format_duration(results['tantivy_seconds'])}")
+        print(f"Total time:          {format_duration(total_time)}")
         if results["files_processed"] > 0:
             avg_time = total_time / results["files_processed"]
             print(f"Avg time per file:   {avg_time:.2f}s")
@@ -130,11 +155,17 @@ def main():
             avg_attrs = results["total_attributes"] / results["total_records"]
             print(f"Avg attrs per record: {avg_attrs:.1f}")
         print(f"\nDatabase saved to:   {results['database_path']}")
+        print(f"Tantivy index:       {results['search_index_path']}")
         print("=" * 50)
 
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
+    finally:
+        if pbar is not None:
+            pbar.close()
+        if search_pbar is not None:
+            search_pbar.close()
 
 
 if __name__ == "__main__":

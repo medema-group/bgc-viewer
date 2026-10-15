@@ -13,7 +13,8 @@ One Tantivy document is one protocluster.
 | antiSMASH JSON extraction to Tantivy documents | `backend/bgc_viewer/search/extraction.py` |
 | Build sentinel and rebuild signaling | `backend/bgc_viewer/search/build_state.py` |
 | HTTP request/response contract | `backend/bgc_viewer/search/api.py` |
-| Development CLI | `backend/bgc_viewer/search/cli.py` |
+| Search CLI | `backend/bgc_viewer/search/cli.py` |
+| Indexing CLI | `backend/preprocess_cli.py` |
 | Preprocessing integration | `backend/bgc_viewer/preprocessing.py` |
 | Search tests | `backend/bgc_viewer/tests/search/` |
 | antiSMASH fixtures | `backend/bgc_viewer/tests/search/fixtures/` |
@@ -140,18 +141,20 @@ The CLI is the primary manual experimentation surface. Run it from the
 `backend/` directory:
 
 ```bash
-# Build an index from selected files under a source root
-uv run python -m bgc_viewer.search.cli build-index ../demos/data \
-    -o /tmp/bgv --file NC_003888.3.json --file Y16952.json
+# Build SQLite and Tantivy indexes
+uv run python preprocess_cli.py /path/to/data --output /tmp/bgv/attributes.db
 
 # Query it
-uv run python -m bgc_viewer.search.cli search /tmp/bgv 'pfam:PF00550 AND pfam:PF00668'
-uv run python -m bgc_viewer.search.cli search /tmp/bgv 'organism:Strepto*'
-uv run python -m bgc_viewer.search.cli search /tmp/bgv 'product:terpene' --offset 2 --limit 2
+uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550 AND pfam:PF00668'
+uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'organism:Strepto*'
+uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' --offset 2 --limit 2
 
 # Result granularity: protocluster (default), region, or record
-uv run python -m bgc_viewer.search.cli search /tmp/bgv 'pfam:PF00550' --level region
+uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550' --level region
 ```
+
+Tantivy chooses its writer thread count automatically; tied-hit order and sampled
+example values may vary between rebuilds.
 
 ## Versioning
 

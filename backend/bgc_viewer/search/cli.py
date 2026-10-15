@@ -1,28 +1,19 @@
-"""Development CLI for building and querying protocluster search indexes.
-
-This module is the Stage 1 manual experimentation surface over the Python API in
-:mod:`bgc_viewer.search.index`. Run it with ``python -m bgc_viewer.search.cli``.
-"""
+"""Query protocluster search indexes with ``python -m bgc_viewer.search.cli``."""
 
 from __future__ import annotations
 
 import argparse
 import sys
-import warnings
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from tantivy import Document
-
-from .extraction import ExtractionError, extract_documents
 from .index import (
     RecordHit,
     RegionHit,
     Results,
     SearchError,
     SearchHit,
-    build_index,
     open_index,
     search_protoclusters,
     search_record,
@@ -37,35 +28,34 @@ HitFormatter = Callable[[int, Any], str]
 _CLI_EXAMPLES = """\
 examples (run these from the backend/ directory):
 
-  # Index the bundled demo antiSMASH outputs into a scratch directory
-  uv run python -m bgc_viewer.search.cli build-index ../demos/data \\
-      -o /tmp/bgv --file NC_003888.3.json --file Y16952.json
+  # Build the backend indexes first
+  uv run python preprocess_cli.py /path/to/data --output /tmp/bgv/attributes.db
 
   # Exact, multi-valued, and analyzed (full-text) field queries
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv product:terpene
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv \\
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index product:terpene
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \\
       'pfam:PF00550 AND pfam:PF00668'
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'pfam_name:"thioesterase"'
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam_name:"thioesterase"'
 
   # Path fields match by directory, stem, or extension
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'output_file:NC_003888'
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'output_file:json'
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'output_file:NC_003888'
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'output_file:json'
 
   # Path prefix: drop the extension and prefix the stem
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'output_file:"NC_003888.3"*'
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'output_file:"NC_003888.3"*'
 
   # Boolean negation, numeric ranges, and pagination
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv \\
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \\
       'organism:Amycolatopsis NOT product:terpene'
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'product:terpene' \\
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' \\
       --offset 2 --limit 2
 
   # Result granularity: protocluster (default), region, or record
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'product:terpene' \\
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' \\
       --level protocluster
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'product:terpene' \\
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' \\
       --level region
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv 'pfam:PF00550' \\
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550' \\
       --level record
 """
 
@@ -133,39 +123,6 @@ def _print_results(
         print(format_hit(position, hit))
 
 
-def _build_command(args: argparse.Namespace) -> int:
-    source_root = Path(args.source_directory)
-    if not source_root.is_dir():
-        print(f"error: source directory not found: {source_root}", file=sys.stderr)
-        return 1
-
-    files = [Path(relative) for relative in args.files]
-    index_dir = Path(args.index_directory)
-
-    warnings.simplefilter("default")
-    indexed = 0
-
-    def streaming() -> Iterable[Document]:
-        nonlocal indexed
-        for document in extract_documents(
-            files, source_root, warning_threshold=args.warning_threshold
-        ):
-            indexed += 1
-            yield document
-
-    try:
-        build_index(streaming(), index_dir)
-    except ExtractionError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
-    except OSError as error:
-        print(f"error: cannot write index to {index_dir}: {error}", file=sys.stderr)
-        return 1
-
-    print(f"Indexed {indexed} protocluster document(s) into {index_dir}")
-    return 0
-
-
 def _search_command(args: argparse.Namespace) -> int:
     query = " ".join(args.query)
     result: Results[Any]
@@ -197,51 +154,11 @@ def _search_command(args: argparse.Namespace) -> int:
 def _build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m bgc_viewer.search.cli",
-        description=(
-            "Build and query a Tantivy protocluster search index directly "
-            "from Python (Stage 1 development CLI)."
-        ),
+        description=("Query a Tantivy protocluster search index from Python."),
         epilog=_CLI_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    build = subparsers.add_parser(
-        "build-index", help="Build a search index from antiSMASH JSON files."
-    )
-    build.add_argument(
-        "source_directory",
-        metavar="SOURCE_DIRECTORY",
-        help="Source root that selected JSON paths are resolved against.",
-    )
-    build.add_argument(
-        "-o",
-        "--index-directory",
-        dest="index_directory",
-        required=True,
-        metavar="INDEX_DIRECTORY",
-        help="Directory the Tantivy index is written to.",
-    )
-    build.add_argument(
-        "--file",
-        dest="files",
-        action="append",
-        required=True,
-        metavar="RELATIVE_JSON",
-        help=(
-            "antiSMASH JSON path relative to SOURCE_DIRECTORY; repeat for "
-            "multiple files. Paths outside the source root are rejected."
-        ),
-    )
-    build.add_argument(
-        "--warning-threshold",
-        type=int,
-        default=100,
-        help=(
-            "Fail the build after this many occurrences of one warning code "
-            "in a single file (default: 100)."
-        ),
-    )
 
     query_parser = subparsers.add_parser(
         "search", help="Query an existing search index."
@@ -286,15 +203,13 @@ def _build_cli_parser() -> argparse.ArgumentParser:
 
 
 def _run_cli(args: argparse.Namespace) -> int:
-    if args.command == "build-index":
-        return _build_command(args)
     if args.command == "search":
         return _search_command(args)
     raise AssertionError(f"unhandled command: {args.command}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point for the Stage 1 search development CLI."""
+    """Entry point for querying backend search indexes."""
     parser = _build_cli_parser()
     args = parser.parse_args(argv)
     return _run_cli(args)

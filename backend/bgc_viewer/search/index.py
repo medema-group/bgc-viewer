@@ -8,7 +8,7 @@ reader can validate compatibility when it opens the index.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, TypeVar, cast
@@ -115,6 +115,8 @@ def _persist_schema_version(index_dir: Path, version: int) -> None:
 def build_index(
     documents: Iterable[Document],
     index_path: Path | None = None,
+    *,
+    progress_callback: Callable[[str, int], None] | None = None,
 ) -> Index:
     """Stream Tantivy ``documents`` into a new index and return it.
 
@@ -122,12 +124,8 @@ def build_index(
     path and the search schema version is persisted as index metadata after the
     final commit so a reader can validate compatibility when it reopens the
     index. When ``index_path`` is omitted an in-RAM index is built instead and
-    no metadata is persisted.
-
-    Documents are added one at a time in the order produced by the extraction
-    iterator (selected-file, record, then protocluster order) so Python never
-    retains the whole corpus and equal-score results resolve deterministically.
-    A single writer thread is used to keep document order stable.
+    no metadata is persisted. ``progress_callback`` receives the phase and
+    number of submitted documents, including commit and merge phases.
     """
     index_dir = index_path
     if index_dir is not None:
@@ -137,11 +135,22 @@ def build_index(
         index = Index(build_schema())
     _register_custom_tokenizers(index)
 
-    writer = index.writer(num_threads=1)
+    indexed = 0
+
+    def report(phase: str) -> None:
+        if progress_callback:
+            progress_callback(phase, indexed)
+
+    report("indexing")
+    writer = index.writer()
     try:
         for document in documents:
             writer.add_document(document)
+            indexed += 1
+            report("indexing")
+        report("committing")
         writer.commit()
+        report("merging")
         writer.wait_merging_threads()
     finally:
         del writer
@@ -150,6 +159,7 @@ def build_index(
         _persist_schema_version(index_dir, SEARCH_SCHEMA_VERSION)
 
     index.reload()
+    report("complete")
     return index
 
 
@@ -318,13 +328,9 @@ def _stored_fields(searcher, address: Any) -> dict[str, Any]:
 def collect_first_values(index: Index) -> dict[str, str]:
     """Read the first non-empty stored value for each text field from ``index``.
 
-    Documents are visited in Tantivy document-address order. The index is built
-    by a single writer thread with a single commit, so it is a single segment
-    and this order is the deterministic selected-file, record, protocluster
-    insertion order the plan calls for. The scan stops as soon as every text
-    field has a value or the corpus ends, and a multi-valued field contributes
-    its first stored value. Numeric fields are skipped because no example
-    template consumes them.
+    Scan all segments until every text field has a value or the corpus ends,
+    and a multi-valued field contributes its first stored value. Numeric fields
+    are skipped because no example template consumes them.
     """
     text_fields = _DEFAULT_SEARCH_FIELDS
     values: dict[str, str] = {}

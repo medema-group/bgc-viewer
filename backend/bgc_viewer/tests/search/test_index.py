@@ -682,12 +682,14 @@ def test_search_pagination_and_has_more(corpus, tmp_path):
     ]
     target = _open(many, tmp_path)
 
+    full = search_protoclusters(target, "pfam:shared", limit=10).hits
+    assert {hit.fields["protocluster"] for hit in full} == set(range(5))
     page_one = search_protoclusters(target, "pfam:shared", offset=0, limit=2)
-    assert [hit.fields["protocluster"] for hit in page_one.hits] == [0, 1]
+    assert page_one.hits == full[:2]
     assert page_one.has_more is True
 
     page_two = search_protoclusters(target, "pfam:shared", offset=3, limit=2)
-    assert [hit.fields["protocluster"] for hit in page_two.hits] == [3, 4]
+    assert page_two.hits == full[3:5]
     assert page_two.has_more is False
 
     beyond = search_protoclusters(target, "pfam:shared", offset=10, limit=2)
@@ -695,7 +697,7 @@ def test_search_pagination_and_has_more(corpus, tmp_path):
     assert beyond.has_more is False
 
 
-def test_search_equal_scores_resolve_in_insertion_order(corpus, tmp_path):
+def test_search_equal_scores_have_stable_order_for_unchanged_index(tmp_path):
     many = [_doc(number, pfam=("shared",)) for number in range(4)]
     target = _open(many, tmp_path)
     hits = search_protoclusters(target, "pfam:shared", limit=10).hits
@@ -703,7 +705,9 @@ def test_search_equal_scores_resolve_in_insertion_order(corpus, tmp_path):
     scores = [hit.score for hit in hits]
     assert scores == sorted(scores, reverse=True)
     assert len(set(scores)) == 1
-    assert [hit.fields["protocluster"] for hit in hits] == [0, 1, 2, 3]
+    assert {hit.fields["protocluster"] for hit in hits} == set(range(4))
+    for _ in range(3):
+        assert search_protoclusters(target, "pfam:shared", limit=10).hits == hits
 
 
 def test_search_boosts_exact_field_above_full_text(tmp_path):
@@ -779,11 +783,11 @@ def test_search_region_collapses_protoclusters_into_unique_regions(grouped, tmp_
     target = _open(grouped, tmp_path)
     result = search_region(target, "pfam:shared")
     assert len(result.hits) == 3
-    assert [(hit.record, hit.region) for hit in result.hits] == [
+    assert {(hit.record, hit.region) for hit in result.hits} == {
         ("recA", 1),
         ("recA", 2),
         ("recB", 1),
-    ]
+    }
     assert all(isinstance(hit.region, int) for hit in result.hits)
     assert all(hit.output_file == "rec.json" for hit in result.hits)
     assert all(hit.input_file == "rec.gbk" for hit in result.hits)
@@ -793,7 +797,7 @@ def test_search_record_collapses_protoclusters_into_unique_records(grouped, tmp_
     target = _open(grouped, tmp_path)
     result = search_record(target, "pfam:shared")
     assert len(result.hits) == 2
-    assert [hit.record for hit in result.hits] == ["recA", "recB"]
+    assert {hit.record for hit in result.hits} == {"recA", "recB"}
     assert all(hit.output_file == "rec.json" for hit in result.hits)
     assert all(hit.input_file == "rec.gbk" for hit in result.hits)
 
@@ -849,7 +853,8 @@ def test_region_score_is_best_matching_protocluster(tmp_path):
 def test_search_region_pagination(grouped, tmp_path):
     target = _open(grouped, tmp_path)
     page = search_region(target, "pfam:shared", offset=1, limit=1)
-    assert [(hit.record, hit.region) for hit in page.hits] == [("recA", 2)]
+    full = search_region(target, "pfam:shared")
+    assert page.hits == full.hits[1:2]
     assert page.has_more is True
 
     beyond = search_region(target, "pfam:shared", offset=5, limit=2)
@@ -860,7 +865,8 @@ def test_search_region_pagination(grouped, tmp_path):
 def test_search_record_pagination(grouped, tmp_path):
     target = _open(grouped, tmp_path)
     page = search_record(target, "pfam:shared", offset=1, limit=1)
-    assert [hit.record for hit in page.hits] == ["recB"]
+    full = search_record(target, "pfam:shared")
+    assert page.hits == full.hits[1:2]
     assert page.has_more is False
 
     beyond = search_record(target, "pfam:shared", offset=3, limit=2)
@@ -915,3 +921,33 @@ def test_grouped_search_validates_pagination_arguments(grouped, tmp_path):
             func(target, "pfam:shared", offset=-1)
         with pytest.raises(ValueError):
             func(target, "pfam:shared", limit=0)
+
+
+@pytest.mark.parametrize("count", [0, 3])
+def test_build_reports_document_count_and_finishing_phases(count):
+    progress = []
+    target = build_index(
+        (_doc(number) for number in range(count)),
+        progress_callback=lambda phase, indexed: progress.append((phase, indexed)),
+    )
+    assert progress == [("indexing", indexed) for indexed in range(count + 1)] + [
+        ("committing", count),
+        ("merging", count),
+        ("complete", count),
+    ]
+    assert target.searcher().num_docs == count
+
+
+def test_failed_build_does_not_report_completion():
+    progress = []
+
+    def documents():
+        yield _doc(1)
+        raise RuntimeError("extraction failed")
+
+    with pytest.raises(RuntimeError, match="extraction failed"):
+        build_index(
+            documents(),
+            progress_callback=lambda phase, indexed: progress.append((phase, indexed)),
+        )
+    assert progress == [("indexing", 0), ("indexing", 1)]

@@ -3,14 +3,17 @@ Preprocessing module for AntiSMASH JSON files.
 Extracts attributes into SQLite database.
 """
 
+import bz2
+import gzip
 import shutil
 import sqlite3
-import ijson
-import gzip
-import bz2
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Callable
+from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
+from time import perf_counter
+from typing import Any, Dict, List, Optional
+
+import ijson
 
 from .search.build_state import building
 from .search.document import generate_example_queries
@@ -309,6 +312,8 @@ def preprocess_antismash_files(
     index_path: str,
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
     json_files: Optional[List[Path]] = None,
+    *,
+    search_progress_callback: Optional[Callable[[str, int], None]] = None,
 ) -> Dict[str, Any]:
     """
     Preprocess antiSMASH JSON files and store attributes in SQLite database.
@@ -325,6 +330,7 @@ def preprocess_antismash_files(
         index_path: Full path to the index database file
         progress_callback: Optional callback function called with (current_file, files_processed, total_files)
         json_files: Optional list of specific JSON file paths to process. If None, all files in directory are processed.
+        search_progress_callback: Optional callback receiving Tantivy phase and submitted document count.
 
     Returns:
         Dict with processing statistics
@@ -341,7 +347,13 @@ def preprocess_antismash_files(
     # keep it closing after the generated search examples are written so a
     # present sentinel always means the pair is not yet trustworthy.
     with building(db_path.parent):
-        return _build_pair(input_directory, db_path, progress_callback, json_files)
+        return _build_pair(
+            input_directory,
+            db_path,
+            progress_callback,
+            json_files,
+            search_progress_callback=search_progress_callback,
+        )
 
 
 def _build_pair(
@@ -349,11 +361,14 @@ def _build_pair(
     db_path: Path,
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
     json_files: Optional[List[Path]] = None,
+    *,
+    search_progress_callback: Optional[Callable[[str, int], None]] = None,
 ) -> Dict[str, Any]:
     """Build the SQLite database and its sibling search index at ``db_path``.
 
     The caller owns the build sentinel; this performs the destructive work.
     """
+    sqlite_started = perf_counter()
     input_path = Path(input_directory)
 
     # Create database at the specified path
@@ -588,6 +603,9 @@ def _build_pair(
             progress_callback("", files_processed, len(files_to_process))
         conn.close()
 
+    sqlite_seconds = perf_counter() - sqlite_started
+    tantivy_started = perf_counter()
+
     # Build the protocluster search index as a fixed sibling of the database.
     # The source files are the same explicit set used for the SQLite build,
     # resolved to paths relative to the input directory.
@@ -609,7 +627,9 @@ def _build_pair(
 
     try:
         index = build_index(
-            extract_documents(search_files, input_path), search_index_dir
+            extract_documents(search_files, input_path),
+            search_index_dir,
+            progress_callback=search_progress_callback,
         )
     except Exception:
         # A failed build must not leave a partial index artifact.
@@ -636,6 +656,8 @@ def _build_pair(
         conn.close()
 
     return {
+        "sqlite_seconds": sqlite_seconds,
+        "tantivy_seconds": perf_counter() - tantivy_started,
         "files_processed": files_processed,
         "total_records": total_records,
         "total_attributes": total_attributes,
