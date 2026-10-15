@@ -59,6 +59,7 @@
           <!-- antiSMASH DB Mode: Accession input -->
           <AntismashDBLoader
             v-if="dataSource === 'antismash-db'"
+            :initial-accession="urlAccession"
             @files-loaded="handleFilesLoaded"
           />
         </div>
@@ -147,6 +148,12 @@ export default {
     // Restore data source from localStorage, default to 'api'
     const savedDataSource = localStorage.getItem('bgc-viewer-data-source')
     const dataSource = ref(savedDataSource || 'api') // 'api', 'upload' or 'antismash-db'
+
+    // An accession in the URL (?antismash_db=GCF_000725555.1) selects antiSMASH DB and loads it directly
+    const urlAccession = ref(new URLSearchParams(window.location.search).get('antismash_db') || '')
+    if (urlAccession.value) {
+      dataSource.value = 'antismash-db'
+    }
     
     // Data root and index tracking
     const selectedDataRoot = ref('')
@@ -368,6 +375,17 @@ export default {
       // Save to localStorage
       localStorage.setItem('bgc-viewer-data-source', newSource)
 
+      // Drop the accession URL parameter when switching to another source,
+      // so it isn't loaded again when switching back
+      if (newSource !== 'antismash-db') {
+        urlAccession.value = ''
+        const url = new URL(window.location.href)
+        if (url.searchParams.has('antismash_db')) {
+          url.searchParams.delete('antismash_db')
+          window.history.replaceState(null, '', url)
+        }
+      }
+
       // Clear current data when switching sources
       currentRecordId.value = ''
       currentRecordData.value = null
@@ -506,6 +524,7 @@ export default {
       appName,
       isPublicMode,
       dataSource,
+      urlAccession,
       selectedDataRoot,
       selectedIndexPath,
       folderForIndexing,

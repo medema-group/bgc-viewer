@@ -39,15 +39,22 @@
 </template>
 
 <script>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 
 const ACCESSION_STORAGE_KEY = 'bgc-viewer-antismash-db-accession'
 
 export default {
   name: 'AntismashDBLoader',
+  props: {
+    // Accession to load immediately on mount (e.g. from the ?antismash_db= URL parameter)
+    initialAccession: {
+      type: String,
+      default: ''
+    }
+  },
   emits: ['files-loaded'],
   setup(props, { emit }) {
-    const accession = ref(localStorage.getItem(ACCESSION_STORAGE_KEY) || '')
+    const accession = ref(props.initialAccession || localStorage.getItem(ACCESSION_STORAGE_KEY) || '')
     const loadingAccession = ref('')
     const loadedAccession = ref('')
     const error = ref('')
@@ -81,6 +88,12 @@ export default {
 
         localStorage.setItem(ACCESSION_STORAGE_KEY, acc)
         loadedAccession.value = acc
+
+        // Reflect the loaded accession in the URL so the view can be shared
+        const url = new URL(window.location.href)
+        url.searchParams.set('antismash_db', acc)
+        window.history.replaceState(null, '', url)
+
         emit('files-loaded', [{ id: 0, name: file.name, type: 'json', file }])
       } catch (err) {
         console.error('Failed to load from antiSMASH DB:', err)
@@ -92,6 +105,12 @@ export default {
         isLoading.value = false
       }
     }
+
+    onMounted(() => {
+      if (props.initialAccession) {
+        loadAccession()
+      }
+    })
 
     return {
       accession,
