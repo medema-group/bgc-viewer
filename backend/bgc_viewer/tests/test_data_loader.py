@@ -2,9 +2,13 @@
 Tests for data loading functionality including random access.
 """
 
+import bz2
+import gzip
 import pytest
 import json
 from pathlib import Path
+from bgc_viewer import data_loader
+from bgc_viewer.preprocessing import preprocess_antismash_files
 from bgc_viewer.data_loader import (
     load_specific_record,
     load_record_by_index,
@@ -96,6 +100,52 @@ class TestDataLoading:
         assert "records" in data
         assert len(data["records"]) == 2
         assert data["version"] == "1.0"
+
+
+class TestIndexLocation:
+    """The byte index is used wherever the selected database is stored."""
+
+    @pytest.fixture
+    def no_fallback(self, monkeypatch):
+        def fail(*args):
+            raise AssertionError("fell back to parsing the whole file")
+
+        monkeypatch.setattr(data_loader, "load_specific_record_fallback", fail)
+
+    @pytest.mark.parametrize("name", ["data.json", "data.json.gz", "data.json.bz2"])
+    def test_database_outside_data_folder(
+        self, temp_dir, sample_antismash_data, no_fallback, name
+    ):
+        data_dir = temp_dir / "data"
+        data_dir.mkdir()
+        raw = json.dumps(sample_antismash_data).encode()
+        compress = {".gz": gzip.compress, ".bz2": bz2.compress}.get(
+            Path(name).suffix, lambda data: data
+        )
+        (data_dir / name).write_bytes(compress(raw))
+        db_path = temp_dir / "indexes" / "custom.db"
+        preprocess_antismash_files(str(data_dir), str(db_path))
+
+        loaded = load_specific_record(
+            str(data_dir / name), "test_record_2", str(data_dir), str(db_path)
+        )
+
+        assert loaded["records"] == [sample_antismash_data["records"][1]]
+        assert loaded["file_attributes"]["version"] == "1.0"
+
+    def test_stale_index_falls_back_to_full_parse(
+        self, processed_data_dir, sample_json_file, sample_antismash_data
+    ):
+        """If the file changed after indexing, the byte range is not trusted."""
+        temp_dir, _ = processed_data_dir
+        sample_antismash_data["records"].reverse()
+        sample_json_file.write_text(json.dumps(sample_antismash_data))
+
+        loaded = load_specific_record(
+            str(sample_json_file), "test_record_1", str(temp_dir)
+        )
+
+        assert loaded["records"][0]["id"] == "test_record_1"
 
 
 class TestPerformanceComparison:

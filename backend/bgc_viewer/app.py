@@ -193,7 +193,7 @@ def load_cached_entry(entry_id: str, db_path: str, data_dir: str, build_id: str)
     """
     filename, record_id = entry_id.split(":", 1)
     file_path = Path(data_dir) / filename
-    return load_specific_record(str(file_path), record_id, data_dir)
+    return load_specific_record(str(file_path), record_id, data_dir, db_path)
 
 
 def get_current_entry_data():
@@ -548,8 +548,10 @@ def load_database_entry():
                 404,
             )
 
-        # Load the specific record
-        modified_data = load_specific_record(str(file_path), record_id, data_root)
+        # Load the specific record through the cache (keyed by db_path and build
+        # generation so a rebuild cannot leave this entry stale), so the record
+        # endpoints that follow reuse it instead of loading it again
+        modified_data = load_cached_entry(entry_id, db_path, data_root, build_id)
 
         if not modified_data:
             return (
@@ -573,10 +575,6 @@ def load_database_entry():
                 ),
                 503,
             )
-
-        # Pre-cache the data for this session (keyed by db_path and build
-        # generation so a rebuild cannot leave this entry stale)
-        load_cached_entry(entry_id, db_path, data_root, build_id)
 
         # Get the loaded record info
         loaded_record = modified_data["records"][0] if modified_data["records"] else {}

@@ -5,12 +5,15 @@ Supports fast random access using byte position indexing.
 """
 
 import json
+import logging
 import ijson
 import sqlite3
 import gzip
 import bz2
 from pathlib import Path
 from typing import Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 
 def open_file(file_path, mode="rb"):
@@ -51,15 +54,18 @@ def load_json_file(file_path):
 
 
 def get_record_index(
-    file_path: str, data_dir: str = "data"
+    file_path: str, data_dir: str = "data", db_path: Optional[str] = None
 ) -> Optional[sqlite3.Connection]:
-    """Get database connection for record index."""
-    data_path = Path(data_dir)
-    db_path = data_path / "attributes.db"
+    """Get database connection for record index.
 
-    if db_path.exists():
+    ``db_path`` is the record index database to use; without it the default
+    ``attributes.db`` inside ``data_dir`` is tried.
+    """
+    index_path = Path(db_path) if db_path else Path(data_dir) / "attributes.db"
+
+    if index_path.exists():
         try:
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(index_path)
             conn.row_factory = sqlite3.Row  # Enable column access by name
             return conn
         except sqlite3.Error:
@@ -68,22 +74,31 @@ def get_record_index(
 
 
 def load_record_by_index(
-    file_path: str, target_record_id: str, data_dir: str = "data"
+    file_path: str,
+    target_record_id: str,
+    data_dir: str = "data",
+    db_path: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Load a specific record using byte position index for fast random access.
 
+    Only the record's byte range is read and parsed. For compressed files the
+    stream is decompressed up to the end of the record, without keeping the
+    rest of the file in memory.
+
     Args:
         file_path: Path to the JSON file
         target_record_id: ID of the record to load
-        data_dir: Directory containing the index database
+        data_dir: Data root that the indexed file paths are relative to
+        db_path: Record index database; defaults to ``data_dir/attributes.db``
 
     Returns:
-        Dictionary containing file metadata and the target record
+        Dictionary containing file metadata and the target record, or None when
+        the index has no entry for the record or cannot be used
     """
-    conn = get_record_index(file_path, data_dir)
+    conn = get_record_index(file_path, data_dir, db_path)
     if not conn:
-        return load_specific_record_fallback(file_path, target_record_id)
+        return None
 
     try:
         # Calculate relative path from data_dir to match database entries
@@ -96,83 +111,66 @@ def load_record_by_index(
             relative_path = Path(file_path).name
 
         # Query the records table for byte positions (join with files table)
-        cursor = conn.execute(
+        result = conn.execute(
             """SELECT r.byte_start, r.byte_end, f.id as file_id
                FROM records r
                JOIN files f ON r.file_id = f.id
                WHERE f.path = ? AND r.record_id = ?""",
             (relative_path, target_record_id),
-        )
-
-        result = cursor.fetchone()
+        ).fetchone()
         if not result:
-            conn.close()
             return None
 
         byte_start, byte_end = result["byte_start"], result["byte_end"]
-        file_id = result["file_id"]
 
         # Query file attributes for this file
-        file_attrs_cursor = conn.execute(
-            """SELECT attribute_name, attribute_value
-               FROM file_attributes
-               WHERE file_id = ?""",
-            (file_id,),
-        )
         file_attributes = {
             row["attribute_name"]: row["attribute_value"]
-            for row in file_attrs_cursor.fetchall()
+            for row in conn.execute(
+                """SELECT attribute_name, attribute_value
+                   FROM file_attributes
+                   WHERE file_id = ?""",
+                (result["file_id"],),
+            )
         }
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
 
-        # Load the specific record using byte positions (skip metadata for performance)
-        # Note: Byte positions are relative to uncompressed content
-        file_path_obj = Path(file_path)
+    # Byte positions refer to the uncompressed content. Seeking a gzip/bz2
+    # stream decompresses forward to the offset without buffering it.
+    with open_file(file_path, "rb") as f:
+        f.seek(byte_start)
+        record_bytes = f.read(byte_end - byte_start)
 
-        # For compressed files, we need to decompress first, then use byte positions
-        if file_path_obj.suffix in [".gz", ".bz2"]:
-            with open_file(file_path, "rb") as f:
-                file_content = f.read()
+    try:
+        record_data = json.loads(record_bytes)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # The file changed since it was indexed
+        return None
+    if not isinstance(record_data, dict) or record_data.get("id") != target_record_id:
+        return None
 
-            # Now use byte positions on the uncompressed content
-            record_bytes = file_content[byte_start:byte_end]
-
-            try:
-                record_data = json.loads(record_bytes.decode("utf-8"))
-                conn.close()
-
-                return {"records": [record_data], "file_attributes": file_attributes}
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                conn.close()
-                return load_specific_record_fallback(file_path, target_record_id)
-        else:
-            # For uncompressed files, we can seek directly
-            with open(file_path, "rb") as f:
-                f.seek(byte_start)
-                record_bytes = f.read(byte_end - byte_start)
-
-            try:
-                record_data = json.loads(record_bytes.decode("utf-8"))
-                conn.close()
-
-                return {"records": [record_data], "file_attributes": file_attributes}
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                conn.close()
-                return load_specific_record_fallback(file_path, target_record_id)
-
-    except Exception as e:
-        if conn:
-            conn.close()
-        return load_specific_record_fallback(file_path, target_record_id)
+    return {"records": [record_data], "file_attributes": file_attributes}
 
 
-def load_specific_record(file_path, target_record_id, data_dir="data"):
+def load_specific_record(
+    file_path, target_record_id, data_dir="data", db_path: Optional[str] = None
+):
     """Load only a specific record from a JSON file for better performance."""
     # Try index-based loading first
-    result = load_record_by_index(file_path, target_record_id, data_dir)
+    result = load_record_by_index(file_path, target_record_id, data_dir, db_path)
     if result:
         return result
 
-    # Fallback to original method
+    # Fallback: parse the whole file. This is slow for large files, so make it visible.
+    logger.warning(
+        "Record %s of %s not found via the record index (%s); parsing the whole file",
+        target_record_id,
+        file_path,
+        db_path or Path(data_dir) / "attributes.db",
+    )
     return load_specific_record_fallback(file_path, target_record_id)
 
 
