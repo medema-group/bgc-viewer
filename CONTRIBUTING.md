@@ -63,6 +63,12 @@ uv run mypy bgc_viewer/
 
 - Aim for good test coverage
 
+### Search Index
+
+Protocluster search runs on an embedded Tantivy index built from antiSMASH JSON
+during preprocessing, alongside the authoritative SQLite database. 
+See [search index guide](docs/guide/development/search-index.md) for more information.
+
 ### Commit Messages
 
 Use clear, descriptive commit messages. Follow the format:
