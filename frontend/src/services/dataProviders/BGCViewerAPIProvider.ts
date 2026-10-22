@@ -73,27 +73,24 @@ export class BGCViewerAPIProvider extends DataProvider {
   }
 
   /**
-   * Search records by query string
-   * For API provider, this delegates to the backend search endpoint
-   * @param query - Search query string
+   * List records from the backend record index.
+   * The query is ignored: attribute search goes through searchLevel(),
+   * which is backed by the Tantivy search index.
+   * @param _query - Unused
    * @param page - Page number (default: 1)
    * @param perPage - Records per page (default: 20)
    */
-  async searchRecords(query: string, page: number = 1, perPage: number = 20): Promise<{
+  async searchRecords(_query: string, page: number = 1, perPage: number = 20): Promise<{
     records: RecordInfo[]
     total: number
     totalPages: number
     currentPage: number
   }> {
-    const params: any = {
+    const params = {
       page,
       per_page: perPage
     }
-    
-    if (query.trim()) {
-      params.search = query.trim()
-    }
-    
+
     const response = await this.axiosInstance.get<{
       entries: any[]
       total: number
@@ -111,8 +108,6 @@ export class BGCViewerAPIProvider extends DataProvider {
       // Include additional fields for display
       entryId: entry.id,  // Full entry ID in format "filename:recordId"
       organism: entry.organism,
-      products: entry.products,
-      clusterTypes: entry.cluster_types,
       featureCount: entry.feature_count,
       regionCount: entry.region_count
     } as any))

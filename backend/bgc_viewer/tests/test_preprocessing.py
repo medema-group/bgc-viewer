@@ -11,80 +11,10 @@ import sqlite3
 from pathlib import Path
 from bgc_viewer.preprocessing import (
     preprocess_antismash_files,
-    flatten_complex_value,
-    extract_attributes_from_record,
     create_attributes_database,
 )
 from bgc_viewer.search.extraction import ExtractionError
 from bgc_viewer.search.index import open_index, search_protoclusters
-
-
-class TestFlattenComplexValue:
-    """Tests for the flatten_complex_value function."""
-
-    def test_simple_string(self):
-        """Test flattening a simple string."""
-        result = flatten_complex_value("simple_string")
-        assert result == [("", "simple_string")]
-
-    def test_string_with_prefix(self):
-        """Test flattening a string with prefix."""
-        result = flatten_complex_value("value", "prefix")
-        assert result == [("prefix", "value")]
-
-    def test_dict_flattening(self):
-        """Test flattening a dictionary."""
-        test_dict = {"gene": "testA", "location": {"start": 100, "end": 500}}
-        result = flatten_complex_value(test_dict)
-        expected = [
-            ("gene", "testA"),
-            ("location_start", "100"),
-            ("location_end", "500"),
-        ]
-        assert sorted(result) == sorted(expected)
-
-    def test_array_flattening(self):
-        """Test flattening an array."""
-        test_array = ["value1", "value2"]
-        result = flatten_complex_value(test_array, "array_attr")
-        expected = [("array_attr", "value1"), ("array_attr", "value2")]
-        assert sorted(result) == sorted(expected)
-
-
-class TestExtractAttributesFromRecord:
-    """Tests for the extract_attributes_from_record function."""
-
-    def test_basic_extraction(self):
-        """Test basic attribute extraction from a record."""
-        sample_record = {
-            "id": "test_record",
-            "annotations": {
-                "gene1": {"type": "gene", "location": "[100:500]", "gene": "testA"}
-            },
-            "features": [
-                {
-                    "type": "source",
-                    "qualifiers": {
-                        "organism": "Test organism",
-                        "mol_type": "genomic DNA",
-                    },
-                }
-            ],
-        }
-
-        attributes = extract_attributes_from_record(
-            sample_record, 1
-        )  # record_ref_id = 1
-
-        # Should have attributes from both annotations and source features
-        assert len(attributes) > 0
-
-        # Check structure - each should be (record_id, attr_name, attr_value)
-        for attr in attributes:
-            assert len(attr) == 3
-            assert attr[0] == 1  # record_id
-            assert isinstance(attr[1], str)  # attr_name
-            assert isinstance(attr[2], str)  # attr_value
 
 
 class TestDatabaseCreation:
@@ -95,23 +25,28 @@ class TestDatabaseCreation:
         db_path = temp_dir / "test.db"
         conn = create_attributes_database(db_path)
 
-        # Check that table exists
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='attributes'"
-        )
-        assert cursor.fetchone() is not None
-
-        # Check table structure
-        cursor = conn.execute("PRAGMA table_info(attributes)")
-        columns = [row[1] for row in cursor.fetchall()]
-        expected_columns = ["record_id", "attribute_name", "attribute_value"]
-        for col in expected_columns:
-            assert col in columns
+        # Attribute values are indexed by Tantivy only, never in SQLite
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert {"metadata", "files", "file_attributes", "records"} <= tables
+        assert "attributes" not in tables
 
         # Check records table structure
         cursor = conn.execute("PRAGMA table_info(records)")
         columns = [row[1] for row in cursor.fetchall()]
-        expected_columns = ["id", "file_id", "record_id", "byte_start", "byte_end"]
+        expected_columns = [
+            "id",
+            "file_id",
+            "record_id",
+            "byte_start",
+            "byte_end",
+            "description",
+            "organism",
+            "feature_count",
+            "region_count",
+        ]
         for col in expected_columns:
             assert col in columns
 
@@ -185,7 +120,6 @@ class TestPreprocessingPipeline:
         # Check results
         assert results["files_processed"] == 1
         assert results["total_records"] == 2
-        assert results["total_attributes"] > 0
 
         # Check that database was created
         db_path = temp_dir / "attributes.db"
@@ -193,14 +127,24 @@ class TestPreprocessingPipeline:
 
         # Verify database contents
         conn = sqlite3.connect(db_path)
-        cursor = conn.execute("SELECT COUNT(*) FROM attributes")
-        total_attributes = cursor.fetchone()[0]
-        assert total_attributes > 0
+        rows = conn.execute(
+            """SELECT record_id, organism, feature_count, region_count
+               FROM records ORDER BY id"""
+        ).fetchall()
+        assert rows == [
+            ("test_record_1", "Test organism", 1, 0),
+            ("test_record_2", "Test organism 2", 1, 0),
+        ]
 
-        # Verify that we have attributes from different sources
-        cursor = conn.execute("SELECT DISTINCT attribute_name FROM attributes")
-        attr_names = [row[0] for row in cursor.fetchall()]
-        assert len(attr_names) > 0
+        file_attributes = dict(
+            conn.execute(
+                "SELECT attribute_name, attribute_value FROM file_attributes"
+            ).fetchall()
+        )
+        assert file_attributes == {
+            "version": "8.0.2",
+            "input_file": "test_sample.json",
+        }
 
         cursor = conn.execute(
             """

@@ -27,7 +27,6 @@ class TestFullSystemIntegration:
         # Verify preprocessing results
         assert result["files_processed"] == 1
         assert result["total_records"] == 2
-        assert result["total_attributes"] > 0
 
         # 3. Test random access loading
         loaded_record1 = load_specific_record(
@@ -45,7 +44,7 @@ class TestFullSystemIntegration:
 
         # 4. Test database search
         db_path = str(temp_dir / "attributes.db")
-        search_results = get_database_entries(db_path, page=1, per_page=10, search="")
+        search_results = get_database_entries(db_path, page=1, per_page=10)
 
         # Verify search results
         assert search_results["total"] >= 2
@@ -111,7 +110,7 @@ class TestFullSystemIntegration:
 
         # Test database contains both files
         db_path = str(temp_dir / "attributes.db")
-        search_results = get_database_entries(db_path, page=1, per_page=10, search="")
+        search_results = get_database_entries(db_path, page=1, per_page=10)
 
         found_files = {entry["filename"] for entry in search_results["entries"]}
         assert "file1.json" in found_files
@@ -172,7 +171,6 @@ class TestFullSystemIntegration:
         # Should complete without errors
         assert result["files_processed"] == 0
         assert result["total_records"] == 0
-        assert result["total_attributes"] == 0
 
 
 class TestPerformanceAndScalability:
@@ -236,9 +234,6 @@ class TestPerformanceAndScalability:
         result = preprocess_antismash_files(str(temp_dir), index_path)
         assert result["files_processed"] == 1
         assert result["total_records"] == 1
-        # We only extract attributes from annotations and source features, not all CDS features
-        # So the attribute count will be much lower than the number of features
-        assert result["total_attributes"] >= 0  # Should complete successfully
 
         # Test loading the large record
         loaded = load_specific_record(str(test_file), "large_record", str(temp_dir))

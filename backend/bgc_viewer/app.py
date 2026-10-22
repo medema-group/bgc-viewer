@@ -1048,7 +1048,6 @@ def get_database_entries_endpoint():
     # Get query parameters
     page = request.args.get("page", 1, type=int)
     per_page = min(request.args.get("per_page", 50, type=int), 100)  # Max 100 per page
-    search = request.args.get("search", "").strip()
 
     # Determine database path based on mode
     if PUBLIC_MODE:
@@ -1068,7 +1067,7 @@ def get_database_entries_endpoint():
             return jsonify({"error": f"Database file does not exist: {db_path}"}), 404
 
     # Use the database module function
-    result = get_database_entries(db_path, page, per_page, search)
+    result = get_database_entries(db_path, page, per_page)
 
     if "error" in result:
         return jsonify(result), 404 if "No database found" in result["error"] else 500

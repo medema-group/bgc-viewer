@@ -1,6 +1,6 @@
 """
 Database operations for BGC Viewer.
-Handles SQLite queries for the attributes database.
+Handles SQLite queries for the record index database.
 """
 
 import sqlite3
@@ -92,8 +92,12 @@ def get_database_info(db_file_path):
         return {"error": f"Failed to read database: {str(e)}"}
 
 
-def get_database_entries(db_path, page=1, per_page=50, search=""):
-    """Get paginated list of all file+record entries from the database."""
+def get_database_entries(db_path, page=1, per_page=50):
+    """Get paginated list of all file+record entries from the database.
+
+    This is a plain listing of the record index. Searching by attribute values
+    goes through the Tantivy search index (``/api/search/*``) instead.
+    """
     per_page = min(per_page, 100)  # Max 100 per page
 
     if not db_path or not Path(db_path).exists():
@@ -108,98 +112,46 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
 
     try:
         conn = sqlite3.connect(db_path)
+        try:
+            record_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(records)")
+            }
+            if not {"description", "organism"} <= record_columns:
+                return {
+                    "error": "This database was created by an older version of "
+                    "BGC Viewer. Please run preprocessing again."
+                }
 
-        # Build query to get records with file paths and commonly used attributes
-        base_query = """
-            SELECT 
-                f.path as filename, 
-                r.record_id,
-                r.id as internal_id,
-                (SELECT attribute_value FROM attributes WHERE record_id = r.id AND attribute_name = 'description' LIMIT 1) as description,
-                (SELECT attribute_value FROM attributes WHERE record_id = r.id AND attribute_name = 'organism' LIMIT 1) as organism,
-                r.feature_count,
-                r.region_count
-            FROM records r
-            JOIN files f ON r.file_id = f.id
-        """
-        count_query = """
-            SELECT COUNT(*) FROM records r
-            JOIN files f ON r.file_id = f.id
-        """
+            total = conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+            total_pages = (total + per_page - 1) // per_page
+            offset = (page - 1) * per_page
 
-        params = []
-        where_conditions = []
+            rows = conn.execute(
+                """
+                SELECT f.path, r.record_id, r.id, r.description, r.organism,
+                       r.feature_count, r.region_count
+                FROM records r
+                JOIN files f ON r.file_id = f.id
+                ORDER BY f.path, r.record_id
+                LIMIT ? OFFSET ?
+                """,
+                (per_page, offset),
+            ).fetchall()
+        finally:
+            conn.close()
 
-        # Add search filter if provided
-        if search:
-            # Split search into multiple terms by space and apply AND logic
-            search_terms = search.strip().split()
-
-            for term in search_terms:
-                # Each term must match at least one field
-                search_condition = """(f.path LIKE ? OR r.record_id LIKE ? 
-                                   OR EXISTS (SELECT 1 FROM attributes a WHERE a.record_id = r.id AND a.attribute_value LIKE ?))"""
-                where_conditions.append(search_condition)
-                term_param = f"%{term}%"
-                params.extend([term_param, term_param, term_param])
-
-        # Build WHERE clause
-        if where_conditions:
-            where_clause = " WHERE " + " AND ".join(where_conditions)
-            base_query += where_clause
-            count_query += where_clause
-
-        # Get total count
-        cursor = conn.execute(count_query, params)
-        total = cursor.fetchone()[0]
-
-        # Calculate pagination
-        total_pages = (total + per_page - 1) // per_page
-        offset = (page - 1) * per_page
-
-        # Get paginated results
-        query = (
-            base_query
-            + """
-            ORDER BY f.path, r.record_id
-            LIMIT ? OFFSET ?
-        """
-        )
-
-        cursor = conn.execute(query, params + [per_page, offset])
-        rows = cursor.fetchall()
-
-        # Extract all internal_ids for bulk query
-        internal_ids = [row[2] for row in rows]
-        entries = []
-
-        # Fetch all products for these records in one query
-        products_map = {}
-        if internal_ids:
-            placeholders = ",".join("?" * len(internal_ids))
-            products_query = f"""
-                SELECT DISTINCT record_id, attribute_value FROM attributes
-                WHERE record_id IN ({placeholders})
-                AND attribute_name = 'regions_product'
-            """
-            for rid, val in conn.execute(products_query, internal_ids).fetchall():
-                products_map.setdefault(rid, []).append(val)
-
-        # Fetch all cluster_types for these records in one query
-        cluster_types_map = {}
-        if internal_ids:
-            placeholders = ",".join("?" * len(internal_ids))
-            cluster_types_query = f"""
-                SELECT DISTINCT record_id, attribute_value FROM attributes
-                WHERE record_id IN ({placeholders})
-                AND attribute_name IN ('regions_product_category', 'regions_product')
-            """
-            for rid, val in conn.execute(cluster_types_query, internal_ids).fetchall():
-                cluster_types_map.setdefault(rid, []).append(val)
-
-        # Build entries using the bulk-fetched data
-        for row in rows:
-            (
+        entries = [
+            {
+                "filename": filename,
+                "record_id": record_id,
+                "id": f"{filename}:{record_id}",  # Unique identifier for frontend
+                "internal_id": internal_id,  # Internal database ID
+                "description": description or "",
+                "organism": organism or "",
+                "feature_count": feature_count or 0,
+                "region_count": region_count or 0,
+            }
+            for (
                 filename,
                 record_id,
                 internal_id,
@@ -207,23 +159,8 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
                 organism,
                 feature_count,
                 region_count,
-            ) = row
-            entries.append(
-                {
-                    "filename": filename,
-                    "record_id": record_id,
-                    "id": f"{filename}:{record_id}",  # Unique identifier for frontend
-                    "internal_id": internal_id,  # Internal database ID
-                    "description": description or "",
-                    "organism": organism or "",
-                    "feature_count": feature_count or 0,
-                    "region_count": region_count or 0,
-                    "products": products_map.get(internal_id, [])[:5],
-                    "cluster_types": cluster_types_map.get(internal_id, [])[:5],
-                }
-            )
-
-        conn.close()
+            ) in rows
+        ]
 
         return {
             "entries": entries,
@@ -231,8 +168,6 @@ def get_database_entries(db_path, page=1, per_page=50, search=""):
             "page": page,
             "per_page": per_page,
             "total_pages": total_pages,
-            "has_search": bool(search),
-            "search": search,
         }
 
     except Exception as e:

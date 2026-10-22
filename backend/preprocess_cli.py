@@ -37,7 +37,7 @@ def format_duration(seconds):
 def main():
     """Command-line interface for preprocessing."""
     parser = argparse.ArgumentParser(
-        description="Build SQLite with extracted attributes and Tantivy indexes from antiSMASH JSON files"
+        description="Build the SQLite record index and Tantivy search index from antiSMASH JSON files"
     )
     parser.add_argument(
         "input_directory", help="Directory containing AntiSMASH JSON files"
@@ -143,7 +143,6 @@ def main():
         print("=" * 50)
         print(f"Files processed:     {results['files_processed']}")
         print(f"Total records:       {results['total_records']}")
-        print(f"Total attributes:    {results['total_attributes']}")
         print(f"Protoclusters indexed: {results['indexed_protoclusters']}")
         print(f"SQLite time:         {format_duration(results['sqlite_seconds'])}")
         print(f"Tantivy time:        {format_duration(results['tantivy_seconds'])}")
@@ -151,9 +150,6 @@ def main():
         if results["files_processed"] > 0:
             avg_time = total_time / results["files_processed"]
             print(f"Avg time per file:   {avg_time:.2f}s")
-        if results["total_records"] > 0:
-            avg_attrs = results["total_attributes"] / results["total_records"]
-            print(f"Avg attrs per record: {avg_attrs:.1f}")
         print(f"\nDatabase saved to:   {results['database_path']}")
         print(f"Tantivy index:       {results['search_index_path']}")
         print("=" * 50)
