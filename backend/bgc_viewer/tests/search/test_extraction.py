@@ -634,3 +634,126 @@ def test_cds_features_do_not_contribute_search_fields(tmp_path):
     assert "CDS_IGNORABLE" not in _values(document, "locus")
     assert "PF99999" not in _values(document, "pfam")
     assert "CDS decoy" not in _values(document, "pfam_name")
+
+
+def _protocluster_source(record_id, *, region_number="1", extra_features=()):
+    return {
+        "version": "8.0.2",
+        "input_file": f"{record_id}.gbk",
+        "records": [
+            {
+                "id": record_id,
+                "features": [
+                    {
+                        "type": "region",
+                        "location": "[0:500](+)",
+                        "qualifiers": {"region_number": [region_number]},
+                    },
+                    {
+                        "type": "protocluster",
+                        "location": "[100:400](+)",
+                        "qualifiers": {
+                            "protocluster_number": ["1"],
+                            "product": ["NRPS"],
+                            "product_category": ["NRPS"],
+                        },
+                    },
+                    *extra_features,
+                ],
+            }
+        ],
+    }
+
+
+def test_extraction_warning_survives_pickling():
+    import pickle
+
+    warning = ExtractionWarning("code", "file.json", "record", "records[0]", "msg")
+
+    copy = pickle.loads(pickle.dumps(warning))
+
+    assert (copy.code, copy.source_path, copy.record_id, copy.json_path) == (
+        "code",
+        "file.json",
+        "record",
+        "records[0]",
+    )
+    assert str(copy) == "msg"
+
+
+def test_parallel_extraction_matches_sequential(tmp_path):
+    """Worker processes yield the same documents and warnings, in file order."""
+    malformed_gene = {"type": "gene", "location": "not a location"}
+    files = []
+    for index in range(5):
+        extra = (malformed_gene,) if index == 3 else ()
+        name = f"file_{index}.json"
+        (tmp_path / name).write_text(
+            json.dumps(_protocluster_source(f"rec{index}", extra_features=extra))
+        )
+        files.append(Path(name))
+
+    def run(workers):
+        with pytest.warns(ExtractionWarning) as caught:
+            documents = list(extract_documents(files, tmp_path, workers=workers))
+        return (
+            [document.to_dict() for document in documents],
+            [(w.message.code, w.message.source_path) for w in caught],
+        )
+
+    sequential = run(1)
+    parallel = run(3)
+
+    assert parallel == sequential
+    assert [doc["record"] for doc in parallel[0]] == [
+        ["rec0"],
+        ["rec1"],
+        ["rec2"],
+        ["rec3"],
+        ["rec4"],
+    ]
+    assert parallel[1] == [("malformed_optional_feature", "file_3.json")]
+
+
+def test_parallel_extraction_reports_the_first_failing_file(tmp_path):
+    """An error in a later file surfaces after the earlier files' documents."""
+    (tmp_path / "good.json").write_text(json.dumps(_protocluster_source("good")))
+    (tmp_path / "bad.json").write_text(
+        json.dumps(_protocluster_source("bad", region_number="x"))
+    )
+
+    documents = extract_documents(
+        [Path("good.json"), Path("bad.json")], tmp_path, workers=2
+    )
+
+    assert _values(next(documents), "record") == ["good"]
+    with pytest.raises(ExtractionError, match=r"bad\.json .*Invalid integer"):
+        next(documents)
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_file_progress_counts_files_whose_documents_were_yielded(tmp_path, workers):
+    files = []
+    for index in range(3):
+        name = f"file_{index}.json"
+        (tmp_path / name).write_text(json.dumps(_protocluster_source(f"rec{index}")))
+        files.append(Path(name))
+    events = []
+
+    for document in extract_documents(
+        files,
+        tmp_path,
+        workers=workers,
+        file_progress=lambda done, total: events.append(("files", done, total)),
+    ):
+        events.append(("doc", _values(document, "record")[0]))
+
+    assert events == [
+        ("files", 0, 3),
+        ("doc", "rec0"),
+        ("files", 1, 3),
+        ("doc", "rec1"),
+        ("files", 2, 3),
+        ("doc", "rec2"),
+        ("files", 3, 3),
+    ]

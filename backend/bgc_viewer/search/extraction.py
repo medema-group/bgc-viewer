@@ -1,6 +1,9 @@
+import multiprocessing
+import os
 import re
 import warnings
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -31,6 +34,14 @@ class ExtractionWarning(UserWarning):
         self.source_path = source_path
         self.record_id = record_id
         self.json_path = json_path
+
+    def __reduce__(self):
+        # Rebuild from all fields so warnings survive the trip back from an
+        # extraction worker process.
+        return (
+            self.__class__,
+            (self.code, self.source_path, self.record_id, self.json_path, str(self)),
+        )
 
 
 @dataclass(frozen=True)
@@ -448,16 +459,88 @@ def extract(
         ) from error
 
 
+_Identity = tuple[str, str, int, int]
+
+
+@dataclass(frozen=True)
+class _FileResult:
+    """Everything one worker extracted from one file, in file order."""
+
+    source: SourceFile | None
+    documents: list[Document]
+    identities: list[_Identity]
+    warnings: list[Warning | str]
+    error: ExtractionError | None
+
+
+def _extract_file(
+    source_path: Path, relative_path: str, warning_threshold: int
+) -> _FileResult:
+    """Extract one file. Runs in a worker process, so it shares no state.
+
+    Warnings and errors are captured rather than raised, so the caller can
+    replay them in file order exactly as a sequential run would. Duplicate
+    identities within the file are caught here; duplicates across files are
+    checked by the caller from the returned ``identities``.
+    """
+    source = None
+    documents: list[Document] = []
+    identities: dict[_Identity, SourceFile] = {}
+    error = None
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        try:
+            version, input_file = _read_file_metadata(source_path)
+            source = SourceFile(version, relative_path, input_file)
+            with open_file(source_path, "rb") as handle:
+                records = ijson.items(handle, "records.item")
+                documents.extend(
+                    extract(
+                        records,
+                        source,
+                        warning_threshold=warning_threshold,
+                        identities=identities,
+                    )
+                )
+        except ExtractionError as extraction_error:
+            error = extraction_error
+    return _FileResult(
+        source,
+        documents,
+        list(identities),
+        [warning.message for warning in caught],
+        error,
+    )
+
+
+def default_extraction_workers() -> int:
+    return os.cpu_count() or 1
+
+
 def extract_documents(
     files: Iterable[Path],
     source_root: Path,
     *,
     warning_threshold: int = 100,
+    workers: int | None = None,
+    file_progress: Callable[[int, int], None] | None = None,
 ) -> Iterator[Document]:
+    """Stream Tantivy documents for ``files``, in file order.
+
+    ``file_progress`` receives the number of files whose documents have all
+    been yielded and the total number of files, once before the first file and
+    again after each file.
+
+    Parsing antiSMASH JSON is CPU-bound Python, so files are extracted in
+    parallel worker processes (``workers``, default one per CPU) while this
+    generator replays each file's warnings and documents in the order the
+    files were given. The output, warnings, and errors are the same as a
+    sequential run, which is used for a single file or ``workers=1``.
+    """
     if warning_threshold < 1:
         raise ValueError("warning_threshold must be at least 1")
     root = source_root.resolve()
-    identities: dict[tuple[str, str, int, int], SourceFile] = {}
+    selected: list[tuple[Path, str]] = []
     for selected_path in files:
         source_path = (root / selected_path).resolve()
         try:
@@ -466,14 +549,69 @@ def extract_documents(
             raise ExtractionError(
                 f"Selected path is outside source root: {selected_path}"
             ) from error
+        selected.append((source_path, relative_path))
 
-        version, input_file = _read_file_metadata(source_path)
-        source = SourceFile(version, relative_path, input_file)
-        with open_file(source_path, "rb") as handle:
-            records = ijson.items(handle, "records.item")
-            yield from extract(
-                records,
-                source,
-                warning_threshold=warning_threshold,
-                identities=identities,
-            )
+    if file_progress:
+        file_progress(0, len(selected))
+
+    workers = min(workers or default_extraction_workers(), len(selected))
+    if workers <= 1:
+        yield from _merge_results(
+            (
+                _extract_file(source_path, relative_path, warning_threshold)
+                for source_path, relative_path in selected
+            ),
+            len(selected),
+            file_progress,
+        )
+        return
+
+    # Spawned rather than forked workers: the caller may be a thread of a
+    # multithreaded server, and forking a multithreaded process is unsafe.
+    pool = ProcessPoolExecutor(
+        max_workers=workers, mp_context=multiprocessing.get_context("spawn")
+    )
+    try:
+        yield from _merge_results(
+            pool.map(
+                _extract_file,
+                [source_path for source_path, _ in selected],
+                [relative_path for _, relative_path in selected],
+                [warning_threshold] * len(selected),
+            ),
+            len(selected),
+            file_progress,
+        )
+    finally:
+        # Do not wait for files nobody will consume after an error or an
+        # abandoned generator.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _merge_results(
+    results: Iterable[_FileResult],
+    total_files: int,
+    file_progress: Callable[[int, int], None] | None,
+) -> Iterator[Document]:
+    """Replay per-file results in order, checking identities across files."""
+    identities: dict[_Identity, SourceFile] = {}
+    for files_done, result in enumerate(results, start=1):
+        for message in result.warnings:
+            warnings.warn(message, stacklevel=2)
+        if result.error is not None:
+            raise result.error
+        assert result.source is not None
+        source = result.source
+        for document, (_, record_id, region, protocluster) in zip(
+            result.documents, result.identities
+        ):
+            try:
+                _check_identity(source, record_id, region, protocluster, identities)
+            except ExtractionError as error:
+                raise ExtractionError(
+                    f"{source.output_file} (antiSMASH {source.antismash_version}): "
+                    f"{error}"
+                ) from error
+            yield document
+        if file_progress:
+            file_progress(files_done, total_files)

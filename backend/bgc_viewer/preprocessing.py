@@ -209,7 +209,8 @@ def preprocess_antismash_files(
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
     json_files: Optional[List[Path]] = None,
     *,
-    search_progress_callback: Optional[Callable[[str, int], None]] = None,
+    search_progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    search_workers: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Preprocess antiSMASH JSON files into the record index and search index.
@@ -226,7 +227,9 @@ def preprocess_antismash_files(
         index_path: Full path to the index database file
         progress_callback: Optional callback function called with (current_file, files_processed, total_files)
         json_files: Optional list of specific JSON file paths to process. If None, all files in directory are processed.
-        search_progress_callback: Optional callback receiving Tantivy phase and submitted document count.
+        search_progress_callback: Optional callback receiving the Tantivy phase and the
+            number of files done out of the total.
+        search_workers: Processes extracting search documents in parallel; defaults to one per CPU.
 
     Returns:
         Dict with processing statistics
@@ -249,6 +252,7 @@ def preprocess_antismash_files(
             progress_callback,
             json_files,
             search_progress_callback=search_progress_callback,
+            search_workers=search_workers,
         )
 
 
@@ -258,7 +262,8 @@ def _build_pair(
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
     json_files: Optional[List[Path]] = None,
     *,
-    search_progress_callback: Optional[Callable[[str, int], None]] = None,
+    search_progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    search_workers: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build the SQLite database and its sibling search index at ``db_path``.
 
@@ -351,11 +356,36 @@ def _build_pair(
     if search_index_dir.exists():
         shutil.rmtree(search_index_dir)
 
+    # Combine the index writer's phase with file progress from extraction into
+    # one search progress report.
+    search_phase = "indexing"
+    search_files_done = 0
+
+    def report_search_progress() -> None:
+        if search_progress_callback:
+            search_progress_callback(search_phase, search_files_done, len(search_files))
+
+    def on_phase(phase: str, documents: int) -> None:
+        nonlocal search_phase
+        if phase != search_phase:
+            search_phase = phase
+            report_search_progress()
+
+    def on_files(files_done: int, total_files: int) -> None:
+        nonlocal search_files_done
+        search_files_done = files_done
+        report_search_progress()
+
     try:
         index = build_index(
-            extract_documents(search_files, input_path),
+            extract_documents(
+                search_files,
+                input_path,
+                workers=search_workers,
+                file_progress=on_files,
+            ),
             search_index_dir,
-            progress_callback=search_progress_callback,
+            progress_callback=on_phase,
         )
     except Exception:
         # A failed build must not leave a partial index artifact.

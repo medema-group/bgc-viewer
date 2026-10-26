@@ -187,6 +187,27 @@ class TestPreprocessingPipeline:
         assert final_update[1] == final_update[2]  # files_processed == total_files
 
 
+class TestSearchProgress:
+    def test_search_progress_reports_files_and_phases(
+        self, temp_dir, sample_json_file
+    ):
+        progress = []
+
+        preprocess_antismash_files(
+            str(temp_dir),
+            str(temp_dir / "attributes.db"),
+            search_progress_callback=lambda *args: progress.append(args),
+        )
+
+        assert progress == [
+            ("indexing", 0, 1),
+            ("indexing", 1, 1),
+            ("committing", 1, 1),
+            ("merging", 1, 1),
+            ("complete", 1, 1),
+        ]
+
+
 class TestSearchIndexIntegration:
     """Tests for the search index built alongside the SQLite database."""
 

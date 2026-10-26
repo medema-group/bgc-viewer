@@ -51,6 +51,17 @@ def main():
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose output"
     )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=None,
+        help=(
+            "Processes extracting search documents in parallel "
+            "(default: one per CPU). Each holds one decoded record in memory, "
+            "so lower this for very large records on machines with little RAM."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -108,18 +119,19 @@ def main():
             # Final update
             pbar.close()
 
-    def search_progress_callback(phase, indexed):
+    def search_progress_callback(phase, files_done, total_files):
         nonlocal search_pbar, search_phase
         if search_pbar is None:
             search_pbar = tqdm(
-                unit="doc",
+                total=total_files,
                 desc="Tantivy (indexing)",
-                bar_format="{desc}: {n_fmt} doc [{elapsed}, {rate_fmt}]",
+                unit="file",
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} files [{elapsed}<{remaining}]",
             )
         if phase != search_phase:
             search_pbar.set_description_str(f"Tantivy ({phase})", refresh=False)
             search_phase = phase
-        search_pbar.update(indexed - search_pbar.n)
+        search_pbar.update(files_done - search_pbar.n)
         if phase == "complete":
             search_pbar.close()
         elif phase != "indexing":
@@ -132,6 +144,7 @@ def main():
             str(index_path),
             progress_callback,
             search_progress_callback=search_progress_callback,
+            search_workers=args.jobs,
         )
 
         # Calculate total time

@@ -153,6 +153,13 @@ uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:te
 uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550' --level region
 ```
 
+Search documents are extracted from the JSON files in parallel worker processes,
+one per CPU by default. Each worker holds one decoded record in memory, about six
+times the record's size in the JSON file, so on machines with little RAM and very
+large records, limit the workers with `--jobs` (e.g. `--jobs 4`). Documents,
+warnings, and errors are replayed in file order, so the result is the same for
+any number of workers.
+
 Tantivy chooses its writer thread count automatically; tied-hit order and sampled
 example values may vary between rebuilds.
 
