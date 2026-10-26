@@ -4,8 +4,15 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import axios from 'axios'
 import { JSONFileProvider } from '../services/dataProviders/JSONFileProvider'
 import { BGCViewerAPIProvider } from '../services/dataProviders/BGCViewerAPIProvider'
+
+vi.mock('axios', () => ({
+  default: {
+    create: vi.fn()
+  }
+}))
 
 describe('JSONFileProvider', () => {
   let provider
@@ -102,8 +109,14 @@ describe('JSONFileProvider', () => {
 
 describe('BGCViewerAPIProvider', () => {
   let provider
+  let axiosInstance
 
   beforeEach(() => {
+    axiosInstance = {
+      get: vi.fn(),
+      post: vi.fn()
+    }
+    axios.create.mockReturnValue(axiosInstance)
     provider = new BGCViewerAPIProvider()
   })
 
@@ -118,6 +131,36 @@ describe('BGCViewerAPIProvider', () => {
     })
   })
 
-  // Note: API tests would require mocking axios or running against a test server
-  // For now, we're just testing instantiation
+  describe('advanced search', () => {
+    it.each(['protocluster', 'region', 'record'])(
+      'posts %s searches to the matching level endpoint',
+      async (level) => {
+        const searchResponse = { hits: [], total: 0 }
+        axiosInstance.post.mockResolvedValue({ data: searchResponse })
+
+        const result = await provider.searchLevel(level, 'pfam:PF00512', 2, 50)
+
+        expect(axiosInstance.post).toHaveBeenCalledWith(`/api/search/${level}`, {
+          query: 'pfam:PF00512',
+          page: 2,
+          per_page: 50
+        })
+        expect(result).toBe(searchResponse)
+      }
+    )
+
+    it('gets the shared search schema', async () => {
+      const schema = {
+        fields: [],
+        examples: ['pfam:PF00512'],
+        query_syntax_url: 'https://example.test/query-parser'
+      }
+      axiosInstance.get.mockResolvedValue({ data: schema })
+
+      const result = await provider.getSearchSchema()
+
+      expect(axiosInstance.get).toHaveBeenCalledWith('/api/search/schema')
+      expect(result).toBe(schema)
+    })
+  })
 })

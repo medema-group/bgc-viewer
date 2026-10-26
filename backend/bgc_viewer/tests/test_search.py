@@ -1,136 +1,84 @@
 """
-Tests for search functionality.
+Tests for the record listing served from the SQLite record index.
+
+Attribute search is served by the Tantivy index; see ``tests/search``.
 """
 
-import pytest
+import sqlite3
+
 from bgc_viewer.database import get_database_entries
 
 
-class TestDatabaseSearch:
-    """Tests for database search functionality."""
-    
-    def test_search_all_entries(self, processed_data_dir):
-        """Test retrieving all entries without search filter."""
+class TestDatabaseEntries:
+    """Tests for listing records from the record index."""
+
+    def test_list_all_entries(self, processed_data_dir):
+        """All records are listed with their summary fields."""
         temp_dir, result = processed_data_dir
         db_path = str(temp_dir / "attributes.db")
-        
-        results = get_database_entries(db_path, page=1, per_page=10, search="")
-        
-        assert "entries" in results
-        assert "total" in results
-        assert "page" in results
-        assert "per_page" in results
-        
-        # Should have entries for both records
-        assert results["total"] >= 2
-        assert len(results["entries"]) >= 2
-    
-    def test_search_by_organism(self, processed_data_dir):
-        """Test searching by organism name."""
-        temp_dir, result = processed_data_dir
-        db_path = str(temp_dir / "attributes.db")
-        
-        results = get_database_entries(db_path, page=1, per_page=10, search="Streptomyces")
-        
-        assert "entries" in results
-        
-        # Should find at least one entry with Streptomyces
-        found_strep = False
-        for entry in results["entries"]:
-            if "Streptomyces" in entry.get("sample_attributes", ""):
-                found_strep = True
-                break
-        
-        # Note: This test might need adjustment based on exact sample data
-        # The search should work but results depend on the test data content
-    
-    def test_search_by_product(self, processed_data_dir):
-        """Test searching by product type."""
-        temp_dir, result = processed_data_dir
-        db_path = str(temp_dir / "attributes.db")
-        
-        results = get_database_entries(db_path, page=1, per_page=10, search="polyketide")
-        
-        assert "entries" in results
-        # Should find entries related to polyketide
-    
-    def test_search_nonexistent_term(self, processed_data_dir):
-        """Test searching for non-existent term."""
-        temp_dir, result = processed_data_dir
-        db_path = str(temp_dir / "attributes.db")
-        
-        results = get_database_entries(db_path, page=1, per_page=10, search="nonexistent_term_xyz")
-        
-        assert "entries" in results
-        assert results["total"] == 0
-        assert len(results["entries"]) == 0
-    
+
+        results = get_database_entries(db_path, page=1, per_page=10)
+
+        assert results["total"] == 2
+        assert results["page"] == 1
+        assert results["per_page"] == 10
+        assert results["total_pages"] == 1
+
+        entries = {entry["record_id"]: entry for entry in results["entries"]}
+        assert entries["test_record_1"] == {
+            "filename": "test_sample.json",
+            "record_id": "test_record_1",
+            "id": "test_sample.json:test_record_1",
+            "internal_id": entries["test_record_1"]["internal_id"],
+            "description": "Test record 1",
+            "organism": "Streptomyces coelicolor",
+            "feature_count": 6,
+            "region_count": 1,
+        }
+        assert entries["test_record_2"]["organism"] == "Bacillus subtilis"
+
     def test_pagination(self, processed_data_dir):
-        """Test pagination functionality."""
+        """Pages split the records without overlap."""
         temp_dir, result = processed_data_dir
         db_path = str(temp_dir / "attributes.db")
-        
-        # Get first page with limit of 1
-        results_page1 = get_database_entries(db_path, page=1, per_page=1, search="")
-        
-        assert results_page1["page"] == 1
-        assert results_page1["per_page"] == 1
-        
-        if results_page1["total"] > 1:
-            # Get second page
-            results_page2 = get_database_entries(db_path, page=2, per_page=1, search="")
-            
-            assert results_page2["page"] == 2
-            assert len(results_page2["entries"]) <= 1
-            
-            # Entries should be different
-            if len(results_page1["entries"]) > 0 and len(results_page2["entries"]) > 0:
-                entry1 = results_page1["entries"][0]
-                entry2 = results_page2["entries"][0]
-                assert entry1["filename"] != entry2["filename"] or entry1["record_id"] != entry2["record_id"]
-    
+
+        page1 = get_database_entries(db_path, page=1, per_page=1)
+        page2 = get_database_entries(db_path, page=2, per_page=1)
+
+        assert page1["total_pages"] == 2
+        assert len(page1["entries"]) == 1
+        assert len(page2["entries"]) == 1
+        assert page1["entries"][0]["record_id"] != page2["entries"][0]["record_id"]
+
+    def test_per_page_is_capped(self, processed_data_dir):
+        temp_dir, result = processed_data_dir
+        db_path = str(temp_dir / "attributes.db")
+
+        results = get_database_entries(db_path, page=1, per_page=1000)
+
+        assert results["per_page"] == 100
+
     def test_database_not_found(self, temp_dir):
         """Test behavior when database doesn't exist."""
         nonexistent_db = str(temp_dir / "nonexistent.db")
-        
-        results = get_database_entries(nonexistent_db, page=1, per_page=10, search="")
-        
+
+        results = get_database_entries(nonexistent_db, page=1, per_page=10)
+
         assert "error" in results
         assert "No database found" in results["error"]
 
+    def test_outdated_database_asks_for_preprocessing(self, temp_dir):
+        """A database from before the record summary columns is reported."""
+        db_path = temp_dir / "old.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE files (id INTEGER PRIMARY KEY, path TEXT)")
+        conn.execute(
+            """CREATE TABLE records (id INTEGER PRIMARY KEY, file_id INTEGER,
+               record_id TEXT, byte_start INTEGER, byte_end INTEGER,
+               feature_count INTEGER, region_count INTEGER)"""
+        )
+        conn.close()
 
-class TestSearchAttributeValues:
-    """Tests for searching within attribute values."""
-    
-    def test_search_in_attribute_values(self, processed_data_dir):
-        """Test that search works within attribute values."""
-        temp_dir, result = processed_data_dir
-        db_path = str(temp_dir / "attributes.db")
-        
-        # Search for terms that should be in the attribute values
-        test_searches = [
-            "test",  # Should find records with "test" in descriptions
-            "record",  # Should find records with "record" in IDs  
-            "biosynthetic",  # Should find records with biosynthetic regions
-        ]
-        
-        for search_term in test_searches:
-            results = get_database_entries(db_path, page=1, per_page=10, search=search_term)
-            
-            assert "entries" in results
-            # At least verify no errors occurred
-            assert "error" not in results
-    
-    def test_case_insensitive_search(self, processed_data_dir):
-        """Test that search is case insensitive."""
-        temp_dir, result = processed_data_dir
-        db_path = str(temp_dir / "attributes.db")
-        
-        # Search with different cases
-        results_lower = get_database_entries(db_path, page=1, per_page=10, search="test")
-        results_upper = get_database_entries(db_path, page=1, per_page=10, search="TEST")
-        results_mixed = get_database_entries(db_path, page=1, per_page=10, search="Test")
-        
-        # Should return same number of results regardless of case
-        assert results_lower["total"] == results_upper["total"]
-        assert results_lower["total"] == results_mixed["total"]
+        results = get_database_entries(str(db_path), page=1, per_page=10)
+
+        assert "run preprocessing again" in results["error"]
