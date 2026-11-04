@@ -6,7 +6,7 @@ This guide covers setting up BGC Viewer for development.
 
 - **Python** 3.11 or higher
 - **Node.js** 18 or higher
-- **Rust** (optional, for building Rust extensions)
+- **Rust** (required, for building the `bgc_scanner` extension used by preprocessing)
 - **Git**
 
 ## Clone the Repository
@@ -124,12 +124,11 @@ npm test
 
 ### Rust Extensions
 
-If you encounter issues with Rust extensions, you can disable them:
+Preprocessing requires the Rust `bgc_scanner` extension. After changing code in `backend/rust_extensions`, rebuild it into the development environment:
 
 ```bash
-export USE_RUST_EXTENSIONS=0
 cd backend
-pip install -e .
+uv run maturin develop --release
 ```
 
 ### Port Conflicts

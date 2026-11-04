@@ -5,11 +5,14 @@
 
 ## Overview
 
-The BGC Viewer uses a SQLite database to index and efficiently search antiSMASH JSON files. The schema is designed to support:
+The BGC Viewer uses a SQLite database to index antiSMASH JSON files. The schema is designed to support:
 - Fast random access to specific records using byte positions
-- Efficient file and record indexing
-- Flexible attribute searching for record annotations and feature qualifiers
+- Listing files and records with a few summary fields, without opening the JSON files
 - Compact storage with minimal redundancy
+
+The database does not index attribute values. Searching by annotation or feature qualifier goes through the Tantivy search index, a `tantivy.index` directory built next to the database in the same preprocessing run (see [Search Index](./search-index.md)).
+
+Record boundaries and summary fields are found by the Rust `bgc_scanner` extension (`backend/rust_extensions`), which streams each file once. `.json.gz` and `.json.bz2` files are decompressed on the fly, and byte positions always refer to the decompressed content.
 
 ## Schema Structure
 
@@ -51,6 +54,33 @@ Stores file paths relative to the data root.
 
 ---
 
+### Table: `file_attributes`
+
+Stores file-level values from the top level of each JSON file.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `file_id` | INTEGER | Foreign key to `files.id` |
+| `attribute_name` | TEXT | `version` or `input_file` |
+| `attribute_value` | TEXT | The value from the JSON file |
+
+**Source in JSON:**
+```json
+{
+  "version": "7.1.0",          // → attribute_name='version'
+  "input_file": "NC_003888.3.gbk",  // → attribute_name='input_file'
+  "records": [...]
+}
+```
+
+A row is only written when the value is a string.
+
+**Constraints:**
+- UNIQUE(`file_id`, `attribute_name`, `attribute_value`)
+- FOREIGN KEY to `files(id)` ON DELETE CASCADE
+
+---
+
 ### Table: `records`
 
 Stores record-level information and byte positions for fast random access.
@@ -60,13 +90,21 @@ Stores record-level information and byte positions for fast random access.
 | `id` | INTEGER | Auto-incrementing primary key |
 | `file_id` | INTEGER | Foreign key to `files.id` |
 | `record_id` | TEXT | Record identifier from JSON |
-| `byte_start` | INTEGER | Starting byte position of record in file |
-| `byte_end` | INTEGER | Ending byte position of record in file |
+| `byte_start` | INTEGER | Offset of the record's opening `{` in the (decompressed) file |
+| `byte_end` | INTEGER | Offset just past the record's closing `}` |
+| `description` | TEXT | Record description, or NULL |
+| `organism` | TEXT | Organism of the record, or NULL |
+| `feature_count` | INTEGER | Number of features in the record |
+| `region_count` | INTEGER | Number of regions in the record |
 
 **Populated with:**
 - `file_id`: Link to the file in the `files` table
-- `record_id`: From JSON path `records[].id`
-- `byte_start`, `byte_end`: Calculated by scanning the JSON file to find record boundaries
+- `record_id`: From `records[].id`; `record_<n>` when the record has no string id
+- `byte_start`, `byte_end`: Found by scanning the JSON file for record boundaries
+- `description`: From `records[].description`
+- `organism`: First `organism` qualifier of the first `source` feature that has one
+- `feature_count`: Length of `records[].features`
+- `region_count`: Length of `records[].regions` when present, otherwise the number of features with `type` `region`
 
 **Source in JSON:**
 ```json
@@ -74,7 +112,15 @@ Stores record-level information and byte positions for fast random access.
   "records": [
     {
       "id": "NC_003888.3",  // → record_id
-      ...
+      "description": "Streptomyces coelicolor A3(2) complete genome",  // → description
+      "features": [  // → feature_count
+        {
+          "type": "source",
+          "qualifiers": {"organism": ["Streptomyces coelicolor A3(2)"]}  // → organism
+        },
+        {"type": "region", ...},  // → counted in region_count
+        ...
+      ]
     }
   ]
 }
@@ -89,75 +135,15 @@ Stores record-level information and byte positions for fast random access.
 
 ---
 
-### Table: `attributes`
+### Table: `search_examples`
 
-Stores searchable attributes extracted from record annotations and feature qualifiers.
+Stores runnable example queries generated from the Tantivy index at the end of preprocessing. The search help popup serves them.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `record_id` | INTEGER | Foreign key to `records.id` |
-| `attribute_name` | TEXT | Name/key of the attribute |
-| `attribute_value` | TEXT | Value of the attribute (stored as text) |
-
-**Populated with:**
-
-Attributes are extracted from two sources within each record:
-
-#### 1. Record Annotations:
-- `record_id`: Links to `records.id`
-- `attribute_name`, `attribute_value`: From flattened `annotations` object
-
-**Source in JSON:**
-```json
-{
-  "records": [
-    {
-      "id": "NC_003888.3",
-      "annotations": {
-        "molecule_type": "DNA",           // → attribute_name='molecule_type', attribute_value='DNA'
-        "organism": "Streptomyces coelicolor A3(2)",  // → attribute_name='organism', attribute_value='Streptomyces coelicolor A3(2)'
-        "topology": "linear"              // → attribute_name='topology', attribute_value='linear'
-      }
-    }
-  ]
-}
-```
-
-#### 2. Feature Qualifiers:
-- `record_id`: Links to `records.id`
-- All key-value pairs from feature `qualifiers` objects (excluding `translation` and values over 100 characters)
-
-**Source in JSON:**
-```json
-{
-  "records": [
-    {
-      "features": [
-        {
-          "type": "CDS",
-          "qualifiers": {
-            "locus_tag": "SC_RS00001",           // → attribute_name='locus_tag', attribute_value='SC_RS00001'
-            "product": "hypothetical protein",   // → attribute_name='product', attribute_value='hypothetical protein'
-            "db_xref": ["GeneID:123", "PF00001"] // → Multiple rows with attribute_name='db_xref'
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-**Note:** The `translation` qualifier (which contains long amino acid sequences) is excluded to save space. Attribute values longer than 100 characters are also excluded.
-
-**Constraints:**
-- UNIQUE(`record_id`, `attribute_name`, `attribute_value`) - prevents duplicate entries
-- FOREIGN KEY to `records(id)` ON DELETE CASCADE
-
-**Indexes:**
-- `idx_attributes_record_id` on `record_id`
-- `idx_attributes_name` on `attribute_name`
-- `idx_attributes_value` on `attribute_value`
-- `idx_attributes_name_value` on `(attribute_name, attribute_value)`
+| `id` | INTEGER | Auto-incrementing primary key; orders the examples |
+| `template` | TEXT | Name of the template the example was generated from |
+| `query` | TEXT | The example query |
 
 ---
 
@@ -165,34 +151,12 @@ Attributes are extracted from two sources within each record:
 
 ```
 metadata (standalone - global settings)
+search_examples (standalone - generated example queries)
 
 files (1)
-  └── records (many)
-        └── attributes (many) [record_id references records.id]
+  ├── file_attributes (many) [file_id references files.id]
+  └── records (many) [file_id references files.id]
 ```
-
-## Data Flattening Rules
-
-Complex nested structures in JSON are flattened into multiple attribute rows:
-
-### Arrays
-Each item in an array creates a separate row with the same `attribute_name`:
-```json
-"db_xref": ["GeneID:123", "PF00001"]
-```
-Creates two rows:
-- `attribute_name='db_xref'`, `attribute_value='GeneID:123'`
-- `attribute_name='db_xref'`, `attribute_value='PF00001'`
-
-### Nested Objects
-Keys are concatenated with underscores:
-```json
-"subregion": {
-  "category": "biosynthetic"
-}
-```
-Creates:
-- `attribute_name='subregion_category'`, `attribute_value='biosynthetic'`
 
 ## Query Examples
 
@@ -204,27 +168,12 @@ JOIN files f ON r.file_id = f.id
 WHERE f.path = 'NC_003888.3.json';
 ```
 
-### Search for records with a specific attribute value:
+### Get the byte range of a record:
 ```sql
-SELECT DISTINCT r.* 
-FROM records r 
-JOIN attributes a ON a.record_id = r.id 
-WHERE a.attribute_value LIKE '%biosynthetic%';
-```
-
-### Search for records by attribute name and value:
-```sql
-SELECT DISTINCT r.* 
-FROM records r 
-JOIN attributes a ON a.record_id = r.id 
-WHERE a.attribute_name = 'product' AND a.attribute_value = 'T1PKS';
-```
-
-### Get all unique attribute names:
-```sql
-SELECT DISTINCT attribute_name 
-FROM attributes 
-ORDER BY attribute_name;
+SELECT r.byte_start, r.byte_end
+FROM records r
+JOIN files f ON r.file_id = f.id
+WHERE f.path = 'NC_003888.3.json' AND r.record_id = 'NC_003888.3';
 ```
 
 ### Count records per file:
@@ -239,15 +188,11 @@ GROUP BY f.id, f.path;
 
 1. **Byte Positions**: The `byte_start` and `byte_end` columns in the `records` table enable fast random access to specific records without parsing the entire JSON file.
 
-2. **Indexes**: Comprehensive indexes on frequently queried columns ensure fast lookups and filtering.
+2. **Single-pass scanning**: The Rust scanner walks each file once in a streaming fashion, skipping string contents with SIMD search, so memory use does not grow with file size. Files are scanned in parallel threads.
 
-3. **Compact Storage**: By excluding the `translation` qualifier and limiting attribute values to 100 characters, the database remains compact while retaining searchable data.
+3. **No attribute rows**: Attribute values are indexed only by Tantivy, so the SQLite database stays small, with a handful of rows per file.
 
-4. **Normalized Structure**: The simple three-table structure (`files`, `records`, `attributes`) provides efficient joins while avoiding the complexity of a fully polymorphic design.
-
-5. **Unique Constraints**: The UNIQUE constraint on `(record_id, attribute_name, attribute_value)` prevents duplicate entries and reduces database size.
-
-6. **Foreign Keys with Cascade**: Deleting a file automatically removes all associated records and attributes, maintaining referential integrity.
+4. **Foreign Keys with Cascade**: Deleting a file automatically removes all associated records and file attributes, maintaining referential integrity.
 
 ## Schema Version
 
