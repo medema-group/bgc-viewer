@@ -110,6 +110,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { TrackViewer } from '../TrackViewer'
 import FeatureDetails from './FeatureDetails.vue'
 import SimpleDetails from './SimpleDetails.vue'
+import { parseLocation } from '@/utils/location'
 import './cand-cluster-styling.css'
 import './cluster-styling.css'
 import './gene-type-styling.css'
@@ -385,9 +386,8 @@ export default {
         const positions = props.features
           .filter(f => f.location)
           .map(f => {
-            // Parse location string like "[164:2414](+)" or "[257:2393](+)"
-            const match = f.location.match(/\[<?(\d+):>?(\d+)\]/)  
-            return match ? [parseInt(match[1]), parseInt(match[2])] : null
+            const location = parseLocation(f.location)
+            return location ? [location.start, location.end] : null
           })
           .filter(Boolean)
           .flat()
@@ -465,15 +465,13 @@ export default {
     }
 
     const parseGeneLocation = (location) => {
-      // Parse location string like "[164:2414](+)" or "[164:2414]"
-      if (!location) return null
-      const match = location.match(/\[<?(\d+):>?(\d+)\](?:\(([+-])\))?/)
-      if (!match) return null
+      const parsed = parseLocation(location)
+      if (!parsed) return null
 
-      const strand = match[3] || null
+      const { start, end, strand } = parsed
       return {
-        start: parseInt(match[1]),
-        end: parseInt(match[2]),
+        start: start,
+        end: end,
         strand: strand,
         direction: strand === '+' ? 'right' : strand === '-' ? 'left' : 'none'
       }

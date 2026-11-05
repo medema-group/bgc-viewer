@@ -468,6 +468,33 @@ def test_location_parses_antismash_fuzzy_and_compound_syntax():
         Location.parse("prefix [1:2](+) suffix")
 
 
+@pytest.mark.parametrize(
+    "gene",
+    [
+        "join{[100:200](+), [800:900](+)}",
+        "join{[800:900](-), [100:200](-)}",
+    ],
+)
+def test_location_overlaps_within_introns(gene):
+    assert Location.parse(gene).overlaps(Location.parse("[400:500](+)"))
+    assert not Location.parse(gene).overlaps(Location.parse("[900:1000](+)"))
+
+
+@pytest.mark.parametrize(
+    "gene",
+    [
+        "join{[900:1000](+), [0:100](+)}",
+        "join{[0:100](-), [900:1000](-)}",
+    ],
+)
+def test_location_crossing_origin_does_not_overlap_rest_of_record(gene):
+    location = Location.parse(gene)
+
+    assert location.crosses_origin
+    assert location.overlaps(Location.parse("[950:970](+)"))
+    assert not location.overlaps(Location.parse("[400:500](+)"))
+
+
 def test_warns_when_pfam_annotation_has_no_usable_accession(tmp_path):
     source = {
         "version": "8.0.2",

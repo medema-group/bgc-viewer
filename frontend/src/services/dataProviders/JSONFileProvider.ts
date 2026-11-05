@@ -13,16 +13,11 @@ import {
   ResistanceFeaturesResponse
 } from './types'
 import { fetchPfamColorMap } from './colorMapUtils'
+import { parseLocation } from '@/utils/location'
 
 export interface JSONFileProviderOptions {
   records?: any[]
   pfamColorMap?: PfamColorMap
-}
-
-interface ParsedLocation {
-  start: number
-  end: number
-  strand: string | null
 }
 
 /**
@@ -272,7 +267,7 @@ export class JSONFileProvider extends DataProvider {
     // Filter and map region features
     const regionFeatures = features.filter(f => f.type === 'region')
     regionFeatures.forEach((feature, idx) => {
-      const location = this.parseLocation(feature.location)
+      const location = parseLocation(feature.location)
       const regionNumber = parseInt(feature.qualifiers?.region_number?.[0]) || (idx + 1)
       regions.push({
         id: `region_${regionNumber}`,
@@ -326,7 +321,7 @@ export class JSONFileProvider extends DataProvider {
       throw new Error(`Region not found: ${regionId}`)
     }
 
-    const regionLocation = this.parseLocation(regionFeature.location)
+    const regionLocation = parseLocation(regionFeature.location)
     
     if (!regionLocation) {
       throw new Error(`Invalid region location: ${regionFeature.location}`)
@@ -334,7 +329,7 @@ export class JSONFileProvider extends DataProvider {
 
     // Filter features that fall within the region boundaries
     const regionFeatures = features.filter(feature => {
-      const location = this.parseLocation(feature.location)
+      const location = parseLocation(feature.location)
       if (!location) return false
       
       // Check if feature overlaps with region
@@ -522,21 +517,6 @@ export class JSONFileProvider extends DataProvider {
       record_id: recordId,
       count: resistanceFeatures.length,
       features: resistanceFeatures
-    }
-  }
-
-  /**
-   * Parse location string like "[164:2414](+)" or "[257:2393](+)"
-   */
-  private parseLocation(location: string): ParsedLocation | null {
-    if (!location) return null
-    const match = location.match(/\[<?(\d+):>?(\d+)\](?:\(([+-])\))?/)
-    if (!match) return null
-
-    return {
-      start: parseInt(match[1]),
-      end: parseInt(match[2]),
-      strand: match[3] || null
     }
   }
 }
