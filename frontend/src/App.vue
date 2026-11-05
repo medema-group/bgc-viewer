@@ -81,6 +81,15 @@
             v-if="dataSource === 'upload'"
             @files-loaded="handleFilesLoaded"
           />
+
+          <!-- antiSMASH DB / MIBiG Mode: Accession input -->
+          <AccessionLoader
+            v-if="EXTERNAL_SOURCES[dataSource]"
+            :key="dataSource"
+            :source="dataSource"
+            :initial-accession="urlAccession"
+            @files-loaded="handleFilesLoaded"
+          />
         </div>
 
         <!-- Horizontal draggable divider -->
@@ -142,6 +151,8 @@ import IndexCreation from './components/IndexCreation.vue'
 import RecordListSelector from './components/RecordListSelector.vue'
 import DataSourceSelector from './components/DataSourceSelector.vue'
 import FileUpload from './components/FileUpload.vue'
+import AccessionLoader from './components/AccessionLoader.vue'
+import { EXTERNAL_SOURCES } from './services/externalSources'
 import SearchBar from './components/SearchBar.vue'
 import SearchDialog from './components/SearchDialog.vue'
 import { BGCViewerAPIProvider, JSONFileProvider, GenbankFileProvider } from '@/services/dataProviders'
@@ -160,6 +171,7 @@ export default {
     RecordListSelector,
     DataSourceSelector,
     FileUpload,
+    AccessionLoader,
     SearchBar,
     SearchDialog
   },
@@ -176,7 +188,16 @@ export default {
     
     // Restore data source from localStorage, default to 'api'
     const savedDataSource = localStorage.getItem('bgc-viewer-data-source')
-    const dataSource = ref(savedDataSource || 'api') // 'api' or 'upload'
+    const dataSource = ref(savedDataSource || 'api') // 'api', 'upload' or a key of EXTERNAL_SOURCES
+
+    // An accession in the URL (e.g. ?antismash_db=GCF_000725555.1 or ?mibig=BGC0002204.3)
+    // selects the matching external source and loads it directly
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlSource = Object.keys(EXTERNAL_SOURCES).find(id => urlParams.get(EXTERNAL_SOURCES[id].urlParam))
+    const urlAccession = ref(urlSource ? urlParams.get(EXTERNAL_SOURCES[urlSource].urlParam) : '')
+    if (urlSource) {
+      dataSource.value = urlSource
+    }
     
     // Data root and index tracking
     const selectedDataRoot = ref('')
@@ -548,6 +569,19 @@ export default {
       // Save to localStorage
       localStorage.setItem('bgc-viewer-data-source', newSource)
 
+      // Drop the accession URL parameters of other sources when switching,
+      // so they aren't loaded again when switching back
+      if (newSource !== urlSource) {
+        urlAccession.value = ''
+      }
+      const url = new URL(window.location.href)
+      for (const [id, source] of Object.entries(EXTERNAL_SOURCES)) {
+        if (id !== newSource && url.searchParams.has(source.urlParam)) {
+          url.searchParams.delete(source.urlParam)
+          window.history.replaceState(null, '', url)
+        }
+      }
+
       // Clear current data when switching sources
       currentRecordId.value = ''
       currentRecordData.value = null
@@ -563,10 +597,10 @@ export default {
         if (recordListSelectorRef.value) {
           await recordListSelectorRef.value.setRecordsFromProvider(apiProvider, false)
         }
-      } else if (newSource === 'upload') {
+      } else if (newSource === 'upload' || EXTERNAL_SOURCES[newSource]) {
         searchDialogOpen.value = false
         invalidateSearchSchema()
-        // Clear records and wait for file upload
+        // Clear records and wait for file upload / accession load
         if (recordListSelectorRef.value) {
           recordListSelectorRef.value.clearRecords()
         }
@@ -689,6 +723,8 @@ export default {
       appName,
       isPublicMode,
       dataSource,
+      EXTERNAL_SOURCES,
+      urlAccession,
       selectedDataRoot,
       selectedIndexPath,
       folderForIndexing,

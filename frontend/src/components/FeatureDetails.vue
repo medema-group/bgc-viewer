@@ -150,6 +150,7 @@ import { ref, computed, watch, h } from 'vue'
 import SimpleTable from './SimpleTable.vue'
 import SortableTable from './SortableTable.vue'
 import { copyText } from '@/utils/clipboard'
+import { formatLocation } from '@/utils/location'
 
 export default {
   name: 'FeatureDetails',
@@ -280,21 +281,6 @@ export default {
       }
       
       return ''
-    }
-    
-    const formatLocation = (location) => {
-      if (!location) return ''
-      
-      // Parse location string like "[164:2414](+)" or "[164:2414](-)"
-      const match = location.match(/\[<?(\d+):>?(\d+)\](?:\(([+-])\))?/)
-      if (!match) return location
-      
-      const start = parseInt(match[1])
-      const end = parseInt(match[2])
-      const strand = match[3] || ''
-      const length = end - start
-      
-      return `${start.toLocaleString()} - ${end.toLocaleString()}${strand ? ', ' + strand : ''} (total: ${length.toLocaleString()} nt)`
     }
     
     const getFeatureTitle = () => {

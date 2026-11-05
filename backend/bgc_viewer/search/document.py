@@ -483,6 +483,11 @@ class Location:
     bounds from each simple location as ``LocationPart`` instances. Fuzzy
     markers and compound operators remain available in ``serialized`` while
     ``parts``, ``start``, and ``end`` support interval comparisons.
+
+    The gaps between the parts of a compound location are introns, which belong
+    to the feature, so ``overlaps`` compares the entire span. The exception is a
+    location that crosses the origin of a circular record, where the gap is the
+    rest of the record, and ``overlaps`` compares the parts.
     """
 
     serialized: str
@@ -510,11 +515,30 @@ class Location:
     def end(self) -> int:
         return max(part.end for part in self.parts)
 
+    @property
+    def crosses_origin(self) -> bool:
+        """Whether the parts wrap around the origin of a circular record.
+
+        Parts are listed in transcription order, so they normally ascend on the
+        forward strand and descend on the reverse strand. Out of order parts
+        that include position 0 wrap around the origin.
+        """
+        starts = [part.start for part in self.parts]
+        return 0 in starts and starts != sorted(
+            starts, reverse="(-)" in self.serialized
+        )
+
+    @property
+    def _intervals(self) -> tuple[LocationPart, ...]:
+        if self.crosses_origin:
+            return self.parts
+        return (LocationPart(self.start, self.end),)
+
     def overlaps(self, other: "Location") -> bool:
         return any(
             left.start < right.end and right.start < left.end
-            for left in self.parts
-            for right in other.parts
+            for left in self._intervals
+            for right in other._intervals
         )
 
     def contains(self, other: "Location") -> bool:
