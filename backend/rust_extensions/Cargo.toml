@@ -8,4 +8,8 @@ name = "bgc_scanner"
 crate-type = ["cdylib"]
 
 [dependencies]
+bzip2 = "0.6"
+flate2 = "1"
+memchr = "2"
 pyo3 = { version = "0.22", features = ["extension-module"] }
+serde_json = "1"

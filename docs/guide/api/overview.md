@@ -69,11 +69,7 @@ Endpoints that return lists support pagination:
 
 ## Search
 
-Some endpoints support text search via the `search` query parameter:
-
-```
-GET /api/database-entries?search=biosynthetic
-```
+Searching is done through the `POST /api/search/{protocluster,region,record}` endpoints, which query the Tantivy search index. See the [Search API](./search.md).
 
 ## Error Codes
 

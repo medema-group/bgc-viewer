@@ -11,7 +11,8 @@ Get a paginated list of all entries in the current database.
 **Query Parameters:**
 - `page` - Page number (default: 1)
 - `per_page` - Items per page (default: 50, max: 100)
-- `search` - Text search filter (optional)
+
+This endpoint only lists records. To search records by their contents, use the [Search API](./search.md), which is backed by the Tantivy search index.
 
 **Response:**
 ```json
@@ -25,13 +26,13 @@ Get a paginated list of all entries in the current database.
       "id": "NC_003888.json:NC_003888.3",
       "filename": "NC_003888.json",
       "record_id": "NC_003888.3",
+      "internal_id": 1,
       "description": "Streptomyces coelicolor A3(2) chromosome",
       "organism": "Streptomyces coelicolor A3(2)",
-      "length": 8667507,
-      "regions": 28
+      "feature_count": 17093,
+      "region_count": 28
     }
-  ],
-  "search_query": ""
+  ]
 }
 ```
 
@@ -48,14 +49,6 @@ data.entries.forEach(entry => {
 });
 ```
 
-**Example - Search:**
-```javascript
-const response = await fetch('/api/database-entries?search=Streptomyces&per_page=50');
-const data = await response.json();
-
-console.log(`Found ${data.total} matching entries`);
-```
-
 **Error Responses:**
 
 *No database selected (Local Mode):*
@@ -69,6 +62,13 @@ console.log(`Found ${data.total} matching entries`);
 ```json
 {
   "error": "Database file does not exist: /path/to/db.db"
+}
+```
+
+*Database created by an older version (status 500):*
+```json
+{
+  "error": "This database was created by an older version of BGC Viewer. Please run preprocessing again."
 }
 ```
 
