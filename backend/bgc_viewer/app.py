@@ -762,25 +762,23 @@ def get_version():
 
 ANTISMASH_DB_OUTPUT_URL = "https://antismash-db.secondarymetabolites.org/output"
 ACCESSION_PATTERN = re.compile(r'^[A-Za-z0-9_.-]+$')
+MIBIG_REPOSITORY_URL = "https://mibig.secondarymetabolites.org/repository"
+# The file name in the MIBiG repository is the entry ID without its version
+MIBIG_ID_PATTERN = re.compile(r'(BGC\d{7})\.\d+')
 
-@app.route('/api/antismash-db/<accession>')
-def proxy_antismash_db(accession):
-    """API endpoint to fetch an antiSMASH JSON file from antiSMASH DB.
+def stream_external_json(url, source_name, not_found_error):
+    """Stream a JSON file from an external database to the client.
 
-    antiSMASH DB does not send CORS headers, so the browser can't fetch it directly.
+    These databases do not send CORS headers, so the browser can't fetch them directly.
     """
-    if not ACCESSION_PATTERN.match(accession) or accession in ('.', '..'):
-        return jsonify({"error": "Invalid accession number"}), 400
-
-    url = f"{ANTISMASH_DB_OUTPUT_URL}/{accession}/{accession}.json"
     try:
         upstream = urllib.request.urlopen(url, timeout=30)
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            return jsonify({"error": f"Accession {accession} not found in antiSMASH DB"}), 404
-        return jsonify({"error": f"antiSMASH DB returned HTTP {e.code}"}), 502
+            return jsonify({"error": not_found_error}), 404
+        return jsonify({"error": f"{source_name} returned HTTP {e.code}"}), 502
     except (urllib.error.URLError, TimeoutError) as e:
-        return jsonify({"error": f"Could not reach antiSMASH DB: {e}"}), 502
+        return jsonify({"error": f"Could not reach {source_name}: {e}"}), 502
 
     def generate():
         with upstream:
@@ -791,6 +789,25 @@ def proxy_antismash_db(accession):
     if upstream.headers.get('Content-Length'):
         headers['Content-Length'] = upstream.headers['Content-Length']
     return Response(stream_with_context(generate()), mimetype='application/json', headers=headers)
+
+@app.route('/api/antismash-db/<accession>')
+def proxy_antismash_db(accession):
+    """API endpoint to fetch an antiSMASH JSON file from antiSMASH DB."""
+    if not ACCESSION_PATTERN.match(accession) or accession in ('.', '..'):
+        return jsonify({"error": "Invalid accession number"}), 400
+
+    url = f"{ANTISMASH_DB_OUTPUT_URL}/{accession}/{accession}.json"
+    return stream_external_json(url, "antiSMASH DB", f"Accession {accession} not found in antiSMASH DB")
+
+@app.route('/api/mibig/<entry_id>')
+def proxy_mibig(entry_id):
+    """API endpoint to fetch the antiSMASH JSON file of a versioned MIBiG entry (e.g. BGC0002204.3)."""
+    match = MIBIG_ID_PATTERN.fullmatch(entry_id)
+    if not match:
+        return jsonify({"error": "Invalid MIBiG entry ID"}), 400
+
+    url = f"{MIBIG_REPOSITORY_URL}/{entry_id}/generated/{match.group(1)}.json"
+    return stream_external_json(url, "MIBiG", f"Entry {entry_id} not found in MIBiG")
 
 @app.route('/api/records/<record_id>/mibig-entries/<locus_tag>')
 def get_mibig_entries(record_id, locus_tag):

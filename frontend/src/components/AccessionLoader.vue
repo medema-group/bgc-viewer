@@ -1,9 +1,9 @@
 <template>
-  <div class="antismash-db-section">
-    <h3>Load from antiSMASH DB</h3>
+  <div class="accession-section">
+    <h3>Load from {{ sourceConfig.name }}</h3>
     <p class="help-text">
-      Enter a genome accession number from
-      <a href="https://antismash-db.secondarymetabolites.org/" target="_blank" rel="noopener noreferrer">antiSMASH DB</a>
+      Enter a {{ sourceConfig.idDescription }} from
+      <a :href="sourceConfig.homepage" target="_blank" rel="noopener noreferrer">{{ sourceConfig.name }}</a>
     </p>
 
     <form class="accession-form" @submit.prevent="loadAccession">
@@ -11,7 +11,7 @@
         v-model="accession"
         type="text"
         class="accession-input"
-        placeholder="e.g. GCF_000725555.1"
+        :placeholder="`e.g. ${sourceConfig.example}`"
         :disabled="isLoading"
       />
       <button
@@ -40,12 +40,16 @@
 
 <script>
 import { ref, onMounted } from 'vue'
-
-const ACCESSION_STORAGE_KEY = 'bgc-viewer-antismash-db-accession'
+import { EXTERNAL_SOURCES } from '../services/externalSources'
 
 export default {
-  name: 'AntismashDBLoader',
+  name: 'AccessionLoader',
   props: {
+    // Key of the external source to load from
+    source: {
+      type: String,
+      required: true
+    },
     // Accession to load immediately on mount (e.g. from the ?antismash_db= URL parameter)
     initialAccession: {
       type: String,
@@ -54,7 +58,9 @@ export default {
   },
   emits: ['files-loaded'],
   setup(props, { emit }) {
-    const accession = ref(props.initialAccession || localStorage.getItem(ACCESSION_STORAGE_KEY) || '')
+    const sourceConfig = EXTERNAL_SOURCES[props.source]
+    const storageKey = `bgc-viewer-${props.source}-accession`
+    const accession = ref(props.initialAccession || localStorage.getItem(storageKey) || '')
     const loadingAccession = ref('')
     const loadedAccession = ref('')
     const error = ref('')
@@ -64,9 +70,8 @@ export default {
       const acc = accession.value.trim()
       if (!acc) return
 
-      // Only allow characters that can appear in an accession, so the value can't alter the URL path
-      if (!/^[A-Za-z0-9_.-]+$/.test(acc)) {
-        error.value = `Invalid accession number: ${acc}`
+      if (!sourceConfig.pattern.test(acc)) {
+        error.value = `Invalid ${sourceConfig.idDescription}: ${acc} (expected e.g. ${sourceConfig.example})`
         return
       }
 
@@ -75,8 +80,8 @@ export default {
       loadingAccession.value = acc
 
       try {
-        // Fetched via the backend, as antiSMASH DB doesn't allow cross-origin requests
-        const response = await fetch(`/api/antismash-db/${acc}`)
+        // Fetched via the backend, as the external sources don't allow cross-origin requests
+        const response = await fetch(`/api/${props.source}/${acc}`)
         if (!response.ok) {
           const body = await response.json().catch(() => ({}))
           throw new Error(body.error || `Failed to fetch ${acc} (HTTP ${response.status})`)
@@ -86,17 +91,17 @@ export default {
         const blob = await response.blob()
         const file = new File([blob], `${acc}.json`, { type: 'application/json' })
 
-        localStorage.setItem(ACCESSION_STORAGE_KEY, acc)
+        localStorage.setItem(storageKey, acc)
         loadedAccession.value = acc
 
         // Reflect the loaded accession in the URL so the view can be shared
         const url = new URL(window.location.href)
-        url.searchParams.set('antismash_db', acc)
+        url.searchParams.set(sourceConfig.urlParam, acc)
         window.history.replaceState(null, '', url)
 
         emit('files-loaded', [{ id: 0, name: file.name, type: 'json', file }])
       } catch (err) {
-        console.error('Failed to load from antiSMASH DB:', err)
+        console.error(`Failed to load from ${sourceConfig.name}:`, err)
         // fetch() throws a TypeError on network failures
         error.value = err instanceof TypeError
           ? `Could not reach the server to load ${acc}`
@@ -113,6 +118,7 @@ export default {
     })
 
     return {
+      sourceConfig,
       accession,
       loadingAccession,
       loadedAccession,
@@ -125,12 +131,15 @@ export default {
 </script>
 
 <style scoped>
-.antismash-db-section {
+.accession-section {
   padding: 15px;
   border-bottom: 1px solid #e0e0e0;
+  flex: 1; /* Take available space */
+  min-height: 0; /* Allow shrinking */
+  overflow-y: auto; /* Keep messages reachable when the sidebar section is short */
 }
 
-.antismash-db-section h3 {
+.accession-section h3 {
   margin: 0 0 8px 0;
   font-size: 16px;
   color: #2c3e50;

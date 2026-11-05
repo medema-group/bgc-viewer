@@ -76,6 +76,48 @@ def test_antismash_db_proxy_invalid_accession(client):
     assert response.status_code == 400
 
 
+def test_mibig_proxy(client, monkeypatch):
+    """Test that the MIBiG proxy streams the JSON file of a versioned entry."""
+    import io
+    import urllib.request
+    requested = []
+
+    def fake_urlopen(url, timeout=None):
+        requested.append(url)
+        upstream = io.BytesIO(b'{"records": []}')
+        upstream.headers = {}
+        return upstream
+
+    monkeypatch.setattr(urllib.request, 'urlopen', fake_urlopen)
+    response = client.get('/api/mibig/BGC0002204.3')
+    assert response.status_code == 200
+    assert json.loads(response.data) == {"records": []}
+    assert requested == [
+        'https://mibig.secondarymetabolites.org/repository/BGC0002204.3/generated/BGC0002204.json'
+    ]
+
+
+def test_mibig_proxy_not_found(client, monkeypatch):
+    """Test that a missing MIBiG entry returns 404."""
+    import urllib.error
+    import urllib.request
+
+    def fake_urlopen(url, timeout=None):
+        raise urllib.error.HTTPError(url, 404, 'Not Found', {}, None)
+
+    monkeypatch.setattr(urllib.request, 'urlopen', fake_urlopen)
+    response = client.get('/api/mibig/BGC9999999.1')
+    assert response.status_code == 404
+    assert 'error' in json.loads(response.data)
+
+
+@pytest.mark.parametrize('entry_id', ['BGC0002204', 'GCF_000725555.1', 'BGC0002204.3%0A'])
+def test_mibig_proxy_invalid_id(client, entry_id):
+    """Test that IDs that aren't versioned MIBiG entries are rejected."""
+    response = client.get(f'/api/mibig/{entry_id}')
+    assert response.status_code == 400
+
+
 def test_scan_folder_hides_tantivy_metadata(client, tmp_path):
     """Generated Tantivy metadata should not appear as index source files."""
     (tmp_path / "record.json").write_text("{}")
