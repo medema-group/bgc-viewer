@@ -33,7 +33,8 @@
     </div>
 
     <div v-else-if="loadedAccession && !error" class="loaded-message">
-      Loaded {{ loadedAccession }}
+      Loaded {{ loadedAccession }} &middot;
+      <a :href="sourceConfig.entryUrl(loadedAccession)" target="_blank" rel="noopener noreferrer">View on {{ sourceConfig.name }}</a>
     </div>
   </div>
 </template>
@@ -231,6 +232,10 @@ export default {
   border-radius: 4px;
   font-size: 12px;
   color: #2e7d32;
+}
+
+.loaded-message a {
+  color: inherit;
 }
 
 .spinner {
