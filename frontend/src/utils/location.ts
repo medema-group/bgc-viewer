@@ -11,12 +11,12 @@ export interface ParsedLocation extends LocationPart {
 const LOCATION_PART = /\[[<>]?(\d+):[<>]?(\d+)\](?:\(([+-])\))?/g
 
 // Parts are listed in transcription order, so they normally ascend on the forward
-// strand and descend on the reverse strand. Out of order parts that include
-// position 0 wrap around the origin of a circular record.
+// strand and descend on the reverse strand. Out of order parts wrap around the
+// origin of a circular record, which may fall inside an intron.
 const crossesOrigin = (parts: LocationPart[], strand: string | null): boolean => {
   const starts = parts.map(part => part.start)
   const inOrder = [...starts].sort((a, b) => (strand === '-' ? b - a : a - b))
-  return starts.includes(0) && starts.some((start, i) => start !== inOrder[i])
+  return starts.some((start, i) => start !== inOrder[i])
 }
 
 /**

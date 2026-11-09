@@ -485,6 +485,9 @@ def test_location_overlaps_within_introns(gene):
     [
         "join{[900:1000](+), [0:100](+)}",
         "join{[0:100](-), [900:1000](-)}",
+        # Origin inside an intron
+        "join{[900:1000](+), [10:100](+)}",
+        "join{[10:100](-), [900:1000](-)}",
     ],
 )
 def test_location_crossing_origin_does_not_overlap_rest_of_record(gene):

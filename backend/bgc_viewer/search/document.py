@@ -521,10 +521,10 @@ class Location:
 
         Parts are listed in transcription order, so they normally ascend on the
         forward strand and descend on the reverse strand. Out of order parts
-        that include position 0 wrap around the origin.
+        wrap around the origin, which may fall inside an intron.
         """
         starts = [part.start for part in self.parts]
-        return 0 in starts and starts != sorted(
+        return starts != sorted(
             starts, reverse="(-)" in self.serialized
         )
 

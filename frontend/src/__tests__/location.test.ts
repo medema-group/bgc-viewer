@@ -23,7 +23,9 @@ describe('parseLocation', () => {
 
   test.each([
     ['join{[900:1000](+), [0:200](+)}', 900, 1000],
-    ['join{[0:200](-), [900:1000](-)}', 0, 200]
+    ['join{[0:200](-), [900:1000](-)}', 0, 200],
+    ['join{[900:950](+), [10:100](+)}', 900, 950],
+    ['join{[10:100](-), [900:950](-)}', 10, 100]
   ])('uses the first part of origin-crossing location %s', (location, start, end) => {
     expect(parseLocation(location)).toMatchObject({ start, end, parts: [{ start, end }] })
   })
