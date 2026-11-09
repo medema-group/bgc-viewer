@@ -12,6 +12,7 @@
         type="text"
         class="accession-input"
         :placeholder="`e.g. ${sourceConfig.example}`"
+        :aria-label="`${sourceConfig.name} ${sourceConfig.idDescription}`"
         :disabled="isLoading"
       />
       <button
@@ -40,7 +41,7 @@
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { EXTERNAL_SOURCES } from '../services/externalSources'
 
 export default {
@@ -66,6 +67,8 @@ export default {
     const loadedAccession = ref('')
     const error = ref('')
     const isLoading = ref(false)
+    // Aborted on unmount, so a pending download can't update the URL or emit after the user switched sources
+    let abortController = null
 
     const loadAccession = async () => {
       const acc = accession.value.trim()
@@ -79,10 +82,12 @@ export default {
       error.value = ''
       isLoading.value = true
       loadingAccession.value = acc
+      abortController = new AbortController()
+      const { signal } = abortController
 
       try {
         // Fetched via the backend, as the external sources don't allow cross-origin requests
-        const response = await fetch(`/api/${props.source}/${acc}`)
+        const response = await fetch(`/api/${props.source}/${acc}`, { signal })
         if (!response.ok) {
           const body = await response.json().catch(() => ({}))
           throw new Error(body.error || `Failed to fetch ${acc} (HTTP ${response.status})`)
@@ -90,6 +95,7 @@ export default {
 
         // Wrap the response as a File so it goes through the same loading path as uploads
         const blob = await response.blob()
+        if (signal.aborted) return
         const file = new File([blob], `${acc}.json`, { type: 'application/json' })
 
         localStorage.setItem(storageKey, acc)
@@ -102,6 +108,7 @@ export default {
 
         emit('files-loaded', [{ id: 0, name: file.name, type: 'json', file }])
       } catch (err) {
+        if (signal.aborted) return
         console.error(`Failed to load from ${sourceConfig.name}:`, err)
         // fetch() throws a TypeError on network failures
         error.value = err instanceof TypeError
@@ -116,6 +123,10 @@ export default {
       if (props.initialAccession) {
         loadAccession()
       }
+    })
+
+    onBeforeUnmount(() => {
+      abortController?.abort()
     })
 
     return {
