@@ -12,6 +12,7 @@ import {
   ResistanceFeaturesResponse
 } from './types'
 import { fetchPfamColorMap } from './colorMapUtils'
+import { parseLocation } from '@/utils/location'
 
 /**
  * Data provider that loads data from GenBank files
@@ -86,7 +87,9 @@ export class GenbankFileProvider extends DataProvider {
     const features = gbFeatures.map((gbFeature: any) => {
       const feature: any = {
         type: gbFeature.type || 'unknown',
-        location: this.formatLocation(gbFeature.start, gbFeature.end, gbFeature.strand),
+        location: gbFeature.locations?.length > 1
+          ? this.formatJoinLocation(gbFeature.locations, gbFeature.strand)
+          : this.formatLocation(gbFeature.start, gbFeature.end, gbFeature.strand),
         qualifiers: {}
       }
       
@@ -134,12 +137,22 @@ export class GenbankFileProvider extends DataProvider {
 
   /**
    * Format location in antiSMASH style: [start:end](strand)
-   * Note: bio-parsers uses 0-based indexing, which matches Python/antiSMASH convention
+   * Note: bio-parsers provides 0-based coordinates with an inclusive end, whereas
+   * antiSMASH has an exclusive end
    */
   private formatLocation(start: number, end: number, strand: number = 1): string {
     const strandSymbol = strand >= 0 ? '+' : '-'
-    // bio-parsers already provides 0-based coordinates
-    return `[${start}:${end}](${strandSymbol})`
+    return `[${start}:${end + 1}](${strandSymbol})`
+  }
+
+  /**
+   * Format a multi-part location in antiSMASH style: join{[start:end](strand), ...}
+   * bio-parsers provides parts sorted by position, whereas antiSMASH lists them in
+   * transcription order
+   */
+  private formatJoinLocation(locations: { start: number, end: number }[], strand: number = 1): string {
+    const parts = locations.map(({ start, end }) => this.formatLocation(start, end, strand))
+    return `join{${(strand < 0 ? parts.reverse() : parts).join(', ')}}`
   }
 
   /**
@@ -254,10 +267,10 @@ export class GenbankFileProvider extends DataProvider {
     // Convert to Region format
     const regions = regionFeatures.map((feature: any, idx: number) => {
       // Parse location to get start and end
-      const locationMatch = feature.location?.match(/\[<?(\d+):>?(\d+)\]/)
-      const start = locationMatch ? parseInt(locationMatch[1]) : 0
-      const end = locationMatch ? parseInt(locationMatch[2]) : 0
-      
+      const location = parseLocation(feature.location)
+      const start = location ? location.start : 0
+      const end = location ? location.end : 0
+
       const qualifiers = feature.qualifiers || {}
       const regionNumber = parseInt(qualifiers.region_number?.[0]) || (idx + 1)
       const products = qualifiers.product || []
@@ -308,12 +321,11 @@ export class GenbankFileProvider extends DataProvider {
 
     // Filter features that fall within the region boundaries
     const featuresInRegion = (record.features || []).filter((feature: any) => {
-      const locationMatch = feature.location?.match(/\[<?(\d+):>?(\d+)\]/)
-      if (!locationMatch) return false
-      
-      const start = parseInt(locationMatch[1])
-      const end = parseInt(locationMatch[2])
-      
+      const location = parseLocation(feature.location)
+      if (!location) return false
+
+      const { start, end } = location
+
       // Feature overlaps with region if it starts before region ends and ends after region starts
       return start < region.end && end > region.start
     })

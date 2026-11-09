@@ -1,5 +1,6 @@
 import { describe, test, expect, vi } from 'vitest'
 import { GenbankFileProvider } from '@/services/dataProviders/GenbankFileProvider'
+import { formatLocation } from '@/utils/location'
 
 /**
  * Tests for GenbankFileProvider conversion to antiSMASH format
@@ -47,6 +48,49 @@ ORIGIN
     
     return file
   }
+
+  test('should convert simple locations to antiSMASH coordinates and display the GenBank range', async () => {
+    const content = `LOCUS       TEST_BGC                1000 bp    DNA     linear   BCT 01-JAN-2024
+FEATURES             Location/Qualifiers
+     CDS             100..200
+                     /locus_tag="SIMPLE"
+ORIGIN
+        1 ${'a'.repeat(1000)}
+//
+`
+    const provider = new GenbankFileProvider()
+    await provider.loadFromFile(createMockFile(content, 'test.gb'))
+    const records = await provider.getRecords()
+    const { features } = await provider.getRecordFeatures(records[0].recordId)
+
+    expect(features[0].location).toBe('[99:200](+)')
+    expect(formatLocation(features[0].location)).toBe('100 - 200, + (total: 101 nt)')
+  })
+
+  test('should convert joined locations to antiSMASH format and match them across introns', async () => {
+    const content = `LOCUS       TEST_BGC                1000 bp    DNA     linear   BCT 01-JAN-2024
+FEATURES             Location/Qualifiers
+     region          410..450
+                     /region_number="1"
+     CDS             join(100..200,700..800)
+                     /locus_tag="FORWARD"
+     CDS             complement(join(100..200,700..800))
+                     /locus_tag="REVERSE"
+ORIGIN
+        1 ${'a'.repeat(1000)}
+//
+`
+    const provider = new GenbankFileProvider()
+    await provider.loadFromFile(createMockFile(content, 'test.gb'))
+    const records = await provider.getRecords()
+    const { features } = await provider.getRegionFeatures(records[0].recordId, 'region_1')
+
+    const cdsLocations = features.filter((f: any) => f.type === 'CDS').map((f: any) => f.location)
+    expect(cdsLocations).toEqual([
+      'join{[99:200](+), [699:800](+)}',
+      'join{[699:800](-), [99:200](-)}'
+    ])
+  })
 
   test('should load GenBank file and create provider', async () => {
     const provider = new GenbankFileProvider()
