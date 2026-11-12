@@ -20,14 +20,17 @@ from .data_loader import load_specific_record
 from .file_utils import match_location
 from .database import get_database_entries, get_database_info
 from .search.api import (
-    SearchResponse,
+    ValuesResponse,
     build_schema_response,
     error_response,
     parse_search_request,
+    parse_values_request,
+    run_search,
 )
 from .search.build_state import guard_build_state
 from .search.index import (
     SearchError,
+    field_values,
     open_index,
     search_record,
     search_regions,
@@ -1212,8 +1215,7 @@ def search_region_endpoint():
     """Search the embedded index, returning one self-contained hit per region."""
     req = parse_search_request(request.get_json(silent=True))
     index = _open_search_index()
-    results = search_regions(index, req.query, offset=req.offset, limit=req.per_page)
-    return jsonify(SearchResponse.from_results(results)), 200
+    return jsonify(run_search(index, req, search_regions)), 200
 
 
 @app.route("/api/search/record", methods=["POST"])
@@ -1222,8 +1224,17 @@ def search_record_endpoint():
     """Search the embedded index, collapsing matches to unique scored records."""
     req = parse_search_request(request.get_json(silent=True))
     index = _open_search_index()
-    results = search_record(index, req.query, offset=req.offset, limit=req.per_page)
-    return jsonify(SearchResponse.from_results(results)), 200
+    return jsonify(run_search(index, req, search_record)), 200
+
+
+@app.route("/api/search/values")
+@search_errors
+def search_values_endpoint():
+    """Suggest values of one field, with region counts, for a filter's value picker."""
+    req = parse_values_request(request.args)
+    index = _open_search_index()
+    values = field_values(index, req.field, req.contains, req.size)
+    return jsonify(ValuesResponse(field=req.field, values=tuple(values))), 200
 
 
 @app.route("/api/search/schema")

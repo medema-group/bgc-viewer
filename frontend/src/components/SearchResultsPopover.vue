@@ -38,7 +38,7 @@
           <span class="file-line">{{ fileContext(hit) }}</span>
         </template>
 
-        <span class="score">Score {{ hit.score.toFixed(3) }}</span>
+        <span v-if="hit.score !== null" class="score">Score {{ hit.score.toFixed(3) }}</span>
       </button>
     </div>
 

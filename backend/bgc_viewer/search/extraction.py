@@ -396,9 +396,9 @@ def _document_values(
 def build_document(values: Mapping[str, list[Any]]) -> Document:
     """Write collected field values into a Tantivy document.
 
-    Each value is added with the method for its field's type, and the text
-    values of every field that sets ``in_text`` are also added to the
-    catch-all text field.
+    Each value is added once with the method for its field's type, so facet
+    counts count a region once per value, and the text values of every field
+    that sets ``in_text`` are also added to the catch-all text field.
     """
     unknown = set(values) - {field.name for field in SEARCH_FIELDS}
     if unknown:
@@ -406,7 +406,7 @@ def build_document(values: Mapping[str, list[Any]]) -> Document:
     document = Document()
     text: list[str] = []
     for field in SEARCH_FIELDS:
-        for value in values.get(field.name, ()):
+        for value in dict.fromkeys(values.get(field.name, ())):
             if field.is_text:
                 document.add_text(field.name, value)
                 if field.in_text:

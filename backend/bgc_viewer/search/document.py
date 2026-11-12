@@ -37,6 +37,41 @@ _TOKENIZER_KINDS: dict[str, FieldKind] = {
 
 # Field types whose values are text, as opposed to numbers and booleans.
 TEXT_TOKENIZERS = frozenset({"raw", "default", "path"})
+_NON_TEXT_TOKENIZERS = ("integer", "float", "boolean")
+
+# Structured-filter operators each field kind supports, ported from the BGC
+# Atlas query builder. Exact values match whole and case-sensitively with
+# ``equals``/``in``; the substring operators ignore case. Full-text and path
+# fields match word by word, so only substring operators apply to them.
+# ``exists`` and ``not_exists`` take no value and need a fast field.
+OPERATORS_BY_KIND: dict[FieldKind, tuple[str, ...]] = {
+    "exact": (
+        "in",
+        "not_in",
+        "equals",
+        "not_equals",
+        "contains",
+        "not_contains",
+        "starts_with",
+        "ends_with",
+        "exists",
+        "not_exists",
+    ),
+    "full_text": ("contains", "not_contains"),
+    "path": ("contains", "not_contains"),
+    "numeric": (
+        "equals",
+        "not_equals",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "between",
+        "exists",
+        "not_exists",
+    ),
+    "boolean": ("equals", "not_equals", "exists", "not_exists"),
+}
 
 # The catch-all full-text field. Every text value of a region whose field sets
 # ``in_text`` is also indexed here word by word, so a bare word matches inside
@@ -87,6 +122,16 @@ class SearchField:
     def is_text(self) -> bool:
         return self.tokenizer in TEXT_TOKENIZERS
 
+    @property
+    def facet(self) -> bool:
+        """Whether values can be counted: exact text and yes/no fields."""
+        return self.tokenizer in ("raw", "boolean")
+
+    @property
+    def sortable(self) -> bool:
+        """Whether hits can be ordered by the field: one fast value per region."""
+        return not self.multi and self.tokenizer in ("raw", *_NON_TEXT_TOKENIZERS)
+
 
 @dataclass(frozen=True)
 class PublicFieldInfo:
@@ -95,6 +140,9 @@ class PublicFieldInfo:
     Internal indexing details (tokenizer, boost, and in-hits status) are
     deliberately absent; this is the public projection of a :class:`SearchField`.
     ``default_search`` reports whether a bare term searches the field.
+    ``operators`` lists the structured-filter operators the field supports,
+    ``facet`` whether its values can be counted and suggested, and
+    ``sortable`` whether hits can be ordered by it.
     """
 
     name: str
@@ -104,6 +152,9 @@ class PublicFieldInfo:
     multi: bool
     default_search: bool
     description: str
+    operators: tuple[str, ...]
+    facet: bool
+    sortable: bool
 
 
 GROUP_GENERAL = "General"
@@ -710,6 +761,9 @@ PUBLIC_FIELDS: tuple[PublicFieldInfo, ...] = tuple(
         multi=search_field.multi,
         default_search=search_field.default_search,
         description=search_field.description,
+        operators=OPERATORS_BY_KIND[search_field.kind],
+        facet=search_field.facet,
+        sortable=search_field.sortable,
     )
     for search_field in SEARCH_FIELDS
 )

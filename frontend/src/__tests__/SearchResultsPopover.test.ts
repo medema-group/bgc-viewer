@@ -38,7 +38,7 @@ describe('SearchResultsPopover', () => {
       props: {
         query: 'pfam:PF00512',
         level: 'region',
-        response: { hits: regionHits, has_more: false },
+        response: { hits: regionHits, has_more: false, total_regions: 1, facets: {} },
         selectedHit: null
       }
     })
@@ -63,7 +63,7 @@ describe('SearchResultsPopover', () => {
       props: {
         query: 'NRPS',
         level: 'region',
-        response: { hits: regionHits, has_more: false },
+        response: { hits: regionHits, has_more: false, total_regions: 1, facets: {} },
         selectedHit: regionHits[1]
       }
     })
@@ -80,7 +80,9 @@ describe('SearchResultsPopover', () => {
         level: 'record',
         response: {
           hits: [{ score: 2, record: 'record-2', output_file: 'record-2.json', input_file: null }],
-          has_more: false
+          has_more: false,
+          total_regions: 1,
+          facets: {}
         },
         selectedHit: null
       }
@@ -96,7 +98,7 @@ describe('SearchResultsPopover', () => {
       props: {
         query: 'terpene',
         level: 'record',
-        response: { hits: [], has_more: false },
+        response: { hits: [], has_more: false, total_regions: 1, facets: {} },
         selectedHit: null
       }
     })
@@ -116,13 +118,13 @@ describe('SearchResultsPopover', () => {
       props: {
         query: 'terpene',
         level: 'record',
-        response: { hits: [recordHit], has_more: false },
+        response: { hits: [recordHit], has_more: false, total_regions: 1, facets: {} },
         selectedHit: null
       }
     })
     expect(wrapper.find('.load-more').exists()).toBe(false)
 
-    await wrapper.setProps({ response: { hits: [recordHit], has_more: true } })
+    await wrapper.setProps({ response: { hits: [recordHit], has_more: true, total_regions: 1, facets: {} } })
     expect(wrapper.find('.load-more').exists()).toBe(true)
   })
 
@@ -137,7 +139,7 @@ describe('SearchResultsPopover', () => {
       props: {
         query: 'terpene',
         level: 'record',
-        response: { hits: [recordHit], has_more: true },
+        response: { hits: [recordHit], has_more: true, total_regions: 1, facets: {} },
         selectedHit: null,
         loadingMore: true
       }

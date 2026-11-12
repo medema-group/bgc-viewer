@@ -13,7 +13,10 @@ import {
   SearchSchema,
   RegionSearchHit,
   RecordSearchHit,
-  SearchResponse
+  SearchResponse,
+  FilterGroup,
+  StructuredSearchOptions,
+  FieldValuesResponse
 } from './types'
 import { fetchPfamColorMap } from './colorMapUtils'
 
@@ -147,6 +150,45 @@ export class BGCViewerAPIProvider extends DataProvider {
       query,
       page,
       per_page: perPage
+    })
+    return response.data
+  }
+
+  async searchFilter(
+    level: 'region',
+    filter: FilterGroup,
+    options?: StructuredSearchOptions
+  ): Promise<SearchResponse<RegionSearchHit>>
+  async searchFilter(
+    level: 'record',
+    filter: FilterGroup,
+    options?: StructuredSearchOptions
+  ): Promise<SearchResponse<RecordSearchHit>>
+  async searchFilter(
+    level: SearchLevel,
+    filter: FilterGroup,
+    options?: StructuredSearchOptions
+  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit>>
+  async searchFilter(
+    level: SearchLevel,
+    filter: FilterGroup,
+    options: StructuredSearchOptions = {}
+  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit>> {
+    const response = await this.axiosInstance.post(`/api/search/${level}`, {
+      filter,
+      page: options.page ?? 1,
+      per_page: options.perPage ?? 20,
+      sort: options.sort,
+      facets: options.facets,
+      facet_size: options.facetSize
+    })
+    return response.data
+  }
+
+  /** Suggest values of a field containing `contains`, with region counts. */
+  async getFieldValues(field: string, contains: string = '', size: number = 20): Promise<FieldValuesResponse> {
+    const response = await this.axiosInstance.get<FieldValuesResponse>('/api/search/values', {
+      params: { field, q: contains, size }
     })
     return response.data
   }

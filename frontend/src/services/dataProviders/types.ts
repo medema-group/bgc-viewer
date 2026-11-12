@@ -124,16 +124,68 @@ export interface SearchFieldInfo {
   multi: boolean
   default_search: boolean
   description: string
+  /** Structured-filter operators the field supports. */
+  operators: FilterOperator[]
+  /** Whether the field's values can be counted and suggested. */
+  facet: boolean
+  /** Whether hits can be sorted by the field. */
+  sortable: boolean
 }
 
 export interface SearchSchema {
   fields: SearchFieldInfo[]
   examples: string[]
   query_syntax_url: string
+  /** Pseudo-field of a filter condition that runs a query string. */
+  raw_query_field: string
+}
+
+export type FilterOperator =
+  | 'in' | 'not_in' | 'equals' | 'not_equals'
+  | 'contains' | 'not_contains' | 'starts_with' | 'ends_with'
+  | 'gt' | 'gte' | 'lt' | 'lte' | 'between'
+  | 'exists' | 'not_exists'
+  | 'matches'
+
+export type FilterValue = string | number | boolean | null | (string | number | null)[]
+
+/** One field/operator/value comparison of a structured filter (BGC Atlas model). */
+export interface FilterCondition {
+  id?: string
+  field: string
+  operator: FilterOperator
+  value?: FilterValue
+}
+
+/** Conditions and nested groups joined by one operator. */
+export interface FilterGroup {
+  id?: string
+  operator: 'AND' | 'OR'
+  conditions: FilterCondition[]
+  groups: FilterGroup[]
+}
+
+export interface FacetBucket {
+  value: string
+  count: number
+}
+
+export interface StructuredSearchOptions {
+  page?: number
+  perPage?: number
+  sort?: { field: string; order: 'asc' | 'desc' }
+  facets?: string[]
+  facetSize?: number
+}
+
+export interface FieldValuesResponse {
+  field: string
+  values: FacetBucket[]
 }
 
 export interface RegionSearchHit {
-  score: number
+  /** Relevance score, or null when hits are sorted by a field. */
+  score: number | null
   fields: {
     record: string
     region: number
@@ -148,7 +200,7 @@ export interface RegionSearchHit {
 }
 
 export interface RecordSearchHit {
-  score: number
+  score: number | null
   record: string
   output_file: string
   input_file: string | null
@@ -157,6 +209,10 @@ export interface RecordSearchHit {
 export interface SearchResponse<T> {
   hits: T[]
   has_more: boolean
+  /** Every matching region, at the record level too. */
+  total_regions: number
+  /** Most common values of each requested facet field over all matches. */
+  facets: Record<string, FacetBucket[]>
 }
 
 /**

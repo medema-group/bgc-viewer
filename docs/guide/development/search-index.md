@@ -14,7 +14,8 @@ it reuses.
 | Concern | Path |
 | --- | --- |
 | Field registry, location parsing, example templates, schema version | `backend/bgc_viewer/search/document.py` |
-| Tantivy schema and query config, index build/open/search | `backend/bgc_viewer/search/index.py` |
+| Tantivy schema and query config, index build/open/search, facet counts, value suggestions | `backend/bgc_viewer/search/index.py` |
+| Structured filters (BGC Atlas `FilterGroup`) to Tantivy queries | `backend/bgc_viewer/search/query.py` |
 | antiSMASH JSON extraction to Tantivy documents | `backend/bgc_viewer/search/extraction.py` |
 | Region facets from the antiSMASH analysis modules | `backend/bgc_viewer/search/facets.py` |
 | Build sentinel and rebuild signaling | `backend/bgc_viewer/search/build_state.py` |
@@ -184,6 +185,14 @@ uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:te
 
 # Result granularity: region (default) or record
 uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550' --level record
+
+# Structured filter (the query builder's JSON), sorted, with facet counts
+uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \
+    --filter '{"conditions": [{"field": "length", "operator": "gt", "value": 40000}]}' \
+    --sort length:desc --facet product_category
+
+# Suggested values of a field, with region counts
+uv run python -m bgc_viewer.search.cli values /tmp/bgv/tantivy.index pfam PF005
 ```
 
 Search documents are extracted from the JSON files in parallel worker processes,
@@ -226,6 +235,10 @@ A new field touches two places plus tests:
    can hold several values, and `in_hits=True` when the value should come back
    in ordinary hits. The Tantivy schema, query config, and public metadata are
    projected from this entry; default search is automatic for every text field.
+   The structured-filter operators follow from the field type
+   (`OPERATORS_BY_KIND`), and so do whether its values can be counted
+   (exact text and yes/no fields) and whether hits can be sorted by it (a
+   single-valued exact, number, or yes/no field).
 2. **Extraction** — collect the values as a list under the field name, in
    `_document_values()` in `extraction.py` for a value read from features, or
    in a function of `facets.py` for one read from the record's `modules`. An

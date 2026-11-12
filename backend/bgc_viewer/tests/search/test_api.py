@@ -7,6 +7,7 @@ level-independent ``GET /api/search/schema`` endpoint.
 """
 
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from bgc_viewer.app import (
     app,
 )
 from bgc_viewer.search.api import (
+    MAX_FACET_SIZE,
     MAX_PAGE_SIZE,
     QUERY_SYNTAX_URL,
     InvalidRequestError,
@@ -26,7 +28,9 @@ from bgc_viewer.search.api import (
     build_schema_response,
     error_response,
     parse_search_request,
+    parse_values_request,
     read_example_queries,
+    run_search,
 )
 from bgc_viewer.search.build_state import mark_building
 from bgc_viewer.search.document import (
@@ -42,11 +46,19 @@ from bgc_viewer.search.index import (
     IndexIncompatibleError,
     IndexNotFoundError,
     QuerySyntaxError,
+    Sort,
     UnknownFieldError,
     build_index,
     open_index,
     search_record,
     search_regions,
+)
+from bgc_viewer.search.query import (
+    FilterCondition,
+    FilterGroup,
+    InvalidFilterError,
+    UnhonourableFilterError,
+    UnhonouredCondition,
 )
 from tantivy import Document
 
@@ -109,7 +121,9 @@ def index_dir(grouped_corpus, tmp_path) -> Path:
 class TestParseSearchRequest:
     def test_defaults(self):
         req = parse_search_request({"query": "pfam:shared"})
-        assert req == SearchRequest(query="pfam:shared", page=1, per_page=20)
+        assert req == SearchRequest(
+            query="pfam:shared", filter=None, page=1, per_page=20
+        )
         assert req.offset == 0
 
     def test_offset_is_derived_from_page_and_per_page(self):
@@ -148,23 +162,111 @@ class TestParseSearchRequest:
             parse_search_request({"query": "q", "per_page": 0})
 
 
-class TestResponseFromResults:
-    def test_response_carries_only_hits_and_has_more(self, index_dir):
-        results = search_regions(open_index(index_dir), "pfam:shared", offset=0, limit=2)
-        response = SearchResponse.from_results(results)
+def _run(index_dir, search, body) -> SearchResponse:
+    return run_search(open_index(index_dir), parse_search_request(body), search)
+
+
+class TestRunSearch:
+    def test_response_carries_hits_paging_and_total(self, index_dir):
+        response = _run(
+            index_dir, search_regions, {"query": "pfam:shared", "per_page": 2}
+        )
         assert response.has_more is True
         assert len(response.hits) == 2
+        assert response.total_regions == 4
+        assert response.facets == {}
 
     def test_record_response_has_more_for_distinct_records(self, index_dir):
-        results = search_record(open_index(index_dir), "pfam:shared", offset=0, limit=1)
-        response = SearchResponse.from_results(results)
+        response = _run(
+            index_dir, search_record, {"query": "pfam:shared", "per_page": 1}
+        )
         assert response.has_more is True
+        assert response.total_regions == 4
 
     def test_record_response_zero_hits_reports_no_more(self, index_dir):
-        results = search_record(open_index(index_dir), "pfam:none", offset=0, limit=20)
-        response = SearchResponse.from_results(results)
+        response = _run(index_dir, search_record, {"query": "pfam:none"})
         assert response.has_more is False
         assert response.hits == ()
+        assert response.total_regions == 0
+
+
+class TestParseStructuredRequest:
+    def test_filter_replaces_the_query_string(self):
+        req = parse_search_request(
+            {
+                "filter": {
+                    "conditions": [
+                        {"field": "pfam", "operator": "equals", "value": "x"}
+                    ]
+                }
+            }
+        )
+        assert req.query is None
+        assert req.filter == FilterGroup(
+            "AND", (FilterCondition("pfam", "equals", "x"),), ()
+        )
+
+    def test_query_and_filter_together_are_rejected(self):
+        with pytest.raises(InvalidRequestError):
+            parse_search_request({"query": "x", "filter": {}})
+
+    def test_null_filter_falls_back_to_the_query(self):
+        assert parse_search_request({"query": "x", "filter": None}).query == "x"
+
+    def test_malformed_filter_is_rejected(self):
+        with pytest.raises(InvalidFilterError):
+            parse_search_request({"filter": {"operator": "NOT"}})
+
+    def test_sort_and_facets(self):
+        req = parse_search_request(
+            {
+                "query": "x",
+                "sort": {"field": "length", "order": "desc"},
+                "facets": ["product", "product", "is_complete"],
+                "facet_size": 500,
+            }
+        )
+        assert req.sort == Sort("length", descending=True)
+        assert req.facets == ("product", "is_complete")
+        assert req.facet_size == MAX_FACET_SIZE
+
+    @pytest.mark.parametrize(
+        "sort, error",
+        [
+            ("length", InvalidRequestError),
+            ({"field": "length", "order": "up"}, InvalidRequestError),
+            ({"field": "product"}, InvalidRequestError),
+            ({"field": "nope"}, UnknownFieldError),
+        ],
+    )
+    def test_invalid_sort_is_rejected(self, sort, error):
+        with pytest.raises(error):
+            parse_search_request({"query": "x", "sort": sort})
+
+    @pytest.mark.parametrize("facets", ["product", [1], {"product": 1}])
+    def test_invalid_facets_are_rejected(self, facets):
+        with pytest.raises(InvalidRequestError):
+            parse_search_request({"query": "x", "facets": facets})
+
+
+class TestParseValuesRequest:
+    def test_defaults_and_clamping(self):
+        req = parse_values_request({"field": "pfam", "q": "PF", "size": "1000"})
+        assert (req.field, req.contains, req.size) == ("pfam", "PF", MAX_FACET_SIZE)
+        assert parse_values_request({"field": "pfam"}).contains == ""
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            {},
+            {"field": ""},
+            {"field": "pfam", "size": "x"},
+            {"field": "pfam", "size": "0"},
+        ],
+    )
+    def test_invalid_arguments_are_rejected(self, args):
+        with pytest.raises(InvalidRequestError):
+            parse_values_request(args)
 
 
 class TestErrorResponse:
@@ -190,6 +292,31 @@ class TestErrorResponse:
         payload, got = error_response(error)
         assert got == status
         assert payload["error"]["code"] == error.code
+
+    def test_unhonourable_filter_lists_its_conditions(self):
+        error = UnhonourableFilterError(
+            [
+                UnhonouredCondition(
+                    "length", "contains", "unsupported_operator", "1", ("gt",)
+                )
+            ]
+        )
+        payload, status = error_response(error)
+        assert status == 400
+        assert payload["error"]["code"] == "unhonourable_filter"
+        assert payload["error"]["details"]["conditions"] == [
+            {
+                "field": "length",
+                "operator": "contains",
+                "reason": "unsupported_operator",
+                "value": "1",
+                "supported_operators": ["gt"],
+            }
+        ]
+
+    def test_invalid_filter_is_400(self):
+        payload, status = error_response(InvalidFilterError("bad"))
+        assert (status, payload["error"]["code"]) == (400, "invalid_filter")
 
     def test_unexpected_error_is_500(self):
         payload, status = error_response(RuntimeError("boom"))
@@ -218,7 +345,7 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {"hits", "has_more"}
+        assert set(data) == {"hits", "has_more", "total_regions", "facets"}
         assert data["has_more"] is False
         assert set(data["hits"][0]) == {"score", "fields"}
         assert data["hits"][0]["fields"]["record"] in {"test_record_1", "test_record_2"}
@@ -239,7 +366,7 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {"hits", "has_more"}
+        assert set(data) == {"hits", "has_more", "total_regions", "facets"}
         assert data["has_more"] is False
         assert set(data["hits"][0]) == {"score", "record", "output_file", "input_file"}
 
@@ -253,7 +380,7 @@ class TestSearchEndpoint:
             json={"query": "pfam:PF00501", "page": 1, "per_page": 1},
         )
         data = json.loads(response.data)
-        assert set(data) == {"hits", "has_more"}
+        assert set(data) == {"hits", "has_more", "total_regions", "facets"}
         assert data["has_more"] is True
         assert len(data["hits"]) == 1
 
@@ -297,9 +424,7 @@ class TestSearchEndpoint:
     def test_unknown_field_returns_400(self, search_client, test_database):
         db_path, _ = test_database
         _select_database(search_client, db_path)
-        response = search_client.post(
-            "/api/search/region", json={"query": "go:x"}
-        )
+        response = search_client.post("/api/search/region", json={"query": "go:x"})
         assert response.status_code == 400
         data = json.loads(response.data)
         assert data["error"]["code"] == "unknown_field"
@@ -435,7 +560,10 @@ class TestSearchEndpointRanking:
         scores = [hit["score"] for hit in data["hits"]]
         assert scores == sorted(scores, reverse=True)
         assert _identity(data["hits"][0]) == ("recA", 1)
-        assert {_identity(hit) for hit in data["hits"][1:]} == {("recA", 2), ("recB", 1)}
+        assert {_identity(hit) for hit in data["hits"][1:]} == {
+            ("recA", 2),
+            ("recB", 1),
+        }
 
     def test_paged_requests_reproduce_the_full_ranked_order(
         self, search_client, ranked_database
@@ -592,6 +720,7 @@ class TestSchemaEndpoint:
             "fields",
             "examples",
             "query_syntax_url",
+            "raw_query_field",
         }
 
     def test_field_objects_expose_only_the_public_keys(
@@ -609,6 +738,9 @@ class TestSchemaEndpoint:
                 "multi",
                 "default_search",
                 "description",
+                "operators",
+                "facet",
+                "sortable",
             }
 
     def test_internal_registry_details_are_not_exposed(
@@ -766,3 +898,97 @@ class TestSchemaEndpoint:
         data = json.loads(response.data)
         assert data["examples"] == []
         assert len(data["fields"]) == len(SCHEMA_FIELD_NAMES)
+
+
+class TestStructuredSearchEndpoint:
+    def _post(self, client, level, body):
+        response = client.post(f"/api/search/{level}", json=body)
+        return response.status_code, json.loads(response.data)
+
+    def test_filter_search_with_facets(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        status, data = self._post(
+            search_client,
+            "region",
+            {
+                "filter": {
+                    "conditions": [
+                        {"field": "pfam", "operator": "equals", "value": "PF00501"}
+                    ]
+                },
+                "facets": ["product"],
+                "sort": {"field": "record"},
+            },
+        )
+        assert status == 200
+        assert [hit["fields"]["record"] for hit in data["hits"]] == [
+            "test_record_1",
+            "test_record_2",
+        ]
+        assert data["hits"][0]["score"] is None
+        assert data["total_regions"] == 2
+        assert sorted(data["facets"]["product"], key=lambda b: b["value"]) == [
+            {"value": "NRPS", "count": 1},
+            {"value": "polyketide", "count": 1},
+        ]
+
+    def test_empty_filter_lists_every_region(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        status, data = self._post(search_client, "record", {"filter": {}})
+        assert status == 200
+        assert data["total_regions"] == 2
+        assert len(data["hits"]) == 2
+
+    def test_unhonourable_filter_is_400(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        status, data = self._post(
+            search_client,
+            "region",
+            {
+                "filter": {
+                    "conditions": [{"field": "nope", "operator": "equals", "value": 1}]
+                }
+            },
+        )
+        assert status == 400
+        assert data["error"]["code"] == "unhonourable_filter"
+        assert data["error"]["details"]["conditions"][0]["reason"] == "unknown_field"
+
+    def test_facet_on_uncountable_field_is_400(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        status, data = self._post(
+            search_client, "region", {"query": "pfam:PF00501", "facets": ["length"]}
+        )
+        assert status == 400
+        assert data["error"]["code"] == "invalid_facet_field"
+
+
+class TestValuesEndpoint:
+    def test_suggests_values_with_counts(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.get("/api/search/values?field=organism&q=STREP")
+        assert response.status_code == 200
+        assert json.loads(response.data) == {
+            "field": "organism",
+            "values": [{"value": "Streptomyces coelicolor", "count": 1}],
+        }
+
+    def test_requires_a_countable_field(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        assert search_client.get("/api/search/values").status_code == 400
+        response = search_client.get("/api/search/values?field=text")
+        assert response.status_code == 400
+        assert json.loads(response.data)["error"]["code"] == "invalid_facet_field"
+
+    def test_requires_an_index(self, search_client, test_database):
+        db_path, temp_dir = test_database
+        _select_database(search_client, db_path)
+        shutil.rmtree(temp_dir / "tantivy.index")
+        response = search_client.get("/api/search/values?field=pfam")
+        assert response.status_code == 404

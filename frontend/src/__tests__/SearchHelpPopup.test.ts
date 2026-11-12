@@ -12,7 +12,10 @@ const schema = {
       group: 'Functional hits',
       multi: true,
       default_search: true,
-      description: 'PFAM accessions overlapping the region.'
+      description: 'PFAM accessions overlapping the region.',
+      operators: ['in' as const, 'equals' as const],
+      facet: true,
+      sortable: false
     },
     {
       name: 'region',
@@ -21,11 +24,15 @@ const schema = {
       group: 'Region',
       multi: false,
       default_search: false,
-      description: 'Region number of the region within its record.'
+      description: 'Region number of the region within its record.',
+      operators: ['equals' as const, 'between' as const],
+      facet: false,
+      sortable: true
     }
   ],
   examples: ['pfam:PF00512'],
-  query_syntax_url: 'https://docs.example.test/query-parser'
+  query_syntax_url: 'https://docs.example.test/query-parser',
+  raw_query_field: '_query'
 }
 
 describe('SearchHelpPopup', () => {

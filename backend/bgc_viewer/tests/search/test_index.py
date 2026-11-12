@@ -421,6 +421,7 @@ def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
             ),
         ),
         has_more=False,
+        total_regions=1,
     )
     assert result == expected and result.hits[0].score > 0
 
