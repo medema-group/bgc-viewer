@@ -132,13 +132,13 @@ describe('BGCViewerAPIProvider', () => {
   })
 
   describe('advanced search', () => {
-    it.each(['protocluster', 'region', 'record'])(
+    it.each(['region', 'record'])(
       'posts %s searches to the matching level endpoint',
       async (level) => {
-        const searchResponse = { hits: [], total: 0 }
+        const searchResponse = { hits: [], has_more: false }
         axiosInstance.post.mockResolvedValue({ data: searchResponse })
 
-        const result = await provider.searchLevel(level, 'pfam:PF00512', 2, 50)
+        const result = await provider.search(level, { query: 'pfam:PF00512' }, { page: 2, perPage: 50 })
 
         expect(axiosInstance.post).toHaveBeenCalledWith(`/api/search/${level}`, {
           query: 'pfam:PF00512',
@@ -148,6 +148,38 @@ describe('BGCViewerAPIProvider', () => {
         expect(result).toBe(searchResponse)
       }
     )
+
+    it('posts a filter with sort and facets', async () => {
+      axiosInstance.post.mockResolvedValue({ data: { hits: [] } })
+      const filter = { operator: 'AND', conditions: [], groups: [] }
+
+      await provider.search('region', { filter }, {
+        sort: { field: 'length', order: 'desc' },
+        facets: ['product'],
+        facetSize: 10
+      })
+
+      expect(axiosInstance.post).toHaveBeenCalledWith('/api/search/region', {
+        filter,
+        page: 1,
+        per_page: 20,
+        sort: { field: 'length', order: 'desc' },
+        facets: ['product'],
+        facet_size: 10
+      })
+    })
+
+    it('gets suggested field values', async () => {
+      const values = { field: 'pfam', values: [{ value: 'PF00501', count: 2 }] }
+      axiosInstance.get.mockResolvedValue({ data: values })
+
+      const result = await provider.getFieldValues('pfam', 'PF005', 5)
+
+      expect(axiosInstance.get).toHaveBeenCalledWith('/api/search/values', {
+        params: { field: 'pfam', q: 'PF005', size: 5 }
+      })
+      expect(result).toBe(values)
+    })
 
     it('gets the shared search schema', async () => {
       const schema = {

@@ -147,7 +147,7 @@ export type FilterOperator =
   | 'exists' | 'not_exists'
   | 'matches'
 
-export type FilterValue = string | number | boolean | null | (string | number | null)[]
+export type FilterValue = string | number | null | (string | number | null)[]
 
 /** One field/operator/value comparison of a structured filter (BGC Atlas model). */
 export interface FilterCondition {
@@ -170,10 +170,18 @@ export interface FacetBucket {
   count: number
 }
 
+/** What a search asks: a query string, or a structured filter. */
+export type SearchCriteria = { query: string } | { filter: FilterGroup }
+
+export interface SearchSort {
+  field: string
+  order: 'asc' | 'desc'
+}
+
 export interface StructuredSearchOptions {
   page?: number
   perPage?: number
-  sort?: { field: string; order: 'asc' | 'desc' }
+  sort?: SearchSort | null
   facets?: string[]
   facetSize?: number
 }

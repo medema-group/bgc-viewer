@@ -19,87 +19,130 @@
         </button>
       </header>
 
-      <form class="search-form" @submit.prevent="submit">
-        <div class="query-control">
-          <span class="search-icon" aria-hidden="true"></span>
-          <input
-            ref="queryInput"
-            :value="query"
-            type="search"
-            aria-label="Advanced search query"
-            placeholder="Search records and regions"
-            @input="updateQuery"
-          />
-          <button
-            v-if="query"
-            type="button"
-            class="clear-button"
-            aria-label="Clear search"
-            title="Clear search"
-            @click="emit('clear')"
-          >
-            &times;
-          </button>
-        </div>
-
-        <select :value="level" aria-label="Search result level" @change="changeLevel">
-          <option value="region">Region</option>
-          <option value="record">Record</option>
-        </select>
-
-        <button type="submit" class="submit-button">Search</button>
-      </form>
-
       <nav class="dialog-tabs" aria-label="Search dialog views">
         <button
+          v-for="tab in tabs"
+          :key="tab.view"
           type="button"
-          :class="{ active: view === 'results' }"
-          :aria-current="view === 'results' ? 'page' : undefined"
-          @click="view = 'results'"
+          :class="{ active: view === tab.view }"
+          :aria-current="view === tab.view ? 'page' : undefined"
+          @click="showView(tab.view)"
         >
-          Results
-          <span v-if="response" class="result-count">{{ response.hits.length }}</span>
-        </button>
-        <button
-          type="button"
-          :class="{ active: view === 'help' }"
-          :aria-current="view === 'help' ? 'page' : undefined"
-          @click="showHelp"
-        >
-          Search help
+          {{ tab.label }}
         </button>
       </nav>
-
-      <div v-if="error && view === 'results'" class="search-error" role="alert">
-        <strong>{{ error.code }}</strong>: {{ error.message }}
-      </div>
 
       <div class="dialog-body">
         <SearchHelpPopup
           v-if="view === 'help'"
-          :schema="schema"
-          :loading="schemaLoading"
-          :error="schemaError"
+          :schema="state.schema"
+          :loading="state.schemaLoading"
+          :error="state.schemaError"
           @use-example="useExample"
         />
-        <SearchResultsPopover
-          v-else-if="response"
-          :query="resultsQuery"
-          :level="resultsLevel"
-          :response="response"
-          :selected-hit="selectedHit"
-          :loading="loading"
-          :loading-more="loadingMore"
-          @load-more="emit('load-more')"
-          @search-selected="emit('search-selected', $event)"
-        />
-        <div v-else class="search-empty">
-          <p v-if="loading">Searching...</p>
-          <template v-else>
-            <strong>Search the active index</strong>
-            <p>Use a word or field query, then press Enter.</p>
-          </template>
-        </div>
+
+        <template v-else>
+          <form class="search-form" @submit.prevent="runSearch">
+            <template v-if="view === 'builder'">
+              <p v-if="state.schemaLoading" class="form-note">Loading fields...</p>
+              <p v-else-if="state.schemaError" class="form-note error" role="alert">
+                <strong>{{ state.schemaError.code }}</strong>: {{ state.schemaError.message }}
+              </p>
+              <QueryBuilder
+                v-else-if="state.schema"
+                :rows="state.rows"
+                :fields="search.builderFields.value"
+                :load-values="search.loadValues"
+                @update:rows="state.rows = $event"
+              />
+              <div v-if="summary.length" class="summary" aria-label="Search summary">
+                <div v-for="(line, index) in summary" :key="index" class="summary-line">
+                  <span class="summary-joiner">{{ line.joiner }}</span>
+                  <span>
+                    <template v-for="(part, partIndex) in line.parts" :key="partIndex">
+                      <span v-if="part.kind === 'op'" class="summary-op"> {{ part.value }} </span>
+                      <span v-else-if="part.kind === 'paren'" class="summary-paren">{{ part.value }}</span>
+                      <span v-else>{{ part.value }}</span>
+                    </template>
+                  </span>
+                </div>
+              </div>
+            </template>
+
+            <div v-else class="query-control">
+              <span class="search-icon" aria-hidden="true"></span>
+              <input
+                ref="queryInput"
+                v-model="state.queryText"
+                type="search"
+                aria-label="Advanced search query"
+                placeholder="pfam:PF00550 AND substrates:Leu"
+              />
+              <button
+                v-if="state.queryText"
+                type="button"
+                class="clear-button"
+                aria-label="Clear search"
+                title="Clear search"
+                @click="state.queryText = ''"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="submit-button" :disabled="!search.canSearch.value">
+                {{ view === 'builder' && !search.hasRules.value ? 'Browse all' : 'Search' }}
+              </button>
+              <span class="level-label">Show</span>
+              <div class="level-toggle" role="group" aria-label="Search result level">
+                <button
+                  v-for="option in levels"
+                  :key="option.level"
+                  type="button"
+                  :class="{ active: state.level === option.level }"
+                  :aria-pressed="state.level === option.level"
+                  @click="search.setLevel(option.level)"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <div v-if="state.error" class="search-error" role="alert">
+            <strong>{{ state.error.code }}</strong>: {{ state.error.message }}
+          </div>
+
+          <div v-if="state.response" class="results">
+            <SearchResultsTable
+              :level="state.searchedLevel"
+              :response="state.response"
+              :page="state.page"
+              :per-page="PAGE_SIZE"
+              :sort="state.sort"
+              :sortable-fields="search.sortableFields.value"
+              :selected-hit="state.selectedHit"
+              :loading="state.loading"
+              @select="emit('select', $event)"
+              @page="search.goToPage"
+              @sort="search.setSort"
+            />
+            <RefinePanel
+              :facets="state.response.facets ?? {}"
+              :labels="search.fieldLabels.value"
+              @add="search.addRefinement"
+            />
+          </div>
+          <div v-else class="search-empty">
+            <p v-if="state.loading">Searching...</p>
+            <template v-else>
+              <strong>Search the active index</strong>
+              <p v-if="view === 'builder'">Add conditions, then press Search.</p>
+              <p v-else>Type a word or field query, then press Enter.</p>
+            </template>
+          </div>
+        </template>
       </div>
 
       <footer class="dialog-footer">
@@ -111,81 +154,63 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import QueryBuilder from './QueryBuilder.vue'
+import RefinePanel from './RefinePanel.vue'
 import SearchHelpPopup from './SearchHelpPopup.vue'
-import SearchResultsPopover from './SearchResultsPopover.vue'
-import type {
-  RecordSearchHit,
-  RegionSearchHit,
-  SearchLevel,
-  SearchResponse,
-  SearchSchema
-} from '@/services/dataProviders/types'
+import SearchResultsTable from './SearchResultsTable.vue'
+import { PAGE_SIZE, type AdvancedSearch, type SearchHit } from '@/composables/useAdvancedSearch'
+import { describeCondition, summarizeRows } from '@/services/filterRows'
+import type { SearchLevel } from '@/services/dataProviders/types'
 
-type SearchHit = RegionSearchHit | RecordSearchHit
-
-interface SearchError {
-  code: string
-  message: string
-}
+type View = 'builder' | 'query' | 'help'
 
 const props = defineProps<{
-  query: string
-  level: SearchLevel
-  response: SearchResponse<SearchHit> | null
-  resultsQuery: string
-  resultsLevel: SearchLevel
-  selectedHit: SearchHit | null
-  loading: boolean
-  loadingMore: boolean
-  error: SearchError | null
-  schema: SearchSchema | null
-  schemaLoading: boolean
-  schemaError: SearchError | null
+  search: AdvancedSearch
 }>()
 
 const emit = defineEmits<{
-  (event: 'update:query', query: string): void
-  (event: 'update:level', level: SearchLevel): void
-  (event: 'search', payload: { query: string; level: SearchLevel; page: number }): void
-  (event: 'clear'): void
   (event: 'close'): void
-  (event: 'request-help'): void
-  (event: 'load-more'): void
-  (event: 'search-selected', hit: SearchHit): void
+  (event: 'select', hit: SearchHit): void
 }>()
 
+const state = props.search.state
 const queryInput = ref<HTMLInputElement | null>(null)
-const view = ref<'results' | 'help'>('results')
+const view = ref<View>(state.mode)
 
-function updateQuery(event: Event) {
-  emit('update:query', (event.target as HTMLInputElement).value)
-}
+const tabs: { view: View; label: string }[] = [
+  { view: 'builder', label: 'Query builder' },
+  { view: 'query', label: 'Query string' },
+  { view: 'help', label: 'Search help' }
+]
 
-function submit() {
-  view.value = 'results'
-  emit('search', { query: queryInput.value?.value ?? props.query, level: props.level, page: 1 })
-}
+const levels: { level: SearchLevel; label: string }[] = [
+  { level: 'region', label: 'Regions' },
+  { level: 'record', label: 'Records' }
+]
 
-function changeLevel(event: Event) {
-  const level = (event.target as HTMLSelectElement).value as SearchLevel
-  emit('update:level', level)
-  if (props.query.trim()) {
-    view.value = 'results'
-    emit('search', { query: props.query, level, page: 1 })
+const summary = computed(() => {
+  const fields = new Map(props.search.builderFields.value.map(field => [field.name, field]))
+  return summarizeRows(state.rows, condition => describeCondition(condition, fields))
+})
+
+async function showView(next: View) {
+  view.value = next
+  if (next === 'help') return
+  props.search.setMode(next)
+  if (next === 'query') {
+    await nextTick()
+    queryInput.value?.focus()
   }
 }
 
-function showHelp() {
-  view.value = 'help'
-  emit('request-help')
+function runSearch() {
+  props.search.search()
 }
 
 async function useExample(example: string) {
-  emit('update:query', example)
-  view.value = 'results'
-  await nextTick()
-  queryInput.value?.focus()
+  state.queryText = example
+  await showView('query')
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -194,7 +219,8 @@ function handleKeydown(event: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown)
-  queryInput.value?.focus()
+  props.search.loadSchema()
+  if (view.value === 'query') queryInput.value?.focus()
 })
 onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
 </script>
@@ -207,14 +233,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: min(12vh, 104px) 20px 20px;
+  padding: min(8vh, 64px) 20px 20px;
   background: rgba(22, 31, 38, 0.62);
 }
 
 .search-dialog {
   display: flex;
-  width: min(760px, 100%);
-  max-height: min(76vh, 720px);
+  width: min(1180px, 100%);
+  max-height: min(86vh, 960px);
   flex-direction: column;
   overflow: hidden;
   border: 1px solid #b9c5cc;
@@ -227,7 +253,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px 10px;
+  padding: 14px 18px 6px;
 }
 
 .dialog-header h2 {
@@ -257,11 +283,83 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   background: #edf2f5;
 }
 
+.dialog-tabs {
+  display: flex;
+  gap: 20px;
+  padding: 0 18px;
+  border-bottom: 1px solid #dce3e8;
+}
+
+.dialog-tabs button {
+  padding: 10px 1px 9px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #5b6973;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dialog-tabs button.active {
+  border-bottom-color: #1976b5;
+  color: #145f92;
+}
+
+.dialog-body {
+  flex: 1;
+  min-height: 260px;
+  overflow-y: auto;
+}
+
 .search-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 126px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #dce3e8;
+}
+
+.form-note {
+  margin: 0;
+  color: #52616d;
+  font-size: 13px;
+}
+
+.form-note.error {
+  color: #a1261d;
+}
+
+.summary {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f6f8f9;
+  color: #30434f;
+  font-size: 12px;
+}
+
+.summary-line {
+  display: flex;
   gap: 8px;
-  padding: 0 18px 14px;
+}
+
+.summary-joiner {
+  width: 30px;
+  flex-shrink: 0;
+  color: #687681;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.summary-op {
+  color: #687681;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.summary-paren {
+  color: #687681;
 }
 
 .query-control {
@@ -269,40 +367,21 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   min-width: 0;
 }
 
-.query-control input,
-.search-form select,
-.submit-button {
+.query-control input {
+  width: 100%;
   height: 42px;
+  box-sizing: border-box;
+  padding: 8px 36px 8px 38px;
+  border: 1px solid #aebbc4;
   border-radius: 4px;
+  background: #fff;
+  color: #263442;
   font: inherit;
   font-size: 14px;
 }
 
-.query-control input,
-.search-form select {
-  width: 100%;
-  border: 1px solid #aebbc4;
-  background: #fff;
-  color: #263442;
-}
-
-.query-control input {
-  padding: 8px 36px 8px 38px;
-}
-
 .query-control input::-webkit-search-cancel-button {
   appearance: none;
-}
-
-.search-form select {
-  padding: 7px 9px;
-}
-
-.query-control input:focus,
-.search-form select:focus,
-.search-dialog button:focus-visible {
-  outline: 2px solid #1976d2;
-  outline-offset: 1px;
 }
 
 .search-icon {
@@ -335,12 +414,23 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   font-size: 20px;
 }
 
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
 .submit-button {
+  height: 34px;
   padding: 0 17px;
   border: 1px solid #176da7;
+  border-radius: 4px;
   background: #1976b5;
   color: #fff;
   cursor: pointer;
+  font: inherit;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -348,41 +438,51 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   background: #145f92;
 }
 
-.dialog-tabs {
-  display: flex;
-  gap: 20px;
-  padding: 0 18px;
-  border-bottom: 1px solid #dce3e8;
+.submit-button:disabled {
+  border-color: #a3afb7;
+  background: #a3afb7;
+  cursor: default;
 }
 
-.dialog-tabs button {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 10px 1px 9px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: #5b6973;
+.level-label {
+  color: #52616d;
+  font-size: 13px;
+}
+
+.level-toggle {
+  display: inline-flex;
+}
+
+.level-toggle button {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #aebbc4;
+  background: #fff;
+  color: #30434f;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
 }
 
-.dialog-tabs button.active {
-  border-bottom-color: #1976b5;
-  color: #145f92;
+.level-toggle button:first-child {
+  border-radius: 4px 0 0 4px;
 }
 
-.result-count {
-  min-width: 20px;
-  padding: 1px 6px;
-  border-radius: 10px;
-  background: #e7eef2;
-  color: #40525e;
-  font-size: 11px;
-  text-align: center;
+.level-toggle button:last-child {
+  margin-left: -1px;
+  border-radius: 0 4px 4px 0;
+}
+
+.level-toggle button.active {
+  border-color: #1976b5;
+  background: #1976b5;
+  color: #fff;
+}
+
+.query-control input:focus,
+.search-dialog button:focus-visible {
+  outline: 2px solid #1976d2;
+  outline-offset: 1px;
 }
 
 .search-error {
@@ -393,15 +493,17 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   font-size: 12px;
 }
 
-.dialog-body {
-  flex: 1;
-  min-height: 220px;
-  overflow-y: auto;
+.results {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 230px;
+  align-items: start;
+  gap: 14px;
+  padding: 14px 18px;
 }
 
 .search-empty {
   display: flex;
-  min-height: 220px;
+  min-height: 160px;
   align-items: center;
   justify-content: center;
   flex-direction: column;
@@ -439,7 +541,7 @@ kbd {
   font: 10px 'IBM Plex Mono', 'Liberation Mono', monospace;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 800px) {
   .search-overlay {
     padding: 8px;
   }
@@ -448,18 +550,8 @@ kbd {
     max-height: calc(100vh - 16px);
   }
 
-  .search-form {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .search-form select {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-
-  .submit-button {
-    grid-column: 2;
-    grid-row: 1;
+  .results {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

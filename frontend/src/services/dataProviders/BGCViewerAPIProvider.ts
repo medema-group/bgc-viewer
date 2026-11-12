@@ -14,7 +14,7 @@ import {
   RegionSearchHit,
   RecordSearchHit,
   SearchResponse,
-  FilterGroup,
+  SearchCriteria,
   StructuredSearchOptions,
   FieldValuesResponse
 } from './types'
@@ -76,7 +76,7 @@ export class BGCViewerAPIProvider extends DataProvider {
 
   /**
    * List records from the backend record index.
-   * The query is ignored: attribute search goes through searchLevel(),
+   * The query is ignored: attribute search goes through search(),
    * which is backed by the Tantivy search index.
    * @param _query - Unused
    * @param page - Page number (default: 1)
@@ -122,65 +122,32 @@ export class BGCViewerAPIProvider extends DataProvider {
     }
   }
 
-  async searchLevel(
+  async search(
     level: 'region',
-    query: string,
-    page?: number,
-    perPage?: number
-  ): Promise<SearchResponse<RegionSearchHit>>
-  async searchLevel(
-    level: 'record',
-    query: string,
-    page?: number,
-    perPage?: number
-  ): Promise<SearchResponse<RecordSearchHit>>
-  async searchLevel(
-    level: SearchLevel,
-    query: string,
-    page?: number,
-    perPage?: number
-  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit>>
-  async searchLevel(
-    level: SearchLevel,
-    query: string,
-    page: number = 1,
-    perPage: number = 20
-  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit>> {
-    const response = await this.axiosInstance.post(`/api/search/${level}`, {
-      query,
-      page,
-      per_page: perPage
-    })
-    return response.data
-  }
-
-  async searchFilter(
-    level: 'region',
-    filter: FilterGroup,
+    criteria: SearchCriteria,
     options?: StructuredSearchOptions
   ): Promise<SearchResponse<RegionSearchHit>>
-  async searchFilter(
+  async search(
     level: 'record',
-    filter: FilterGroup,
+    criteria: SearchCriteria,
     options?: StructuredSearchOptions
   ): Promise<SearchResponse<RecordSearchHit>>
-  async searchFilter(
+  async search(
     level: SearchLevel,
-    filter: FilterGroup,
+    criteria: SearchCriteria,
     options?: StructuredSearchOptions
   ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit>>
-  async searchFilter(
+  async search(
     level: SearchLevel,
-    filter: FilterGroup,
+    criteria: SearchCriteria,
     options: StructuredSearchOptions = {}
   ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit>> {
     const response = await this.axiosInstance.post(`/api/search/${level}`, {
-      filter,
+      ...criteria,
       page: options.page ?? 1,
       per_page: options.perPage ?? 20,
-      sort: options.sort,
-      facets: options.facets,
-      facet_size: options.facetSize
+      ...(options.sort ? { sort: options.sort } : {}),
+      ...(options.facets?.length ? { facets: options.facets, facet_size: options.facetSize } : {})
     })
     return response.data
   }
