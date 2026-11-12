@@ -20,6 +20,9 @@ it reuses.
 | Region facets from the antiSMASH analysis modules | `backend/bgc_viewer/search/facets.py` |
 | Build sentinel and rebuild signaling | `backend/bgc_viewer/search/build_state.py` |
 | HTTP request/response contract | `backend/bgc_viewer/search/api.py` |
+| Search dialog state (builder rows, results, paging, sorting) | `frontend/src/composables/useAdvancedSearch.ts` |
+| Builder rows to and from `FilterGroup`, summary, operator labels | `frontend/src/services/filterRows.ts` |
+| Search dialog, query builder, results table, refine panel | `frontend/src/components/SearchDialog.vue`, `QueryBuilder.vue`, `ConditionRow.vue`, `ValueCombobox.vue`, `SearchResultsTable.vue`, `RefinePanel.vue` |
 | Search CLI | `backend/bgc_viewer/search/cli.py` |
 | Indexing CLI | `backend/preprocess_cli.py` |
 | Preprocessing integration | `backend/bgc_viewer/preprocessing.py` |
@@ -239,6 +242,9 @@ A new field touches two places plus tests:
    (`OPERATORS_BY_KIND`), and so do whether its values can be counted
    (exact text and yes/no fields) and whether hits can be sorted by it (a
    single-valued exact, number, or yes/no field).
+   The query builder lists the field from the schema endpoint, under its
+   `group`, with no frontend change. To show it in the Refine panel too,
+   add it to `REFINE_FIELDS` in `useAdvancedSearch.ts`.
 2. **Extraction** — collect the values as a list under the field name, in
    `_document_values()` in `extraction.py` for a value read from features, or
    in a function of `facets.py` for one read from the record's `modules`. An

@@ -8,6 +8,35 @@
         </div>
 
         <template v-else-if="schema">
+          <section class="help-section guide-section">
+            <h3>Query builder</h3>
+            <p>
+              Each row compares one field to a value. Rows after the first start
+              with <strong>AND</strong> or <strong>OR</strong>, and AND binds before
+              OR: <em>a AND b OR c</em> means <em>(a AND b) OR c</em>. Add a group
+              for other brackets. Without conditions, Browse all lists every region.
+            </p>
+            <ul>
+              <li>
+                <strong>is</strong> and <strong>is any of</strong> match whole values
+                exactly, including case; pick them from the suggestions, which show
+                how many regions hold each value. <strong>contains</strong>,
+                <strong>starts with</strong>, and <strong>ends with</strong> ignore case.
+              </li>
+              <li>
+                <strong>Any text contains</strong> finds each word inside any text
+                value of a region.
+              </li>
+              <li>
+                <strong>Query string</strong> (under General) puts a query in the
+                syntax below among the rows.
+              </li>
+              <li>
+                Click a value under <strong>Refine</strong> to add it as a condition.
+              </li>
+            </ul>
+          </section>
+
           <section class="help-section">
             <h3>Example queries</h3>
             <div v-if="schema.examples.length" class="example-list">
@@ -28,22 +57,29 @@
 
           <section class="help-section">
             <h3>Available fields</h3>
-            <div class="field-list">
-              <div v-for="field in schema.fields" :key="field.name" class="field-row">
-                <div class="field-heading">
-                  <code>{{ field.name }}</code>
-                  <span class="kind-badge">{{ field.kind }}</span>
-                  <span v-if="field.default_search" class="default-search-marker">
-                    Searched by a bare term
-                  </span>
+            <div v-for="[group, fields] in fieldGroups" :key="group" class="field-group">
+              <h4>{{ group }}</h4>
+              <div class="field-list">
+                <div v-for="field in fields" :key="field.name" class="field-row">
+                  <div class="field-heading">
+                    <span class="field-label">{{ field.label }}</span>
+                    <code>{{ field.name }}</code>
+                    <span class="kind-badge">{{ field.kind }}</span>
+                    <span v-if="field.default_search" class="default-search-marker">
+                      Searched by a bare term
+                    </span>
+                  </div>
+                  <p>{{ field.description }}</p>
                 </div>
-                <p>{{ field.description }}</p>
               </div>
             </div>
           </section>
 
           <section class="help-section syntax-section">
-            <h3>Operators</h3>
+            <h3>Query string syntax</h3>
+            <p>
+              Name a field as <code>field:value</code>, using the names above.
+            </p>
             <p>
               Whitespace implies <code>OR</code>. Combine clauses with
               <code>AND</code>, <code>OR</code>, <code>NOT</code>, and parentheses.
@@ -61,18 +97,28 @@
 </template>
 
 <script setup lang="ts">
-import type { SearchSchema } from '@/services/dataProviders/types'
+import { computed } from 'vue'
+import type { SearchFieldInfo, SearchSchema } from '@/services/dataProviders/types'
 
 interface SearchError {
   code: string
   message: string
 }
 
-defineProps<{
+const props = defineProps<{
   schema: SearchSchema | null
   loading: boolean
   error: SearchError | null
 }>()
+
+// Fields by group, in registry order, as the builder's field picker groups them.
+const fieldGroups = computed(() => {
+  const groups = new Map<string, SearchFieldInfo[]>()
+  for (const field of props.schema?.fields ?? []) {
+    groups.set(field.group, [...(groups.get(field.group) ?? []), field])
+  }
+  return [...groups]
+})
 
 defineEmits<{
   (event: 'use-example', example: string): void
@@ -131,8 +177,35 @@ defineEmits<{
   gap: 7px;
 }
 
+.field-group + .field-group {
+  margin-top: 14px;
+}
+
+.field-group h4 {
+  margin: 0 0 4px;
+  color: #40525e;
+  font-size: 13px;
+}
+
+.field-label {
+  color: #263442;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.guide-section ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.guide-section li + li {
+  margin-top: 4px;
+}
+
 .field-row p,
-.syntax-section p {
+.syntax-section p,
+.guide-section p,
+.guide-section li {
   margin: 5px 0 0;
   color: #52616d;
   font-size: 13px;
@@ -145,8 +218,7 @@ code {
 
 .field-heading code {
   color: #173f5f;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
 }
 
 .kind-badge {

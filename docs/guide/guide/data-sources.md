@@ -28,7 +28,7 @@ The fastest way to get started. Upload files directly in your browser—no serve
 
 For larger datasets or when you want persistent access to your data with powerful search capabilities.
 
-**How it works:** Index a directory of antiSMASH JSON files once, then explore them through the web interface. The backend creates a searchable database, enabling efficient filtering and search across your entire dataset.
+**How it works:** Index a directory of antiSMASH JSON files once, then explore them through the web interface. The backend creates a searchable database, enabling efficient filtering and search across your entire dataset (see [Searching](./search.md)).
 
 **Supported formats:**
 - antiSMASH JSON files (`.json`)

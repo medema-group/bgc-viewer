@@ -33,7 +33,8 @@ export default defineConfig({
           { text: 'Introduction', link: '/guide/introduction' },
           { text: 'Quick Start', link: '/guide/quick-start' },
           { text: 'Developer Setup', link: '/guide/dev-setup' },
-          { text: 'Data Sources & Formats', link: '/guide/data-sources' }
+          { text: 'Data Sources & Formats', link: '/guide/data-sources' },
+          { text: 'Searching', link: '/guide/search' }
         ]
       },
       {
@@ -57,7 +58,7 @@ export default defineConfig({
           { text: 'Data Loading', link: '/api/data-loading' },
           { text: 'Records & Features', link: '/api/records' },
           { text: 'Database', link: '/api/database' },
-          { text: 'Protocluster Search', link: '/api/search' },
+          { text: 'Region Search', link: '/api/search' },
           { text: 'File System (Local)', link: '/api/filesystem' }
         ]
       },

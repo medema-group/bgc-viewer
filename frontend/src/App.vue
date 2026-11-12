@@ -113,7 +113,6 @@
           :record-id="currentRecordId"
           :record-data="currentRecordData"
           :initial-region-id="initialRegionId"
-          :initial-protocluster-number="initialProtoclusterNumber"
           @region-changed="handleRegionChanged"
           @annotation-clicked="handleAnnotationClicked"
           @error="handleViewerError"
@@ -201,7 +200,6 @@ export default {
     const currentRecordId = ref('')
     const currentRecordData = ref(null)
     const initialRegionId = ref('')
-    const initialProtoclusterNumber = ref(null)
 
     // Advanced backend search state, kept while the search dialog is closed
     const searchDialogOpen = ref(false)
@@ -265,7 +263,7 @@ export default {
       searchDialogOpen.value = false
     }
 
-    const handleRecordSelected = async (recordData, regionId = '', protoclusterNumber = null) => {
+    const handleRecordSelected = async (recordData, regionId = '') => {
       recordListSelectorRef.value?.setSelectedEntry(recordData.entryId)
 
       // Store the selected entry ID - container will load it through the provider
@@ -290,7 +288,6 @@ export default {
       // Use entryId (which includes filename) for uniqueness, not recordId
       currentRecordId.value = recordData.entryId
       initialRegionId.value = regionId
-      initialProtoclusterNumber.value = protoclusterNumber
       
       console.log('Record selected:', recordData.recordId, 'from', recordData.filename, '(entryId:', recordData.entryId, ')')
     }
@@ -601,7 +598,6 @@ export default {
       advancedSearch,
       sidebarTopHeight,
       initialRegionId,
-      initialProtoclusterNumber,
       sidebarWidth,
       handleFolderSelected,
       handleFolderChanged,

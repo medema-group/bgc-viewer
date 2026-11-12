@@ -49,7 +49,12 @@ describe('SearchHelpPopup', () => {
     expect(wrapper.text()).toContain('"a b"*')
 
     const headings = wrapper.findAll('.help-section h3').map(heading => heading.text())
-    expect(headings).toEqual(['Example queries', 'Available fields', 'Operators'])
+    expect(headings).toEqual(['Query builder', 'Example queries', 'Available fields', 'Query string syntax'])
+    expect(wrapper.findAll('.field-group h4').map(heading => heading.text())).toEqual([
+      'Functional hits',
+      'Region'
+    ])
+    expect(wrapper.get('.field-label').text()).toBe('PFAM')
 
     const link = wrapper.get('a')
     expect(link.attributes('href')).toBe(schema.query_syntax_url)
