@@ -266,6 +266,25 @@ class TestSearchIndexIntegration:
         assert not marker.exists()
         assert result["indexed_regions"] == 2
 
+    def test_preprocessing_skips_other_tantivy_indexes(self, sample_json_file):
+        """A renamed old index in the input folder is not read as antiSMASH output."""
+        temp_dir = sample_json_file.parent
+        index_path = str(temp_dir / "attributes.db")
+        preprocess_antismash_files(str(temp_dir), index_path)
+        (temp_dir / "tantivy.index").rename(temp_dir / "tantivy.index_old")
+
+        result = preprocess_antismash_files(str(temp_dir), index_path)
+        assert result["indexed_regions"] == 2
+
+    def test_preprocessing_error_names_a_file_without_antismash_header(
+        self, sample_json_file
+    ):
+        temp_dir = sample_json_file.parent
+        (temp_dir / "other.json").write_text(json.dumps({"records": []}))
+
+        with pytest.raises(ExtractionError, match=r"^other\.json: .*version"):
+            preprocess_antismash_files(str(temp_dir), str(temp_dir / "attributes.db"))
+
     def test_preprocessing_failed_build_leaves_no_index(self, temp_dir):
         """A structurally incompatible file fails the build and leaves no index."""
         sample = {

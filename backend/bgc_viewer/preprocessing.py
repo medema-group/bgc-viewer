@@ -277,11 +277,16 @@ def _build_pair(
 
     # The search index is a fixed sibling of the database; its meta.json must
     # never be treated as a source file when scanning the input directory.
+    # Neither may that of any other Tantivy index in the input directory, such
+    # as a renamed or copied old one, which Tantivy marks with .managed.json.
     search_index_dir = db_path.parent / "tantivy.index"
     resolved_index_dir = search_index_dir.resolve()
 
     def is_index_artifact(path: Path) -> bool:
-        return path.resolve().is_relative_to(resolved_index_dir)
+        return (
+            path.resolve().is_relative_to(resolved_index_dir)
+            or (path.parent / ".managed.json").exists()
+        )
 
     # Populate metadata table with the data root (input directory)
     data_root = str(input_path.absolute())

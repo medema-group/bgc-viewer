@@ -646,7 +646,13 @@ def _extract_file(
                     )
                 )
         except ExtractionError as extraction_error:
-            error = extraction_error
+            # Errors from the records already name the file; one from its
+            # header, read before the file is known as a source, does not.
+            error = (
+                extraction_error
+                if source is not None
+                else ExtractionError(f"{relative_path}: {extraction_error}")
+            )
     return _FileResult(
         source,
         documents,
