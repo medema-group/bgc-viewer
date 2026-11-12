@@ -1,19 +1,21 @@
 import multiprocessing
 import os
-import re
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import ijson
 from tantivy import Document
 
 from bgc_viewer.data_loader import open_file
 
-from .document import Location, SourceFile
+from . import facets
+from .document import SEARCH_FIELDS, TEXT_FIELD, Location, SourceFile
+from .facets import RegionScope, normalize_pfam
 
 
 class ExtractionError(ValueError):
@@ -50,6 +52,22 @@ class _Feature:
     location: Location
     qualifiers: Mapping[str, object]
     json_path: str
+
+
+# Feature types that only contribute optional values, so a malformed one is
+# skipped with a warning instead of failing the file.
+_OPTIONAL_FEATURE_TYPES = frozenset(
+    {"gene", "PFAM_domain", "CDS", "aSDomain", "cand_cluster"}
+)
+
+# CDS ``gene_kind`` qualifier -> the field counting CDS features of that kind.
+_GENE_KIND_FIELDS = {
+    "biosynthetic": "n_core_biosynthetic",
+    "biosynthetic-additional": "n_additional_biosynthetic",
+    "transport": "n_transport",
+    "regulatory": "n_regulatory",
+    "resistance": "n_resistance",
+}
 
 
 def _mapping(value: object, path: str) -> Mapping[str, object]:
@@ -105,14 +123,13 @@ def _feature(value: object, path: str) -> _Feature:
     return _Feature(feature_type, location, qualifiers, path)
 
 
-def _normalize_pfam(accession: str) -> str:
-    """Remove a numeric version from a standard PFAM accession.
-
-    For example, ``PF00512.28`` becomes ``PF00512``. Non-standard database
-    cross-references and unversioned accessions are retained unchanged.
-    """
-    match = re.fullmatch(r"(PF\d{5})\.\d+", accession)
-    return match.group(1) if match else accession
+def _cds_name(cds: _Feature) -> str | None:
+    """The name antiSMASH gives a CDS, and keys its module results by."""
+    for qualifier in ("locus_tag", "gene", "protein_id"):
+        values = _values(cds.qualifiers, qualifier)
+        if values:
+            return values[0]
+    return None
 
 
 def _parent_region_key(region: _Feature, record_path: str) -> tuple[int, int, str]:
@@ -152,7 +169,7 @@ def _parse_features(
         try:
             features.append(_feature(raw_feature, feature_path))
         except (ExtractionError, ValueError) as error:
-            if feature_type not in {"gene", "PFAM_domain"}:
+            if feature_type not in _OPTIONAL_FEATURE_TYPES:
                 raise
             _emit_warning(
                 ExtractionWarning(
@@ -204,7 +221,7 @@ def _select_parent_region(
 
 
 def _annotation_values(
-    protocluster: _Feature,
+    region: _Feature,
     annotations: list[_Feature],
     source_path: str,
     record_id: str,
@@ -216,7 +233,7 @@ def _annotation_values(
     pfams: list[str] = []
     pfam_names: list[str] = []
     for annotation in annotations:
-        if not protocluster.location.overlaps(annotation.location):
+        if not region.location.overlaps(annotation.location):
             continue
         if annotation.feature_type == "gene":
             genes.extend(_values(annotation.qualifiers, "gene"))
@@ -239,7 +256,7 @@ def _annotation_values(
                     warning_threshold,
                 )
                 continue
-            pfams.extend(_normalize_pfam(value) for value in accessions)
+            pfams.extend(normalize_pfam(value) for value in accessions)
             pfam_names.extend(_values(annotation.qualifiers, "description"))
     return (
         tuple(dict.fromkeys(genes)),
@@ -249,58 +266,159 @@ def _annotation_values(
     )
 
 
-def _add_text(document: Document, name: str, value: str) -> None:
-    if value:
-        document.add_text(name, value)
+@dataclass(frozen=True)
+class _RecordContext:
+    """The parts of a record every one of its regions is extracted from."""
+
+    record_id: str
+    record_path: str
+    organism: str
+    annotations: list[_Feature]
+    cds_features: list[_Feature]
+    candidates: list[_Feature]
+    domain_cds: Mapping[str, str]
+    modules: Mapping[str, Any]
 
 
-def _add_texts(document: Document, name: str, values: tuple[str, ...]) -> None:
-    for value in values:
-        document.add_text(name, value)
+def _protocluster_values(
+    protoclusters: list[_Feature], record_path: str
+) -> tuple[list[str], list[str], list[str], frozenset[str]]:
+    products: list[str] = []
+    categories: list[str] = []
+    rules: list[str] = []
+    numbers: set[str] = set()
+    for protocluster in protoclusters:
+        products.append(
+            _required_value(protocluster.qualifiers, "product", record_path)
+        )
+        category = _values(protocluster.qualifiers, "product_category") or _values(
+            protocluster.qualifiers, "category"
+        )
+        if not category:
+            raise ExtractionError(
+                f"Missing protocluster product category in {record_path}"
+            )
+        categories.append(category[0])
+        rules.extend(_values(protocluster.qualifiers, "detection_rule"))
+        numbers.add(
+            str(_number(protocluster.qualifiers, "protocluster_number", record_path))
+        )
+    return products, categories, rules, frozenset(numbers)
 
 
-def _document(
-    protocluster: _Feature,
-    annotations: list[_Feature],
-    organism: str,
-    record_id: str,
-    record_path: str,
-    source: SourceFile,
+def _document_values(
+    region: _Feature,
     region_number: int,
-    protocluster_number: int,
+    protoclusters: list[_Feature],
+    context: _RecordContext,
+    source: SourceFile,
     warning_counts: dict[str, int],
     warning_threshold: int,
-) -> Document:
-    category = _values(protocluster.qualifiers, "product_category") or _values(
-        protocluster.qualifiers, "category"
+) -> dict[str, list[Any]]:
+    """Collect every field value of one region, keyed by field name."""
+    qualifiers = region.qualifiers
+    products, categories, rules, protocluster_numbers = _protocluster_values(
+        protoclusters, context.record_path
     )
-    if not category:
-        raise ExtractionError(f"Missing protocluster product category in {record_path}")
+    if not protoclusters:
+        products = list(_values(qualifiers, "product"))
+    contig_edge = _values(qualifiers, "contig_edge")
+    candidate_kinds = [
+        kind
+        for candidate in context.candidates
+        if region.location.contains(candidate.location)
+        for kind in _values(candidate.qualifiers, "kind")
+    ]
+
+    region_cds = [
+        cds for cds in context.cds_features if region.location.overlaps(cds.location)
+    ]
+    gene_kind_counts = dict.fromkeys(_GENE_KIND_FIELDS.values(), 0)
+    for cds in region_cds:
+        kinds = _values(cds.qualifiers, "gene_kind")
+        if kinds and kinds[0] in _GENE_KIND_FIELDS:
+            gene_kind_counts[_GENE_KIND_FIELDS[kinds[0]]] += 1
+
     genes, loci, pfams, pfam_names = _annotation_values(
-        protocluster,
-        annotations,
+        region,
+        context.annotations,
         source.output_file,
-        record_id,
+        context.record_id,
         warning_counts,
         warning_threshold,
     )
-    document = Document()
-    document.add_text("record", record_id)
-    document.add_integer("region", region_number)
-    document.add_integer("protocluster", protocluster_number)
-    document.add_integer("start", protocluster.location.start)
-    document.add_integer("end", protocluster.location.end)
-    document.add_text(
-        "product", _required_value(protocluster.qualifiers, "product", record_path)
+
+    values: dict[str, list[Any]] = {
+        "record": [context.record_id],
+        "region": [region_number],
+        "start": [region.location.start],
+        "end": [region.location.end],
+        "length": [sum(part.end - part.start for part in region.location.parts)],
+        "product": list(dict.fromkeys(products)),
+        "product_category": list(dict.fromkeys(categories)),
+        "num_protoclusters": [len(protoclusters)],
+        "candidate_kind": list(dict.fromkeys(candidate_kinds)),
+        "detection_rules": list(dict.fromkeys([*_values(qualifiers, "rules"), *rules])),
+        "is_complete": [not (contig_edge and contig_edge[0].lower() == "true")],
+        "organism": [context.organism] if context.organism else [],
+        "output_file": [source.output_file],
+        "input_file": [source.input_file] if source.input_file else [],
+        "gene": list(genes),
+        "locus": list(loci),
+        "num_cds_features": [len(region_cds)],
+        **{name: [count] for name, count in gene_kind_counts.items()},
+    }
+
+    scope = RegionScope(
+        location=region.location,
+        number=region_number,
+        products=tuple(values["product"]),
+        cds_names=frozenset(
+            name for name in map(_cds_name, region_cds) if name is not None
+        ),
+        protocluster_numbers=protocluster_numbers,
+        domain_cds=context.domain_cds,
     )
-    document.add_text("category", category[0])
-    _add_text(document, "organism", organism)
-    _add_texts(document, "pfam", pfams)
-    _add_texts(document, "pfam_name", pfam_names)
-    _add_texts(document, "gene", genes)
-    _add_texts(document, "locus", loci)
-    document.add_text("output_file", source.output_file)
-    _add_text(document, "input_file", source.input_file)
+    functional, hit_pfams, hit_pfam_names = facets.functional_hits(
+        context.modules, scope
+    )
+    values["pfam"] = list(dict.fromkeys([*pfams, *hit_pfams]))
+    values["pfam_desc"] = list(dict.fromkeys([*pfam_names, *hit_pfam_names]))
+    values.update(functional)
+    values.update(facets.go_terms(context.modules, values["pfam"]))
+    values.update(facets.nrps_pks(context.modules, scope))
+    values.update(facets.terpene_t2pks(context.modules, scope))
+    values.update(facets.ripp(context.modules, scope))
+    values.update(facets.comparative(context.modules, scope))
+    return values
+
+
+def build_document(values: Mapping[str, list[Any]]) -> Document:
+    """Write collected field values into a Tantivy document.
+
+    Each value is added with the method for its field's type, and the text
+    values of every field that sets ``in_text`` are also added to the
+    catch-all text field.
+    """
+    unknown = set(values) - {field.name for field in SEARCH_FIELDS}
+    if unknown:
+        raise AssertionError(f"Values for unregistered fields: {sorted(unknown)}")
+    document = Document()
+    text: list[str] = []
+    for field in SEARCH_FIELDS:
+        for value in values.get(field.name, ()):
+            if field.is_text:
+                document.add_text(field.name, value)
+                if field.in_text:
+                    text.append(value)
+            elif field.tokenizer == "integer":
+                document.add_integer(field.name, value)
+            elif field.tokenizer == "float":
+                document.add_float(field.name, value)
+            else:
+                document.add_boolean(field.name, value)
+    for value in dict.fromkeys(text):
+        document.add_text(TEXT_FIELD, value)
     return document
 
 
@@ -308,10 +426,9 @@ def _check_identity(
     source: SourceFile,
     record_id: str,
     region_number: int,
-    protocluster_number: int,
-    identities: dict[tuple[str, str, int, int], SourceFile],
+    identities: dict[tuple[str, str, int], SourceFile],
 ) -> None:
-    identity = (source.input_file, record_id, region_number, protocluster_number)
+    identity = (source.input_file, record_id, region_number)
     previous_source = identities.get(identity)
     if previous_source is not None:
         identity_text = ":".join(str(value) for value in identity)
@@ -324,15 +441,54 @@ def _check_identity(
     identities[identity] = source
 
 
+def _record_context(
+    record: Mapping[str, object],
+    record_id: str,
+    record_path: str,
+    features: list[_Feature],
+) -> _RecordContext:
+    source_features = [
+        feature for feature in features if feature.feature_type == "source"
+    ]
+    organism_values = (
+        _values(source_features[0].qualifiers, "organism") if source_features else ()
+    )
+    domain_cds: dict[str, str] = {}
+    for feature in features:
+        if feature.feature_type != "aSDomain":
+            continue
+        domain_ids = _values(feature.qualifiers, "domain_id")
+        cds_names = _values(feature.qualifiers, "locus_tag")
+        if domain_ids and cds_names:
+            domain_cds[domain_ids[0]] = cds_names[0]
+    modules = record.get("modules")
+    return _RecordContext(
+        record_id=record_id,
+        record_path=record_path,
+        organism=organism_values[0] if organism_values else "",
+        annotations=[
+            feature
+            for feature in features
+            if feature.feature_type in {"gene", "PFAM_domain"}
+        ],
+        cds_features=[feature for feature in features if feature.feature_type == "CDS"],
+        candidates=[
+            feature for feature in features if feature.feature_type == "cand_cluster"
+        ],
+        domain_cds=domain_cds,
+        modules=modules if isinstance(modules, dict) else {},
+    )
+
+
 def _extract_records(
     records: Iterable[object],
     source: SourceFile,
     warning_threshold: int,
-    identities: dict[tuple[str, str, int, int], SourceFile],
+    identities: dict[tuple[str, str, int], SourceFile],
 ) -> Iterator[Document]:
     source_path = source.output_file
     warning_counts: dict[str, int] = {}
-    found_protocluster = False
+    found_region = False
 
     for record_index, raw_record in enumerate(records):
         record_path = f"records[{record_index}]"
@@ -346,25 +502,15 @@ def _extract_records(
             warning_counts,
             warning_threshold,
         )
-        source_features = [
-            feature for feature in features if feature.feature_type == "source"
-        ]
-        organism_values = (
-            _values(source_features[0].qualifiers, "organism")
-            if source_features
-            else ()
-        )
         regions = [feature for feature in features if feature.feature_type == "region"]
-        annotations = [
-            feature
-            for feature in features
-            if feature.feature_type in {"gene", "PFAM_domain"}
-        ]
 
+        # Each protocluster belongs to the smallest region containing it.
+        protoclusters: dict[str, list[_Feature]] = {
+            region.json_path: [] for region in regions
+        }
         for protocluster in (
             feature for feature in features if feature.feature_type == "protocluster"
         ):
-            found_protocluster = True
             parent = _select_parent_region(
                 protocluster,
                 regions,
@@ -374,35 +520,32 @@ def _extract_records(
                 warning_counts,
                 warning_threshold,
             )
-            region_number = _number(parent.qualifiers, "region_number", record_path)
-            protocluster_number = _number(
-                protocluster.qualifiers, "protocluster_number", record_path
-            )
-            document = _document(
-                protocluster,
-                annotations,
-                organism_values[0] if organism_values else "",
-                record_id,
-                record_path,
-                source,
+            protoclusters[parent.json_path].append(protocluster)
+
+        context = _record_context(record, record_id, record_path, features)
+        for region in regions:
+            found_region = True
+            region_number = _number(region.qualifiers, "region_number", record_path)
+            values = _document_values(
+                region,
                 region_number,
-                protocluster_number,
+                protoclusters[region.json_path],
+                context,
+                source,
                 warning_counts,
                 warning_threshold,
             )
-            _check_identity(
-                source, record_id, region_number, protocluster_number, identities
-            )
-            yield document
+            _check_identity(source, record_id, region_number, identities)
+            yield build_document(values)
 
-    if not found_protocluster:
+    if not found_region:
         _emit_warning(
             ExtractionWarning(
-                code="no_protoclusters",
+                code="no_regions",
                 source_path=source_path,
                 record_id="",
                 json_path="records",
-                message="Selected file contains no protoclusters",
+                message="Selected file contains no regions",
             ),
             warning_counts,
             warning_threshold,
@@ -433,7 +576,7 @@ def extract(
     source: SourceFile,
     *,
     warning_threshold: int = 100,
-    identities: dict[tuple[str, str, int, int], SourceFile] | None = None,
+    identities: dict[tuple[str, str, int], SourceFile] | None = None,
 ) -> Iterator[Document]:
     """Extract Tantivy documents from already-decoded antiSMASH record objects.
 
@@ -459,7 +602,7 @@ def extract(
         ) from error
 
 
-_Identity = tuple[str, str, int, int]
+_Identity = tuple[str, str, int]
 
 
 @dataclass(frozen=True)
@@ -493,7 +636,7 @@ def _extract_file(
             version, input_file = _read_file_metadata(source_path)
             source = SourceFile(version, relative_path, input_file)
             with open_file(source_path, "rb") as handle:
-                records = ijson.items(handle, "records.item")
+                records = ijson.items(handle, "records.item", use_float=True)
                 documents.extend(
                     extract(
                         records,
@@ -602,11 +745,11 @@ def _merge_results(
             raise result.error
         assert result.source is not None
         source = result.source
-        for document, (_, record_id, region, protocluster) in zip(
+        for document, (_, record_id, region) in zip(
             result.documents, result.identities
         ):
             try:
-                _check_identity(source, record_id, region, protocluster, identities)
+                _check_identity(source, record_id, region, identities)
             except ExtractionError as error:
                 raise ExtractionError(
                     f"{source.output_file} (antiSMASH {source.antismash_version}): "

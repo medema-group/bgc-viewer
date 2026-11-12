@@ -114,11 +114,14 @@ export interface RegionsResponse {
 
 export type PfamColorMap = Record<string, string>
 
-export type SearchLevel = 'protocluster' | 'region' | 'record'
+export type SearchLevel = 'region' | 'record'
 
 export interface SearchFieldInfo {
   name: string
-  kind: 'exact' | 'full_text' | 'numeric' | 'path'
+  kind: 'exact' | 'full_text' | 'numeric' | 'path' | 'boolean'
+  label: string
+  group: string
+  multi: boolean
   default_search: boolean
   description: string
 }
@@ -129,28 +132,19 @@ export interface SearchSchema {
   query_syntax_url: string
 }
 
-export interface ProtoclusterSearchHit {
+export interface RegionSearchHit {
   score: number
   fields: {
     record: string
     region: number
-    protocluster: number
     start: number | null
     end: number | null
-    product: string
-    category: string
-    organism: string
+    product: string[]
+    product_category: string[]
+    organism?: string
     output_file: string
-    input_file: string
+    input_file?: string
   }
-}
-
-export interface RegionSearchHit {
-  score: number
-  record: string
-  region: number
-  output_file: string
-  input_file: string | null
 }
 
 export interface RecordSearchHit {

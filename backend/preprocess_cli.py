@@ -156,7 +156,7 @@ def main():
         print("=" * 50)
         print(f"Files processed:     {results['files_processed']}")
         print(f"Total records:       {results['total_records']}")
-        print(f"Protoclusters indexed: {results['indexed_protoclusters']}")
+        print(f"Regions indexed: {results['indexed_regions']}")
         print(f"SQLite time:         {format_duration(results['sqlite_seconds'])}")
         print(f"Tantivy time:        {format_duration(results['tantivy_seconds'])}")
         print(f"Total time:          {format_duration(total_time)}")

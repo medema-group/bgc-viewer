@@ -1,8 +1,13 @@
 # Search Index
 
-Protocluster search runs on an embedded [Tantivy](https://github.com/quickwit-oss/tantivy) index built from antiSMASH JSON output and queried through Tantivy's native query language.
+Region search runs on an embedded [Tantivy](https://github.com/quickwit-oss/tantivy) index built from antiSMASH JSON output and queried through Tantivy's native query language.
 
-One Tantivy document is one protocluster.
+One Tantivy document is one antiSMASH region. The products, categories, and
+detection rules of the region's protoclusters are multi-valued fields of the
+region, and the record level is found by grouping matching regions by record.
+The field set follows the antiSMASH facets of the
+[BGC Atlas](https://github.com/ZiemertLab/bgc-atlas-web-v2), whose field names
+it reuses.
 
 ## Where things live
 
@@ -11,6 +16,7 @@ One Tantivy document is one protocluster.
 | Field registry, location parsing, example templates, schema version | `backend/bgc_viewer/search/document.py` |
 | Tantivy schema and query config, index build/open/search | `backend/bgc_viewer/search/index.py` |
 | antiSMASH JSON extraction to Tantivy documents | `backend/bgc_viewer/search/extraction.py` |
+| Region facets from the antiSMASH analysis modules | `backend/bgc_viewer/search/facets.py` |
 | Build sentinel and rebuild signaling | `backend/bgc_viewer/search/build_state.py` |
 | HTTP request/response contract | `backend/bgc_viewer/search/api.py` |
 | Search CLI | `backend/bgc_viewer/search/cli.py` |
@@ -23,27 +29,50 @@ One Tantivy document is one protocluster.
 
 A searchable field is declared once, in the single registry `SEARCH_FIELDS` in
 [`backend/bgc_viewer/search/document.py`](https://github.com/medema-group/bgc-viewer/blob/main/backend/bgc_viewer/search/document.py):
-an ordered tuple of `SearchField(name, tokenizer, description, boost, in_hits)`
-entries. Everything else is projected from it:
+an ordered tuple of `SearchField(name, tokenizer, label, group, description,
+multi, boost, in_hits, in_text, stored)` entries. Everything else is projected
+from it:
 
-1. **Schema** — `_SCHEMA` in
-   [`backend/bgc_viewer/search/index.py`](https://github.com/medema-group/bgc-viewer/blob/main/backend/bgc_viewer/search/index.py),
-   the `(name, tokenizer)` pairs that `build_schema()` turns into Tantivy
-   fields. The tokenizer is `raw` (exact whole-value match), `default`
-   (full-text), `path` (the custom path tokenizer), or `numeric` (a stored
-   integer with a fast field).
+1. **Schema** — `build_schema()` in
+   [`backend/bgc_viewer/search/index.py`](https://github.com/medema-group/bgc-viewer/blob/main/backend/bgc_viewer/search/index.py)
+   turns each entry into a Tantivy field. The `tokenizer` is the field type:
+   `raw` (exact whole-value match), `default` (full-text), `path` (the custom
+   path tokenizer), `integer`, `float`, or `boolean`. Exact text fields and
+   all number and boolean fields are fast fields, so they can be sorted and
+   aggregated.
 2. **Query config** — also in `index.py`, derived from the registry:
-   `_DEFAULT_SEARCH_FIELDS` (every field whose tokenizer is not `numeric`),
-   `_FIELD_BOOSTS` (the per-field query-time weight, never stored), and
-   `_RETURNED_FIELDS` (which stored fields come back in ordinary hits).
+   `_DEFAULT_SEARCH_FIELDS` (every text field), `_FIELD_BOOSTS` (the
+   per-field query-time weight, never stored), and `_RETURNED_FIELDS` (which
+   stored fields come back in ordinary hits; a `multi` field comes back as a
+   list).
 3. **Public metadata** — `PUBLIC_FIELDS` in `document.py`, projected from
-   the registry: the `PublicFieldInfo(name, kind, default_search,
-   description)` rows served to the help popup and `GET /api/search/schema`.
-   Both `kind` (`exact` / `full_text` / `path` / `numeric`) and
-   `default_search` are derived from the tokenizer rather than declared
-   separately.
-4. **Extraction** — `_document()` in `extraction.py`: how each field is
-   populated from antiSMASH JSON.
+   the registry: the `PublicFieldInfo(name, kind, label, group, multi,
+   default_search, description)` rows served to the help popup and
+   `GET /api/search/schema`. Both `kind` (`exact` / `full_text` / `path` /
+   `numeric` / `boolean`) and `default_search` are derived from the tokenizer
+   rather than declared separately.
+4. **Extraction** — `_document_values()` in `extraction.py` collects the
+   values of the fields read from features, the functions in `facets.py` those
+   read from the record's `modules`, and `build_document()` writes them with
+   the method for each field's type.
+
+### The catch-all text field
+
+The `text` field is full-text and indexed only. `build_document()` copies into
+it every value of every text field that sets `in_text`: all of them except
+sequences and SMILES (`core_seq`, `predicted_smiles`, …) and the path fields.
+A bare word therefore also matches inside fields whose whole value it does not
+equal, so `coelicolor` finds `organism:"Streptomyces coelicolor A3(2)"`.
+
+### Module facets
+
+The fields read from the antiSMASH analysis modules (NRPS/PKS predictions,
+RiPP precursors, ClusterBlast, ClusterCompare, TFBS, …) are scoped to a region
+with the full antiSMASH location and by the antiSMASH CDS name, which falls
+back from the locus tag to the gene name and protein ID, as the modules key
+their results by that name. Module content is read leniently: a missing or
+differently shaped part yields no values instead of failing the file, and a
+field whose module did not run is absent rather than zero.
 
 The current field set is defined in the code, not duplicated here: see
 `SEARCH_FIELDS` in `document.py`.
@@ -76,8 +105,12 @@ and phrase queries work.
 
 ```text
 product:T1PKS         matches  product:t1pks  does not
-organism:AMYCOLATOPSIS matches  organism:amycolatopsis matches
+text:AMYCOLATOPSIS    matches  text:amycolatopsis    matches
 ```
+
+`organism` is an exact field, so a word of it is searched through `text` or a
+bare term: `organism:Streptomyces` matches only an organism named exactly
+`Streptomyces`.
 
 ### Path fields
 
@@ -126,13 +159,13 @@ A `~N` after a quoted phrase is Tantivy's native slop: how far the query words
 may shift from sitting next to each other.
 
 ```text
-organism:"His Amycolatopsis"~1    matches His Kinase Amycolatopsis
+text:"His Amycolatopsis"~1    matches His Kinase Amycolatopsis
 ```
 
 A `*` after a quoted phrase makes its **last word** a prefix:
 
 ```text
-organism:"streptomyces coeli"*    matches Streptomyces coelicolor
+text:"streptomyces coeli"*    matches Streptomyces coelicolor
 ```
 
 ## Search CLI
@@ -146,11 +179,11 @@ uv run python preprocess_cli.py /path/to/data --output /tmp/bgv/attributes.db
 
 # Query it
 uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550 AND pfam:PF00668'
-uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'organism:Strepto*'
+uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'substrates:Leu AND knowncluster_top_similarity:[50 TO 100]'
 uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' --offset 2 --limit 2
 
-# Result granularity: protocluster (default), region, or record
-uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550' --level region
+# Result granularity: region (default) or record
+uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550' --level record
 ```
 
 Search documents are extracted from the JSON files in parallel worker processes,
@@ -170,15 +203,16 @@ stored Tantivy schema or the values that get stored, which means changing a
 field's:
 
 - `name` (the `SEARCH_FIELDS` entry in `document.py`)
-- tokenizer (`raw` / `default` / `path`) or its numeric-vs-text nature
-- the extraction semantics of an existing field (what value
-  `_document()` writes for it)
+- tokenizer (`raw` / `default` / `path` / `integer` / `float` / `boolean`)
+- `stored` or `in_text`, which change what is stored or copied into `text`
+- the extraction semantics of an existing field (what values
+  `_document_values()` or `facets.py` collect for it)
 
 Do **not** bump it for query-time or display-only changes: the boost
-(`boost`), the default-search flag (`default_search`), the returned-field
-flag (`in_hits`), and the public `description` are projected from the
-registry and applied when a query is parsed or a response is assembled,
-leaving the stored index untouched.
+(`boost`), the returned-field flag (`in_hits`), and the public `label`,
+`group`, and `description` are projected from the registry and applied when a
+query is parsed or a response is assembled, leaving the stored index
+untouched.
 
 ## Contributor recipes
 
@@ -186,32 +220,33 @@ leaving the stored index untouched.
 
 A new field touches two places plus tests:
 
-1. **Registry** — add a `SearchField(name, tokenizer, description, boost,
-   in_hits)` entry to `SEARCH_FIELDS` in `document.py`, where `tokenizer`
-   is `raw`, `default`, `path`, or `numeric`. Set `boost` for a text field
-   (numeric fields declare none) and `in_hits=True` when the value should
-   come back in ordinary hits. The Tantivy schema, query config, and
-   public metadata are projected from this entry; default search is
-   automatic for every non-numeric field.
-2. **Extraction** — populate the field in `_document()` in
-   `extraction.py`: add each item for a multi-valued field, skip a single
-   text field when empty, and use `add_integer` for a numeric field.
-   Missing optional data produces an empty value, not a failed file.
-3. Bump `SEARCH_SCHEMA_VERSION` if the change alters the stored schema,
-   per the rules above.
-4. Add a minimal fixture containing two protoclusters that differ only in
-   the new field under `backend/bgc_viewer/tests/search/fixtures/antismash8/`.
-5. Add exact or full-text, Boolean, default-search, and missing-value
-   tests as appropriate in `backend/bgc_viewer/tests/search/test_index.py`,
-   and a `PUBLIC_FIELDS` row check in `test_api.py`.
+1. **Registry** — add a `SearchField` entry to `SEARCH_FIELDS` in
+   `document.py`, or use the `_keyword`, `_sequence`, or `_number` helpers.
+   Give it a `label` and `group` for display, set `multi=True` when a region
+   can hold several values, and `in_hits=True` when the value should come back
+   in ordinary hits. The Tantivy schema, query config, and public metadata are
+   projected from this entry; default search is automatic for every text field.
+2. **Extraction** — collect the values as a list under the field name, in
+   `_document_values()` in `extraction.py` for a value read from features, or
+   in a function of `facets.py` for one read from the record's `modules`. An
+   empty list adds nothing, so missing optional data produces no value rather
+   than a failed file.
+3. Bump `SEARCH_SCHEMA_VERSION`, as the stored schema changes.
+4. Add tests: feature-derived fields in
+   `backend/bgc_viewer/tests/search/test_extraction.py`, module-derived ones in
+   `test_facets.py`, whose shared record has two regions so each test can check
+   the value is scoped to the right one.
 
 ### Supporting a changed antiSMASH major version
 
 There is no per-version adapter. `extraction.py` reads the current
 antiSMASH JSON structure directly and is version-agnostic: the declared
 `version` is read only for diagnostics (the duplicate-identity message).
-Any file whose record, feature, location, and protocluster qualifier
-structure matches the expected shape extracts successfully regardless of
-the declared major version. If a future major version changes that
-structure, update `_extract_records` / `_document` in `extraction.py`
-(and bump `SEARCH_SCHEMA_VERSION` if the stored values change).
+Any file whose record, feature, location, and region and protocluster
+qualifier structure matches the expected shape extracts successfully
+regardless of the declared major version. If a future major version changes
+that structure, update `_extract_records` / `_document_values` in
+`extraction.py` (and bump `SEARCH_SCHEMA_VERSION` if the stored values
+change). Module results are read leniently, so a changed module schema empties
+the affected fields rather than failing the file; update its function in
+`facets.py`.

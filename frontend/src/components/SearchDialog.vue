@@ -27,7 +27,7 @@
             :value="query"
             type="search"
             aria-label="Advanced search query"
-            placeholder="Search records, regions, and protoclusters"
+            placeholder="Search records and regions"
             @input="updateQuery"
           />
           <button
@@ -43,7 +43,6 @@
         </div>
 
         <select :value="level" aria-label="Search result level" @change="changeLevel">
-          <option value="protocluster">Protocluster</option>
           <option value="region">Region</option>
           <option value="record">Record</option>
         </select>
@@ -116,7 +115,6 @@ import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import SearchHelpPopup from './SearchHelpPopup.vue'
 import SearchResultsPopover from './SearchResultsPopover.vue'
 import type {
-  ProtoclusterSearchHit,
   RecordSearchHit,
   RegionSearchHit,
   SearchLevel,
@@ -124,7 +122,7 @@ import type {
   SearchSchema
 } from '@/services/dataProviders/types'
 
-type SearchHit = ProtoclusterSearchHit | RegionSearchHit | RecordSearchHit
+type SearchHit = RegionSearchHit | RecordSearchHit
 
 interface SearchError {
   code: string

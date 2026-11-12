@@ -1,11 +1,10 @@
 import type {
-  ProtoclusterSearchHit,
   RecordSearchHit,
   RegionSearchHit,
   SearchLevel
 } from './dataProviders/types'
 
-export type SearchHit = ProtoclusterSearchHit | RegionSearchHit | RecordSearchHit
+export type SearchHit = RegionSearchHit | RecordSearchHit
 
 export interface SearchHitRecord {
   entryId: string
@@ -16,23 +15,13 @@ export interface SearchHitRecord {
 export function regionIdFromHit(level: SearchLevel, hit: SearchHit): string {
   if (level === 'record') return ''
 
-  const region = level === 'protocluster'
-    ? (hit as ProtoclusterSearchHit).fields.region
-    : (hit as RegionSearchHit).region
-
-  return `region_${region}`
-}
-
-export function protoclusterNumberFromHit(level: SearchLevel, hit: SearchHit): number | null {
-  return level === 'protocluster'
-    ? (hit as ProtoclusterSearchHit).fields.protocluster
-    : null
+  return `region_${(hit as RegionSearchHit).fields.region}`
 }
 
 export function recordSelectionFromHit(level: SearchLevel, hit: SearchHit): SearchHitRecord {
-  const identity = level === 'protocluster'
-    ? (hit as ProtoclusterSearchHit).fields
-    : (hit as RegionSearchHit | RecordSearchHit)
+  const identity = level === 'region'
+    ? (hit as RegionSearchHit).fields
+    : (hit as RecordSearchHit)
 
   return {
     entryId: `${identity.output_file}:${identity.record}`,

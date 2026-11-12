@@ -14,7 +14,7 @@ from bgc_viewer.preprocessing import (
     create_attributes_database,
 )
 from bgc_viewer.search.extraction import ExtractionError
-from bgc_viewer.search.index import open_index, search_protoclusters
+from bgc_viewer.search.index import open_index, search_regions
 
 
 class TestDatabaseCreation:
@@ -217,8 +217,8 @@ class TestSearchIndexIntegration:
         index_path = str(temp_dir / "attributes.db")
         result = preprocess_antismash_files(str(temp_dir), index_path)
 
-        assert "indexed_protoclusters" in result
-        assert result["indexed_protoclusters"] == 2  # one protocluster per record
+        assert "indexed_regions" in result
+        assert result["indexed_regions"] == 2  # one region per record
 
         search_index_dir = temp_dir / "tantivy.index"
         assert result["search_index_path"] == str(search_index_dir)
@@ -226,7 +226,7 @@ class TestSearchIndexIntegration:
 
         # The generated index is directly usable through the search API.
         index = open_index(search_index_dir)
-        hits = search_protoclusters(index, "product:polyketide")
+        hits = search_regions(index, "product:polyketide")
         assert len(hits.hits) == 1
         assert hits.hits[0].fields["record"] == "test_record_1"
 
@@ -244,10 +244,10 @@ class TestSearchIndexIntegration:
         result = preprocess_antismash_files(
             str(temp_dir), str(temp_dir / "attributes.db")
         )
-        assert result["indexed_protoclusters"] == 2
+        assert result["indexed_regions"] == 2
 
         index = open_index(temp_dir / "tantivy.index")
-        hits = search_protoclusters(index, "product:polyketide")
+        hits = search_regions(index, "product:polyketide")
         assert len(hits.hits) == 1
         assert hits.hits[0].fields["output_file"] == filename
 
@@ -264,7 +264,7 @@ class TestSearchIndexIntegration:
 
         result = preprocess_antismash_files(str(temp_dir), index_path)
         assert not marker.exists()
-        assert result["indexed_protoclusters"] == 2
+        assert result["indexed_regions"] == 2
 
     def test_preprocessing_failed_build_leaves_no_index(self, temp_dir):
         """A structurally incompatible file fails the build and leaves no index."""

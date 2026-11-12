@@ -337,7 +337,7 @@ def _build_pair(
     sqlite_seconds = perf_counter() - sqlite_started
     tantivy_started = perf_counter()
 
-    # Build the protocluster search index as a fixed sibling of the database.
+    # Build the region search index as a fixed sibling of the database.
     # The source files are the same explicit set used for the SQLite build,
     # resolved to paths relative to the input directory.
     search_files = []
@@ -417,7 +417,7 @@ def _build_pair(
         "files_processed": files_processed,
         "total_records": total_records,
         "database_path": str(db_path),
-        "indexed_protoclusters": indexed,
+        "indexed_regions": indexed,
         "search_index_path": str(search_index_dir),
         "search_examples": len(example_rows),
     }

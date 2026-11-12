@@ -25,12 +25,12 @@ from bgc_viewer.search.document import Location
 from bgc_viewer.search.index import (
     build_index,
     open_index,
-    search_protoclusters,
+    search_regions,
 )
 from tantivy import Index
 from tantivy import Document
 
-LEVELS = ("protocluster", "region", "record")
+LEVELS = ("region", "record")
 _PROC = Path("/proc/self")
 
 linux_only = pytest.mark.skipif(
@@ -74,21 +74,19 @@ def _pinned(root: Path) -> set[str]:
 
 
 def _doc(
-    protocluster_number: int,
+    region_number: int,
     *,
     record_id: str = "recA",
-    region_number: int = 1,
     pfam: tuple[str, ...] = ("PF00501",),
 ) -> Document:
     location = Location.parse("[100:500](+)")
     document = Document()
     document.add_text("record", record_id)
     document.add_integer("region", region_number)
-    document.add_integer("protocluster", protocluster_number)
     document.add_integer("start", location.start)
     document.add_integer("end", location.end)
     document.add_text("product", "NRP")
-    document.add_text("category", "NRPS")
+    document.add_text("product_category", "NRPS")
     document.add_text("organism", "His Kinase Amycolatopsis")
     for value in pfam:
         document.add_text("pfam", value)
@@ -177,7 +175,7 @@ class TestOpenPerRequest:
         opens: list = []
         monkeypatch.setattr(app_module, "open_index", _counting_open(opens))
 
-        response = _search(search_client, "protocluster", query=123)
+        response = _search(search_client, "region", query=123)
 
         assert response.status_code == 400
         assert json.loads(response.data)["error"]["code"] == "invalid_request"
@@ -205,7 +203,7 @@ class TestRebuildVisibility:
         _select_database(search_client, db_path)
         index_dir = _index_dir(db_path)
 
-        first = json.loads(_search(search_client, "protocluster").data)
+        first = json.loads(_search(search_client, "region").data)
         assert len(first["hits"]) == 2
 
         shutil.rmtree(index_dir)
@@ -214,13 +212,13 @@ class TestRebuildVisibility:
                 [
                     _doc(1, record_id="recX"),
                     _doc(2, record_id="recX"),
-                    _doc(1, record_id="recY", region_number=2),
+                    _doc(2, record_id="recY"),
                 ]
             ),
             index_dir,
         )
 
-        second = json.loads(_search(search_client, "protocluster").data)
+        second = json.loads(_search(search_client, "region").data)
         assert len(second["hits"]) == 3
         assert {hit["fields"]["record"] for hit in second["hits"]} == {"recX", "recY"}
 
@@ -229,11 +227,11 @@ class TestRebuildVisibility:
     ):
         db_path, _ = test_database
         _select_database(search_client, db_path)
-        assert _search(search_client, "protocluster").status_code == 200
+        assert _search(search_client, "region").status_code == 200
 
         shutil.rmtree(_index_dir(db_path))
 
-        response = _search(search_client, "protocluster")
+        response = _search(search_client, "region")
         assert response.status_code == 404
         assert json.loads(response.data)["error"]["code"] == "missing_index"
 
@@ -245,7 +243,7 @@ class TestNothingPinnedAfterRequest:
         db_path, _ = test_database
         index_dir = _index_dir(db_path)
         handle = open_index(index_dir)
-        search_protoclusters(handle, "pfam:PF00501", offset=0, limit=5)
+        search_regions(handle, "pfam:PF00501", offset=0, limit=5)
         assert _pinned(index_dir)
 
         del handle
@@ -270,7 +268,7 @@ class TestNothingPinnedAfterRequest:
         _select_database(search_client, db_path)
         index_dir = _index_dir(db_path)
 
-        assert _search(search_client, "protocluster", query="go:x").status_code == 400
+        assert _search(search_client, "region", query="go:x").status_code == 400
 
         gc.collect()
         assert _pinned(index_dir) == set()

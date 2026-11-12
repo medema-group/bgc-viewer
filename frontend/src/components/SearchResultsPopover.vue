@@ -18,29 +18,23 @@
         :class="['result-row', { selected: isSelected(hit) }]"
         @click="$emit('search-selected', hit)"
       >
-        <template v-if="level === 'protocluster'">
-          <strong class="primary-text">{{ protoclusterFields(hit).organism || protoclusterFields(hit).record }}</strong>
+        <template v-if="level === 'region'">
+          <strong class="primary-text">{{ regionFields(hit).organism || regionFields(hit).record }}</strong>
           <span class="product-line">
-            {{ protoclusterFields(hit).product }}
-            <span v-if="protoclusterFields(hit).category" class="category">
-              {{ protoclusterFields(hit).category }}
+            {{ regionFields(hit).product.join(', ') }}
+            <span v-if="regionFields(hit).product_category.length" class="category">
+              {{ regionFields(hit).product_category.join(', ') }}
             </span>
           </span>
           <span class="location-line">
-            Region {{ protoclusterFields(hit).region }} · Protocluster {{ protoclusterFields(hit).protocluster }}
+            {{ regionFields(hit).record }} · Region {{ regionFields(hit).region }}
           </span>
           <span class="coordinate-line">{{ formatCoordinates(hit) }}</span>
           <span class="file-line">{{ fileContext(hit) }}</span>
         </template>
 
-        <template v-else-if="level === 'region'">
-          <strong class="primary-text">{{ groupedHit(hit).record }}</strong>
-          <span class="location-line">Region {{ regionNumber(hit) }}</span>
-          <span class="file-line">{{ fileContext(hit) }}</span>
-        </template>
-
         <template v-else>
-          <strong class="primary-text">{{ groupedHit(hit).record }}</strong>
+          <strong class="primary-text">{{ recordHit(hit).record }}</strong>
           <span class="file-line">{{ fileContext(hit) }}</span>
         </template>
 
@@ -64,14 +58,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type {
-  ProtoclusterSearchHit,
   RecordSearchHit,
   RegionSearchHit,
   SearchLevel,
   SearchResponse
 } from '@/services/dataProviders/types'
 
-type SearchHit = ProtoclusterSearchHit | RegionSearchHit | RecordSearchHit
+type SearchHit = RegionSearchHit | RecordSearchHit
 
 const props = withDefaults(defineProps<{
   query: string
@@ -94,28 +87,24 @@ const resultLabel = computed(
   () => `${props.level} result${props.response.hits.length === 1 ? '' : 's'}`
 )
 
-function protoclusterFields(hit: SearchHit) {
-  return (hit as ProtoclusterSearchHit).fields
+function regionFields(hit: SearchHit) {
+  return (hit as RegionSearchHit).fields
 }
 
-function groupedHit(hit: SearchHit) {
-  return hit as RegionSearchHit | RecordSearchHit
-}
-
-function regionNumber(hit: SearchHit) {
-  return (hit as RegionSearchHit).region
+function recordHit(hit: SearchHit) {
+  return hit as RecordSearchHit
 }
 
 function outputFile(hit: SearchHit) {
-  return props.level === 'protocluster'
-    ? protoclusterFields(hit).output_file
-    : groupedHit(hit).output_file
+  return props.level === 'region'
+    ? regionFields(hit).output_file
+    : recordHit(hit).output_file
 }
 
 function inputFile(hit: SearchHit) {
-  return props.level === 'protocluster'
-    ? protoclusterFields(hit).input_file
-    : groupedHit(hit).input_file
+  return props.level === 'region'
+    ? regionFields(hit).input_file
+    : recordHit(hit).input_file
 }
 
 function fileContext(hit: SearchHit) {
@@ -124,19 +113,17 @@ function fileContext(hit: SearchHit) {
 }
 
 function formatCoordinates(hit: SearchHit) {
-  const { start, end } = protoclusterFields(hit)
+  const { start, end } = regionFields(hit)
   return start === null || end === null ? 'Coordinates unavailable' : `${start}–${end}`
 }
 
 function hitKey(hit: SearchHit) {
-  if (props.level === 'protocluster') {
-    const fields = protoclusterFields(hit)
-    return `${fields.output_file}:${fields.record}:${fields.region}:${fields.protocluster}`
+  if (props.level === 'region') {
+    const fields = regionFields(hit)
+    return `${fields.output_file}:${fields.record}:${fields.region}`
   }
-  const grouped = groupedHit(hit)
-  return props.level === 'region'
-    ? `${grouped.output_file}:${grouped.record}:${regionNumber(hit)}`
-    : `${grouped.output_file}:${grouped.record}`
+  const record = recordHit(hit)
+  return `${record.output_file}:${record.record}`
 }
 
 function isSelected(hit: SearchHit) {

@@ -29,9 +29,8 @@ from .search.build_state import guard_build_state
 from .search.index import (
     SearchError,
     open_index,
-    search_protoclusters,
     search_record,
-    search_region,
+    search_regions,
 )
 
 # Load environment variables from .env file
@@ -1207,25 +1206,13 @@ def search_errors(view):
     return wrapper
 
 
-@app.route("/api/search/protocluster", methods=["POST"])
-@search_errors
-def search_protocluster_endpoint():
-    """Search the embedded index, returning one self-contained hit per protocluster."""
-    req = parse_search_request(request.get_json(silent=True))
-    index = _open_search_index()
-    results = search_protoclusters(
-        index, req.query, offset=req.offset, limit=req.per_page
-    )
-    return jsonify(SearchResponse.from_results(results)), 200
-
-
 @app.route("/api/search/region", methods=["POST"])
 @search_errors
 def search_region_endpoint():
-    """Search the embedded index, collapsing matches to unique scored regions."""
+    """Search the embedded index, returning one self-contained hit per region."""
     req = parse_search_request(request.get_json(silent=True))
     index = _open_search_index()
-    results = search_region(index, req.query, offset=req.offset, limit=req.per_page)
+    results = search_regions(index, req.query, offset=req.offset, limit=req.per_page)
     return jsonify(SearchResponse.from_results(results)), 200
 
 

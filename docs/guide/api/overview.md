@@ -69,7 +69,7 @@ Endpoints that return lists support pagination:
 
 ## Search
 
-Searching is done through the `POST /api/search/{protocluster,region,record}` endpoints, which query the Tantivy search index. See the [Search API](./search.md).
+Searching is done through the `POST /api/search/{region,record}` endpoints, which query the Tantivy search index. See the [Search API](./search.md).
 
 ## Error Codes
 

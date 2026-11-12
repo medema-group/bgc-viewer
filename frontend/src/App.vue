@@ -157,7 +157,6 @@ import SearchBar from './components/SearchBar.vue'
 import SearchDialog from './components/SearchDialog.vue'
 import { BGCViewerAPIProvider, JSONFileProvider, GenbankFileProvider } from '@/services/dataProviders'
 import {
-  protoclusterNumberFromHit,
   recordSelectionFromHit,
   regionIdFromHit
 } from '@/services/searchNavigation'
@@ -220,10 +219,10 @@ export default {
 
     // Advanced backend search state
     const searchQuery = ref('')
-    const searchLevel = ref('protocluster')
+    const searchLevel = ref('region')
     const searchResults = ref(null)
     const searchResultsQuery = ref('')
-    const searchResultsLevel = ref('protocluster')
+    const searchResultsLevel = ref('region')
     const searchResultsPage = ref(1)
     const selectedSearchHit = ref(null)
     const searchLoading = ref(false)
@@ -397,8 +396,7 @@ export default {
       selectedSearchHit.value = hit
       await handleRecordSelected(
         recordSelectionFromHit(searchResultsLevel.value, hit),
-        regionIdFromHit(searchResultsLevel.value, hit),
-        protoclusterNumberFromHit(searchResultsLevel.value, hit)
+        regionIdFromHit(searchResultsLevel.value, hit)
       )
       searchDialogOpen.value = false
     }

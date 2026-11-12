@@ -8,14 +8,20 @@ const schema = {
     {
       name: 'pfam',
       kind: 'exact' as const,
+      label: 'PFAM',
+      group: 'Functional hits',
+      multi: true,
       default_search: true,
-      description: 'PFAM accessions overlapping the protocluster.'
+      description: 'PFAM accessions overlapping the region.'
     },
     {
       name: 'region',
       kind: 'numeric' as const,
+      label: 'Region number',
+      group: 'Region',
+      multi: false,
       default_search: false,
-      description: 'Parent region number.'
+      description: 'Region number of the region within its record.'
     }
   ],
   examples: ['pfam:PF00512'],

@@ -11,7 +11,6 @@ import {
   ResistanceFeaturesResponse,
   SearchLevel,
   SearchSchema,
-  ProtoclusterSearchHit,
   RegionSearchHit,
   RecordSearchHit,
   SearchResponse
@@ -121,12 +120,6 @@ export class BGCViewerAPIProvider extends DataProvider {
   }
 
   async searchLevel(
-    level: 'protocluster',
-    query: string,
-    page?: number,
-    perPage?: number
-  ): Promise<SearchResponse<ProtoclusterSearchHit>>
-  async searchLevel(
     level: 'region',
     query: string,
     page?: number,
@@ -143,13 +136,13 @@ export class BGCViewerAPIProvider extends DataProvider {
     query: string,
     page?: number,
     perPage?: number
-  ): Promise<SearchResponse<ProtoclusterSearchHit | RegionSearchHit | RecordSearchHit>>
+  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit>>
   async searchLevel(
     level: SearchLevel,
     query: string,
     page: number = 1,
     perPage: number = 20
-  ): Promise<SearchResponse<ProtoclusterSearchHit | RegionSearchHit | RecordSearchHit>> {
+  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit>> {
     const response = await this.axiosInstance.post(`/api/search/${level}`, {
       query,
       page,

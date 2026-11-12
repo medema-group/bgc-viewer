@@ -24,7 +24,7 @@ def _template(template_id: str):
 def _doc(
     *,
     pfam=(),
-    pfam_name=(),
+    pfam_desc=(),
     gene=(),
     locus=(),
     organism="Org One",
@@ -36,17 +36,16 @@ def _doc(
     document = Document()
     document.add_text("record", "rec")
     document.add_integer("region", 1)
-    document.add_integer("protocluster", 1)
     document.add_integer("start", location.start)
     document.add_integer("end", location.end)
     document.add_text("product", product)
-    document.add_text("category", category)
+    document.add_text("product_category", category)
     if organism:
         document.add_text("organism", organism)
     for value in pfam:
         document.add_text("pfam", value)
-    for value in pfam_name:
-        document.add_text("pfam_name", value)
+    for value in pfam_desc:
+        document.add_text("pfam_desc", value)
     for value in gene:
         document.add_text("gene", value)
     for value in locus:
@@ -71,35 +70,35 @@ def test_registry_has_the_declared_templates_in_order():
     ]
 
 
-def test_unqualified_word_uses_first_single_word_default_field():
-    values = {"pfam": "PF00512", "organism": "Streptomyces coelicolor"}
+def test_unqualified_word_prefers_pfam():
+    values = {"pfam": "PF00512", "product": "terpene", "record": "rec1"}
     assert _template("unqualified_word").instantiate(values) == "PF00512"
 
 
 def test_fielded_word_introduces_only_the_field_prefix_without_quotes():
     # A single-word value keeps the example free of double quotes.
-    assert _template("fielded_word").instantiate({"category": "PKS"}) == "category:PKS"
+    assert _template("fielded_word").instantiate({"product_category": "PKS"}) == "product_category:PKS"
 
 
 def test_fielded_word_falls_back_to_product_and_skips_multiword_category():
-    values = {"category": "trans-AT PKS", "product": "T1PKS"}
+    values = {"product_category": "trans-AT PKS", "product": "T1PKS"}
     assert _template("fielded_word").instantiate(values) == "product:T1PKS"
 
 
 def test_fielded_word_omitted_without_a_single_word_value():
-    assert _template("fielded_word").instantiate({"category": "trans-AT PKS"}) is None
+    assert _template("fielded_word").instantiate({"product_category": "trans-AT PKS"}) is None
 
 
-def test_unqualified_word_skips_multiword_default_fields():
-    # organism is multi-word and fails the single-word filter; product passes.
-    values = {"organism": "Streptomyces coelicolor", "product": "terpene"}
-    assert _template("unqualified_word").instantiate(values) == "terpene"
+def test_unqualified_word_skips_values_that_are_not_a_single_word():
+    # NRPS-like fails the single-word filter; the gene name passes.
+    values = {"product": "NRPS-like", "gene": "bpsA"}
+    assert _template("unqualified_word").instantiate(values) == "bpsA"
 
 
-def test_quoted_phrase_is_unqualified_and_prefers_organism_then_pfam_name():
-    both = {"organism": "Homo sapiens", "pfam_name": "His Kinase"}
+def test_quoted_phrase_is_unqualified_and_prefers_organism_then_pfam_desc():
+    both = {"organism": "Homo sapiens", "pfam_desc": "His Kinase"}
     assert _template("quoted_phrase").instantiate(both) == '"Homo sapiens"'
-    only_pfam = {"pfam_name": "His Kinase"}
+    only_pfam = {"pfam_desc": "His Kinase"}
     assert _template("quoted_phrase").instantiate(only_pfam) == '"His Kinase"'
 
 
@@ -118,8 +117,8 @@ def test_quoted_phrase_content_always_contains_a_space():
 
 
 def test_and_fields_binds_category_and_product():
-    query = _template("and_fields").instantiate({"category": "PKS", "product": "T1PKS"})
-    assert query == "category:PKS AND product:T1PKS"
+    query = _template("and_fields").instantiate({"product_category": "PKS", "product": "T1PKS"})
+    assert query == "product_category:PKS AND product:T1PKS"
 
 
 def test_negation_binds_organism_and_product_and_quotes_multivalued_organism():
@@ -130,22 +129,22 @@ def test_negation_binds_organism_and_product_and_quotes_multivalued_organism():
 
 
 def test_bare_term_quotes_values_with_metacharacters():
-    query = _template("and_fields").instantiate({"category": "a:b", "product": "x y"})
-    assert query == 'category:"a:b" AND product:"x y"'
+    query = _template("and_fields").instantiate({"product_category": "a:b", "product": "x y"})
+    assert query == 'product_category:"a:b" AND product:"x y"'
 
 
 def test_bare_term_keeps_mid_word_hyphen_unquoted():
     # Tantivy allows '-' inside a bare term; only a leading '-' is the negation
     # operator, so hglE-KS needs no quotes.
     query = _template("and_fields").instantiate(
-        {"category": "PKS", "product": "hglE-KS"}
+        {"product_category": "PKS", "product": "hglE-KS"}
     )
-    assert query == "category:PKS AND product:hglE-KS"
+    assert query == "product_category:PKS AND product:hglE-KS"
 
 
 def test_bare_term_quotes_leading_hyphen_and_reserved_words():
-    query = _template("and_fields").instantiate({"category": "-x", "product": "NOT"})
-    assert query == 'category:"-x" AND product:"NOT"'
+    query = _template("and_fields").instantiate({"product_category": "-x", "product": "NOT"})
+    assert query == 'product_category:"-x" AND product:"NOT"'
 
 
 def test_quoted_slot_escapes_embedded_quotes_and_backslashes():
@@ -187,7 +186,7 @@ def test_path_prefix_omitted_without_a_path_value():
 
 
 def test_template_omitted_when_a_required_value_is_missing():
-    assert _template("and_fields").instantiate({"category": "PKS"}) is None
+    assert _template("and_fields").instantiate({"product_category": "PKS"}) is None
     assert _template("negation").instantiate({"product": "NRP"}) is None
 
 
@@ -198,7 +197,7 @@ def test_generate_example_queries_returns_rows_in_template_order():
     values = {
         "pfam": "PF00512",
         "organism": "Streptomyces coelicolor",
-        "category": "PKS",
+        "product_category": "PKS",
         "product": "NRP",
         "output_file": "NC_003888.3.json",
     }
@@ -229,42 +228,42 @@ def test_collect_first_values_samples_non_empty_stored_values():
     docs = [
         _doc(
             pfam=("PF00512", "PF00513"),
-            pfam_name=("Alpha",),
+            pfam_desc=("Alpha",),
             gene=("gA",),
             locus=("L1",),
         ),
         _doc(
             pfam=("PF99999",),
-            pfam_name=("Beta",),
+            pfam_desc=("Beta",),
             gene=("gB",),
             locus=("L2",),
         ),
     ]
     values = collect_first_values(build_index(iter(docs)))
     assert values["pfam"] in {"PF00512", "PF99999"}
-    assert values["pfam_name"] in {"Alpha", "Beta"}
+    assert values["pfam_desc"] in {"Alpha", "Beta"}
     assert values["gene"] in {"gA", "gB"}
     assert values["locus"] in {"L1", "L2"}
     assert values["organism"] == "Org One"
     assert values["product"] == "Prod"
-    assert values["category"] == "Cat"
+    assert values["product_category"] == "Cat"
     assert values["input_file"] == "in.gbk"
 
 
 def test_collect_first_values_skips_numeric_fields():
     values = collect_first_values(build_index(iter([_doc()])))
-    for numeric in ("region", "protocluster", "start", "end"):
+    for numeric in ("region", "start", "end"):
         assert numeric not in values
 
 
 def test_collect_first_values_takes_value_from_later_document_when_earlier_is_empty():
     docs = [
-        _doc(pfam=(), pfam_name=()),
-        _doc(pfam=("PF00001",), pfam_name=("Later",)),
+        _doc(pfam=(), pfam_desc=()),
+        _doc(pfam=("PF00001",), pfam_desc=("Later",)),
     ]
     values = collect_first_values(build_index(iter(docs)))
     assert values["pfam"] == "PF00001"
-    assert values["pfam_name"] == "Later"
+    assert values["pfam_desc"] == "Later"
 
 
 def test_collect_first_values_empty_index_returns_nothing():
@@ -312,14 +311,14 @@ def test_preprocessing_stores_generated_examples_in_template_order(test_database
     queries = dict(rows)
     # Either source record may supply the samples after parallel indexing.
     assert queries["unqualified_word"] == "PF00501"
-    assert queries["fielded_word"] in {"category:PKS", "category:NRPS"}
+    assert queries["fielded_word"] in {"product_category:PKS", "product_category:NRPS"}
     assert queries["quoted_phrase"] in {
         '"Streptomyces coelicolor"',
         '"Bacillus subtilis"',
     }
     assert queries["and_fields"] in {
-        "category:PKS AND product:polyketide",
-        "category:NRPS AND product:NRPS",
+        "product_category:PKS AND product:polyketide",
+        "product_category:NRPS AND product:NRPS",
     }
     assert queries["negation"] in {
         'organism:"Streptomyces coelicolor" NOT product:polyketide',

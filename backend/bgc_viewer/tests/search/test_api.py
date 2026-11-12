@@ -1,4 +1,4 @@
-"""Tests for the protocluster search HTTP layer.
+"""Tests for the region search HTTP layer.
 
 Covers request parsing (:func:`parse_search_request`), the minimal
 :class:`SearchResponse` body built from the core result types, the structured
@@ -31,9 +31,11 @@ from bgc_viewer.search.api import (
 from bgc_viewer.search.build_state import mark_building
 from bgc_viewer.search.document import (
     PUBLIC_FIELDS,
+    SEARCH_FIELDS,
     SEARCH_SCHEMA_VERSION,
     Location,
 )
+from bgc_viewer.search.extraction import build_document
 from bgc_viewer.search.index import (
     EmptyQueryError,
     IndexCorruptError,
@@ -43,79 +45,57 @@ from bgc_viewer.search.index import (
     UnknownFieldError,
     build_index,
     open_index,
-    search_protoclusters,
     search_record,
-    search_region,
+    search_regions,
 )
 from tantivy import Document
 
-SCHEMA_FIELD_NAMES = (
-    "pfam",
-    "pfam_name",
-    "organism",
-    "gene",
-    "locus",
-    "product",
-    "category",
-    "record",
-    "region",
-    "protocluster",
-    "start",
-    "end",
-    "output_file",
-    "input_file",
-)
+SCHEMA_FIELD_NAMES = tuple(field.name for field in SEARCH_FIELDS)
 RETURNED_FIELDS = {
     "organism",
     "product",
-    "category",
+    "product_category",
     "record",
     "region",
-    "protocluster",
     "start",
     "end",
     "output_file",
     "input_file",
 }
-INDEXED_ONLY_FIELDS = {"pfam", "pfam_name", "gene", "locus"}
+INDEXED_ONLY_FIELDS = {"pfam", "pfam_desc", "gene", "locus", "text"}
 
 
 def _doc(
-    protocluster_number: int,
+    region_number: int,
     *,
     record_id: str = "recA",
-    region_number: int = 1,
     location: str = "[100:500](+)",
-    product: str = "NRP",
-    category: str = "NRPS",
-    organism: str = "His Kinase Amycolatopsis",
     pfam: tuple[str, ...] = (),
 ) -> Document:
     parsed = Location.parse(location)
-    document = Document()
-    document.add_text("record", record_id)
-    document.add_integer("region", region_number)
-    document.add_integer("protocluster", protocluster_number)
-    document.add_integer("start", parsed.start)
-    document.add_integer("end", parsed.end)
-    document.add_text("product", product)
-    document.add_text("category", category)
-    if organism:
-        document.add_text("organism", organism)
-    for value in pfam:
-        document.add_text("pfam", value)
-    document.add_text("output_file", "rec.json")
-    document.add_text("input_file", "rec.gbk")
-    return document
+    return build_document(
+        {
+            "record": [record_id],
+            "region": [region_number],
+            "start": [parsed.start],
+            "end": [parsed.end],
+            "product": ["NRP"],
+            "product_category": ["NRPS"],
+            "organism": ["His Kinase Amycolatopsis"],
+            "pfam": list(pfam),
+            "output_file": ["rec.json"],
+            "input_file": ["rec.gbk"],
+        }
+    )
 
 
 @pytest.fixture
 def grouped_corpus() -> list[Document]:
     return [
-        _doc(1, record_id="recA", region_number=1, pfam=("shared",)),
-        _doc(2, record_id="recA", region_number=1, pfam=("shared",)),
-        _doc(1, record_id="recA", region_number=2, pfam=("shared",)),
-        _doc(1, record_id="recB", region_number=1, pfam=("shared",)),
+        _doc(1, record_id="recA", pfam=("shared",)),
+        _doc(2, record_id="recA", pfam=("shared",)),
+        _doc(1, record_id="recB", pfam=("shared",)),
+        _doc(2, record_id="recB", pfam=("shared",)),
     ]
 
 
@@ -170,15 +150,13 @@ class TestParseSearchRequest:
 
 class TestResponseFromResults:
     def test_response_carries_only_hits_and_has_more(self, index_dir):
-        results = search_protoclusters(
-            open_index(index_dir), "pfam:shared", offset=0, limit=2
-        )
+        results = search_regions(open_index(index_dir), "pfam:shared", offset=0, limit=2)
         response = SearchResponse.from_results(results)
         assert response.has_more is True
         assert len(response.hits) == 2
 
-    def test_region_response_has_more_for_distinct_regions(self, index_dir):
-        results = search_region(open_index(index_dir), "pfam:shared", offset=0, limit=2)
+    def test_record_response_has_more_for_distinct_records(self, index_dir):
+        results = search_record(open_index(index_dir), "pfam:shared", offset=0, limit=1)
         response = SearchResponse.from_results(results)
         assert response.has_more is True
 
@@ -232,19 +210,6 @@ def _select_database(client, db_path):
 
 
 class TestSearchEndpoint:
-    def test_protocluster_endpoint_json_shape(self, search_client, test_database):
-        db_path, _ = test_database
-        _select_database(search_client, db_path)
-        response = search_client.post(
-            "/api/search/protocluster", json={"query": "pfam:PF00501"}
-        )
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert set(data) == {"hits", "has_more"}
-        assert data["has_more"] is False
-        assert set(data["hits"][0]) == {"score", "fields"}
-        assert data["hits"][0]["fields"]["record"] in {"test_record_1", "test_record_2"}
-
     def test_region_endpoint_json_shape(self, search_client, test_database):
         db_path, _ = test_database
         _select_database(search_client, db_path)
@@ -255,13 +220,16 @@ class TestSearchEndpoint:
         data = json.loads(response.data)
         assert set(data) == {"hits", "has_more"}
         assert data["has_more"] is False
-        assert set(data["hits"][0]) == {
-            "score",
-            "record",
-            "region",
-            "output_file",
-            "input_file",
-        }
+        assert set(data["hits"][0]) == {"score", "fields"}
+        assert data["hits"][0]["fields"]["record"] in {"test_record_1", "test_record_2"}
+
+    def test_protocluster_level_is_gone(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+        )
+        assert response.status_code == 405
 
     def test_record_endpoint_json_shape(self, search_client, test_database):
         db_path, _ = test_database
@@ -281,7 +249,7 @@ class TestSearchEndpoint:
         db_path, _ = test_database
         _select_database(search_client, db_path)
         response = search_client.post(
-            "/api/search/protocluster",
+            "/api/search/region",
             json={"query": "pfam:PF00501", "page": 1, "per_page": 1},
         )
         data = json.loads(response.data)
@@ -309,7 +277,7 @@ class TestSearchEndpoint:
 
     def test_no_database_selected_returns_400(self, search_client):
         response = search_client.post(
-            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+            "/api/search/region", json={"query": "pfam:PF00501"}
         )
         assert response.status_code == 400
         data = json.loads(response.data)
@@ -320,7 +288,7 @@ class TestSearchEndpoint:
         empty_db.write_text("")
         _select_database(search_client, empty_db)
         response = search_client.post(
-            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+            "/api/search/region", json={"query": "pfam:PF00501"}
         )
         assert response.status_code == 404
         data = json.loads(response.data)
@@ -330,7 +298,7 @@ class TestSearchEndpoint:
         db_path, _ = test_database
         _select_database(search_client, db_path)
         response = search_client.post(
-            "/api/search/protocluster", json={"query": "go:x"}
+            "/api/search/region", json={"query": "go:x"}
         )
         assert response.status_code == 400
         data = json.loads(response.data)
@@ -343,7 +311,7 @@ class TestSearchEndpoint:
         db_path, _ = test_database
         _select_database(search_client, db_path)
         response = search_client.post(
-            "/api/search/protocluster", json={"query": "(pfam:PF00501 AND"}
+            "/api/search/region", json={"query": "(pfam:PF00501 AND"}
         )
         assert response.status_code == 400
         data = json.loads(response.data)
@@ -356,7 +324,7 @@ class TestSearchEndpoint:
         """The contract omits the parser position rather than guessing it."""
         db_path, _ = test_database
         _select_database(search_client, db_path)
-        response = search_client.post("/api/search/protocluster", json={"query": "("})
+        response = search_client.post("/api/search/region", json={"query": "("})
         error = json.loads(response.data)["error"]
         assert error["code"] == "invalid_query"
         assert "position" not in error
@@ -366,7 +334,7 @@ class TestSearchEndpoint:
         db_path, _ = test_database
         _select_database(search_client, db_path)
         response = search_client.post(
-            "/api/search/protocluster", json={"query": "-pfam:PF00501"}
+            "/api/search/region", json={"query": "-pfam:PF00501"}
         )
         assert response.status_code == 400
         assert json.loads(response.data)["error"]["code"] == "invalid_query"
@@ -378,7 +346,7 @@ class TestSearchEndpoint:
         meta_path.write_text("{not json", encoding="utf-8")
 
         response = search_client.post(
-            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+            "/api/search/region", json={"query": "pfam:PF00501"}
         )
         assert response.status_code == 500
         assert json.loads(response.data)["error"]["code"] == "corrupt_index"
@@ -390,7 +358,7 @@ class TestSearchEndpoint:
         version_path.write_text(str(SEARCH_SCHEMA_VERSION + 1), encoding="utf-8")
 
         response = search_client.post(
-            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+            "/api/search/region", json={"query": "pfam:PF00501"}
         )
         assert response.status_code == 409
         assert json.loads(response.data)["error"]["code"] == "incompatible_schema"
@@ -404,18 +372,18 @@ class TestSearchEndpoint:
         version_path.write_text("broken", encoding="utf-8")
 
         response = search_client.post(
-            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+            "/api/search/region", json={"query": "pfam:PF00501"}
         )
 
         assert response.status_code == 409
         assert json.loads(response.data)["error"]["code"] == "incompatible_schema"
 
-    def test_protocluster_hits_are_self_contained(self, search_client, test_database):
+    def test_region_hits_are_self_contained(self, search_client, test_database):
         """Every display value comes off the index; nothing needs hydrating."""
         db_path, _ = test_database
         _select_database(search_client, db_path)
         response = search_client.post(
-            "/api/search/protocluster", json={"query": "pfam:PF00501"}
+            "/api/search/region", json={"query": "pfam:PF00501"}
         )
         returned = RETURNED_FIELDS
         indexed_only = INDEXED_ONLY_FIELDS
@@ -424,6 +392,7 @@ class TestSearchEndpoint:
             assert not indexed_only & set(hit["fields"])
             assert hit["fields"]["record"]
             assert hit["fields"]["output_file"] == "test_sample.json"
+            assert isinstance(hit["fields"]["product"], list)
 
 
 @pytest.fixture
@@ -436,12 +405,16 @@ def ranked_database(temp_dir):
             [
                 _doc(1, record_id="recA", pfam=("PF00512", "PF00513")),
                 _doc(2, record_id="recA", pfam=("PF00512",)),
-                _doc(3, record_id="recB", pfam=("PF00513",)),
+                _doc(1, record_id="recB", pfam=("PF00513",)),
             ]
         ),
         temp_dir / "tantivy.index",
     )
     return database
+
+
+def _identity(hit: dict) -> tuple[str, int]:
+    return hit["fields"]["record"], hit["fields"]["region"]
 
 
 class TestSearchEndpointRanking:
@@ -451,7 +424,7 @@ class TestSearchEndpointRanking:
 
     def _search(self, client, **pagination):
         response = client.post(
-            "/api/search/protocluster", json={"query": self.QUERY, **pagination}
+            "/api/search/region", json={"query": self.QUERY, **pagination}
         )
         assert response.status_code == 200
         return json.loads(response.data)
@@ -461,8 +434,8 @@ class TestSearchEndpointRanking:
         data = self._search(search_client, per_page=10)
         scores = [hit["score"] for hit in data["hits"]]
         assert scores == sorted(scores, reverse=True)
-        assert data["hits"][0]["fields"]["protocluster"] == 1
-        assert {hit["fields"]["protocluster"] for hit in data["hits"][1:]} == {2, 3}
+        assert _identity(data["hits"][0]) == ("recA", 1)
+        assert {_identity(hit) for hit in data["hits"][1:]} == {("recA", 2), ("recB", 1)}
 
     def test_paged_requests_reproduce_the_full_ranked_order(
         self, search_client, ranked_database
@@ -481,8 +454,8 @@ class TestSearchEndpointRanking:
             page += 1
 
         assert [hit["score"] for hit in paged] == [hit["score"] for hit in full["hits"]]
-        assert [hit["fields"]["protocluster"] for hit in paged] == [
-            hit["fields"]["protocluster"] for hit in full["hits"]
+        assert [_identity(hit) for hit in paged] == [
+            _identity(hit) for hit in full["hits"]
         ]
 
     def test_tied_scores_keep_same_order_across_pages(
@@ -520,26 +493,36 @@ class TestPublicFieldProjection:
         kinds = {info.name: info.kind for info in PUBLIC_FIELDS}
         assert kinds["pfam"] == "exact"
         assert kinds["product"] == "exact"
+        assert kinds["organism"] == "exact"
         assert kinds["output_file"] == "path"
         assert kinds["input_file"] == "path"
-        assert kinds["organism"] == "full_text"
-        assert kinds["pfam_name"] == "full_text"
+        assert kinds["text"] == "full_text"
 
-    def test_kind_is_numeric_for_fields_without_a_tokenizer(self):
+    def test_kind_is_numeric_or_boolean_for_fields_without_a_tokenizer(self):
         kinds = {info.name: info.kind for info in PUBLIC_FIELDS}
-        for name in ("region", "protocluster", "start", "end"):
+        for name in ("region", "start", "end", "ripp_mass"):
             assert kinds[name] == "numeric", name
+        assert kinds["is_complete"] == "boolean"
 
-    def test_default_search_is_true_for_every_non_numeric_field(self):
+    def test_default_search_is_true_for_every_text_field(self):
         for info in PUBLIC_FIELDS:
-            assert info.default_search == (info.kind != "numeric"), info.name
+            expected = info.kind in {"exact", "full_text", "path"}
+            assert info.default_search == expected, info.name
 
-    def test_no_numeric_field_participates_in_default_search(self):
-        assert [
+    def test_every_field_has_a_label_and_group(self):
+        missing = [
             info.name
             for info in PUBLIC_FIELDS
-            if info.kind == "numeric" and info.default_search
-        ] == []
+            if not info.label.strip() or not info.group.strip()
+        ]
+        assert missing == []
+
+    def test_multi_valued_fields_are_flagged(self):
+        multi = {info.name: info.multi for info in PUBLIC_FIELDS}
+        assert multi["product"] is True
+        assert multi["pfam"] is True
+        assert multi["record"] is False
+        assert multi["region"] is False
 
     def test_every_field_carries_a_non_empty_description(self):
         empty = [info.name for info in PUBLIC_FIELDS if not info.description.strip()]
@@ -618,7 +601,15 @@ class TestSchemaEndpoint:
         _select_database(search_client, db_path)
         data = json.loads(_schema(search_client).data)
         for field in data["fields"]:
-            assert set(field) == {"name", "kind", "default_search", "description"}
+            assert set(field) == {
+                "name",
+                "kind",
+                "label",
+                "group",
+                "multi",
+                "default_search",
+                "description",
+            }
 
     def test_internal_registry_details_are_not_exposed(
         self, search_client, test_database

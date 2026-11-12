@@ -1,4 +1,4 @@
-"""Query protocluster search indexes with ``python -m bgc_viewer.search.cli``."""
+"""Query region search indexes with ``python -m bgc_viewer.search.cli``."""
 
 from __future__ import annotations
 
@@ -10,17 +10,15 @@ from typing import Any
 
 from .index import (
     RecordHit,
-    RegionHit,
     Results,
     SearchError,
     SearchHit,
     open_index,
-    search_protoclusters,
     search_record,
-    search_region,
+    search_regions,
 )
 
-_CLI_LEVELS = ("protocluster", "region", "record")
+_CLI_LEVELS = ("region", "record")
 
 
 HitFormatter = Callable[[int, Any], str]
@@ -31,11 +29,15 @@ examples (run these from the backend/ directory):
   # Build the backend indexes first
   uv run python preprocess_cli.py /path/to/data --output /tmp/bgv/attributes.db
 
-  # Exact, multi-valued, and analyzed (full-text) field queries
+  # Exact, multi-valued, and full-text (any text of the region) queries
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index product:terpene
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \\
       'pfam:PF00550 AND pfam:PF00668'
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam_name:"thioesterase"'
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'text:thioesterase'
+
+  # antiSMASH module results and numeric ranges
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \\
+      'substrates:Leu AND knowncluster_top_similarity:[50 TO 100]'
 
   # Path fields match by directory, stem, or extension
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'output_file:NC_003888'
@@ -46,15 +48,11 @@ examples (run these from the backend/ directory):
 
   # Boolean negation, numeric ranges, and pagination
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \\
-      'organism:Amycolatopsis NOT product:terpene'
+      'Amycolatopsis NOT product:terpene'
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' \\
       --offset 2 --limit 2
 
-  # Result granularity: protocluster (default), region, or record
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' \\
-      --level protocluster
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' \\
-      --level region
+  # Result granularity: region (default) or record
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550' \\
       --level record
 """
@@ -66,7 +64,7 @@ def _source_label(output_file: str, input_file: str | None) -> str:
     return output_file
 
 
-def _format_protocluster_hit(position: int, hit: SearchHit) -> str:
+def _format_region_hit(position: int, hit: SearchHit) -> str:
     fields = hit.fields
     source = _source_label(fields.get("output_file", ""), fields.get("input_file"))
     location = f"[{fields.get('start', '')}:{fields.get('end', '')}]"
@@ -75,24 +73,13 @@ def _format_protocluster_hit(position: int, hit: SearchHit) -> str:
             f"[{position}] score={hit.score:.4f}  {source}",
             (
                 f"      record={fields.get('record', '')}  "
-                f"region={fields.get('region', '')}  "
-                f"protocluster={fields.get('protocluster', '')}  {location}"
+                f"region={fields.get('region', '')}  {location}"
             ),
             (
-                f"      product={fields.get('product', '')}  "
-                f"category={fields.get('category', '')}"
+                f"      product={', '.join(fields.get('product', []))}  "
+                f"category={', '.join(fields.get('product_category', []))}"
             ),
             f"      organism={fields.get('organism', '')}",
-        )
-    )
-
-
-def _format_region_hit(position: int, hit: RegionHit) -> str:
-    source = _source_label(hit.output_file, hit.input_file)
-    return "\n".join(
-        (
-            f"[{position}] score={hit.score:.4f}  {source}",
-            f"      record={hit.record}  region={hit.region}",
         )
     )
 
@@ -129,17 +116,12 @@ def _search_command(args: argparse.Namespace) -> int:
     format_hit: HitFormatter
     try:
         target = open_index(Path(args.index_directory))
-        if args.level == "region":
-            result = search_region(target, query, offset=args.offset, limit=args.limit)
-            format_hit = _format_region_hit
-        elif args.level == "record":
+        if args.level == "record":
             result = search_record(target, query, offset=args.offset, limit=args.limit)
             format_hit = _format_record_hit
         else:
-            result = search_protoclusters(
-                target, query, offset=args.offset, limit=args.limit
-            )
-            format_hit = _format_protocluster_hit
+            result = search_regions(target, query, offset=args.offset, limit=args.limit)
+            format_hit = _format_region_hit
     except SearchError as error:
         print(f"error: [{error.code}] {error}", file=sys.stderr)
         return 2
@@ -154,7 +136,7 @@ def _search_command(args: argparse.Namespace) -> int:
 def _build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m bgc_viewer.search.cli",
-        description=("Query a Tantivy protocluster search index from Python."),
+        description=("Query a Tantivy region search index from Python."),
         epilog=_CLI_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -192,11 +174,10 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     query_parser.add_argument(
         "--level",
         choices=_CLI_LEVELS,
-        default="protocluster",
+        default="region",
         help=(
-            "Result granularity: protocluster (default) reports each matching "
-            "protocluster, region collapses matches to unique regions, and "
-            "record collapses them to unique records."
+            "Result granularity: region (default) reports each matching "
+            "region, and record collapses matches to unique records."
         ),
     )
     return parser

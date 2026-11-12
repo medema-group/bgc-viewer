@@ -12,45 +12,68 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-SEARCH_SCHEMA_VERSION = 1
+SEARCH_SCHEMA_VERSION = 2
 
 # User-facing field kind reported to the help popup: whether a field matches
-# exactly, as full text, as a path, or as a number. A ``path`` field keeps its
-# whole value searchable while also splitting on ``/`` and ``.``, so a file path
-# matches by directory, stem, or extension.
-FieldKind = Literal["exact", "full_text", "path", "numeric"]
+# exactly, as full text, as a path, as a number, or as a yes/no value. A
+# ``path`` field keeps its whole value searchable while also splitting on ``/``
+# and ``.``, so a file path matches by directory, stem, or extension.
+FieldKind = Literal["exact", "full_text", "path", "numeric", "boolean"]
 
-# Tantivy tokenizer name -> public field kind. ``raw`` indexes the whole value
-# as one case-sensitive token, ``default`` tokenizes words with lowercase
-# normalization, ``path`` is the custom path tokenizer, and ``numeric`` is a
-# stored integer. The public kind, whether a bare term searches the field, and
-# how its value is read back are all derived from this single name.
+# Field type -> public field kind. ``raw`` indexes the whole value as one
+# case-sensitive token, ``default`` tokenizes words with lowercase
+# normalization, ``path`` is the custom path tokenizer, ``integer`` and
+# ``float`` are numbers, and ``boolean`` is a yes/no value. The public kind,
+# whether a bare term searches the field, and how the field is built in the
+# Tantivy schema are all derived from this single name.
 _TOKENIZER_KINDS: dict[str, FieldKind] = {
     "raw": "exact",
     "default": "full_text",
     "path": "path",
-    "numeric": "numeric",
+    "integer": "numeric",
+    "float": "numeric",
+    "boolean": "boolean",
 }
+
+# Field types whose values are text, as opposed to numbers and booleans.
+TEXT_TOKENIZERS = frozenset({"raw", "default", "path"})
+
+# The catch-all full-text field. Every text value of a region whose field sets
+# ``in_text`` is also indexed here word by word, so a bare word matches inside
+# any field, including exact fields whose whole value it does not equal. It is
+# indexed only: its content is a copy of other fields.
+TEXT_FIELD = "text"
 
 
 @dataclass(frozen=True)
 class SearchField:
     """One searchable field, declared once and projected everywhere.
 
-    ``tokenizer`` is the Tantivy tokenizer name (``raw``, ``default``,
-    ``path``, or ``numeric``). The public ``kind``, whether a bare term
-    searches the field (``default_search``), and how the stored value is read
-    back (``returned_kind``) are derived from it. ``boost`` is the query-time
-    relevance weight, or ``None`` when the field is not boosted. ``in_hits``
-    reports whether the stored value comes back in ordinary hits.
-    ``description`` is the user-facing help text.
+    ``tokenizer`` is the field type: a Tantivy tokenizer name for text
+    (``raw``, ``default``, or ``path``) or ``integer``, ``float``, or
+    ``boolean``. The public ``kind`` and whether a bare term searches the field
+    (``default_search``) are derived from it. ``label`` and ``group`` name the
+    field and its section for display. ``multi`` reports whether a region can
+    hold several values, which are then returned as a list. ``boost`` is the
+    query-time relevance weight, or ``None`` when the field is not boosted.
+    ``in_hits`` reports whether the stored value comes back in ordinary hits.
+    ``in_text`` reports whether a text field's values are copied into the
+    catch-all :data:`TEXT_FIELD`; sequences and SMILES are not, as they hold no
+    words, and neither are paths, which a bare term already searches by
+    component. ``stored`` is false only for that catch-all field. ``description``
+    is the user-facing help text.
     """
 
     name: str
     tokenizer: str
+    label: str
+    group: str
     description: str
+    multi: bool = False
     boost: float | None = None
     in_hits: bool = False
+    in_text: bool = True
+    stored: bool = True
 
     @property
     def kind(self) -> FieldKind:
@@ -58,11 +81,11 @@ class SearchField:
 
     @property
     def default_search(self) -> bool:
-        return self.tokenizer != "numeric"
+        return self.tokenizer in TEXT_TOKENIZERS
 
     @property
-    def returned_kind(self) -> str:
-        return "numeric" if self.tokenizer == "numeric" else "text"
+    def is_text(self) -> bool:
+        return self.tokenizer in TEXT_TOKENIZERS
 
 
 @dataclass(frozen=True)
@@ -76,157 +99,625 @@ class PublicFieldInfo:
 
     name: str
     kind: FieldKind
+    label: str
+    group: str
+    multi: bool
     default_search: bool
     description: str
+
+
+GROUP_GENERAL = "General"
+GROUP_REGION = "Region"
+GROUP_SOURCE = "Source"
+GROUP_GENES = "Genes"
+GROUP_FUNCTIONAL = "Functional hits"
+GROUP_NRPS_PKS = "NRPS/PKS"
+GROUP_TERPENE = "Terpene"
+GROUP_RIPP = "RiPP"
+GROUP_COMPARATIVE = "Comparative"
+GROUP_REGULATION = "Regulation"
+
+
+def _keyword(
+    name: str, label: str, group: str, description: str, **options
+) -> SearchField:
+    """An exact, multi-valued text field, boosted like the other exact fields."""
+    return SearchField(
+        name=name,
+        tokenizer="raw",
+        label=label,
+        group=group,
+        description=description,
+        multi=options.pop("multi", True),
+        boost=options.pop("boost", 2.0),
+        **options,
+    )
+
+
+def _sequence(name: str, label: str, group: str, description: str) -> SearchField:
+    """An exact text field holding sequences or SMILES rather than words."""
+    return SearchField(
+        name=name,
+        tokenizer="raw",
+        label=label,
+        group=group,
+        description=description,
+        multi=True,
+        boost=2.0,
+        in_text=False,
+    )
+
+
+def _number(
+    name: str, label: str, group: str, description: str, **options
+) -> SearchField:
+    return SearchField(
+        name=name,
+        tokenizer=options.pop("tokenizer", "integer"),
+        label=label,
+        group=group,
+        description=description,
+        **options,
+    )
 
 
 # The single field registry: every searchable field, in schema and display
 # order, declared in one place. The Tantivy schema and query config in
 # ``index.py`` and the public help metadata below are projected from it rather
-# than repeated. The extraction in ``extraction.py`` is kept in step with it by
-# the tests.
+# than repeated. One document is one antiSMASH region; a field described as
+# "in the region" collects every value found within the region's location.
+# The extraction in ``extraction.py`` and ``facets.py`` is kept in step with it
+# by the tests. Names follow the BGC Atlas facet names where both have a field.
 SEARCH_FIELDS: tuple[SearchField, ...] = (
     SearchField(
-        name="pfam",
-        tokenizer="raw",
-        boost=2.0,
+        name=TEXT_FIELD,
+        tokenizer="default",
+        label="Any text",
+        group=GROUP_GENERAL,
         description=(
-            "PFAM accession of a PFAM_domain overlapping the protocluster, "
-            "with the version suffix removed, so PF00512.28 is searched as "
-            "PF00512."
+            "Every text value of the region, except sequences and SMILES, "
+            "searched word by word without regard to case."
         ),
+        boost=1.0,
+        in_text=False,
+        stored=False,
+    ),
+    # Region
+    _keyword(
+        "record",
+        "Record",
+        GROUP_REGION,
+        "antiSMASH record ID the region belongs to.",
+        multi=False,
+        in_hits=True,
+    ),
+    _number(
+        "region",
+        "Region number",
+        GROUP_REGION,
+        "Region number of the region within its record.",
+        in_hits=True,
+    ),
+    _number(
+        "start",
+        "Start",
+        GROUP_REGION,
+        (
+            "Lowest coordinate of the region location, across every part of a "
+            "compound location."
+        ),
+        in_hits=True,
+    ),
+    _number(
+        "end",
+        "End",
+        GROUP_REGION,
+        (
+            "Highest coordinate of the region location, across every part of "
+            "a compound location."
+        ),
+        in_hits=True,
+    ),
+    _number(
+        "length",
+        "Length (bp)",
+        GROUP_REGION,
+        "Length of the region, summed over the parts of a compound location.",
+    ),
+    _keyword(
+        "product",
+        "Product",
+        GROUP_REGION,
+        "Product of a protocluster in the region.",
+        in_hits=True,
+    ),
+    _keyword(
+        "product_category",
+        "Category",
+        GROUP_REGION,
+        (
+            "Product category of a protocluster in the region, from its "
+            "product_category qualifier."
+        ),
+        in_hits=True,
+    ),
+    _number(
+        "num_protoclusters",
+        "# Protoclusters",
+        GROUP_REGION,
+        "Number of protoclusters in the region.",
+    ),
+    _keyword(
+        "candidate_kind",
+        "Candidate cluster kind",
+        GROUP_REGION,
+        (
+            "Kind of a candidate cluster in the region: single, "
+            "chemical_hybrid, interleaved, or neighbouring."
+        ),
+    ),
+    _keyword(
+        "detection_rules",
+        "Detection rule",
+        GROUP_REGION,
+        "Detection rule that triggered a protocluster in the region.",
     ),
     SearchField(
-        name="pfam_name",
-        tokenizer="default",
-        boost=1.0,
+        name="is_complete",
+        tokenizer="boolean",
+        label="Complete (not on contig edge)",
+        group=GROUP_REGION,
         description=(
-            "Description of a PFAM_domain overlapping the protocluster, from "
-            "the domain's description qualifier."
+            "Whether the region lies wholly within its record: false when "
+            "antiSMASH marks it as being on a contig edge."
         ),
     ),
+    # Source
     SearchField(
         name="organism",
-        tokenizer="default",
-        boost=1.0,
-        in_hits=True,
+        tokenizer="raw",
+        label="Organism",
+        group=GROUP_SOURCE,
         description=(
             "Organism of the parent record, from the organism qualifier of its "
             "first source feature; empty when the record declares none."
         ),
-    ),
-    SearchField(
-        name="gene",
-        tokenizer="raw",
-        boost=2.0,
-        description="Gene name of a gene feature overlapping the protocluster.",
-    ),
-    SearchField(
-        name="locus",
-        tokenizer="raw",
-        boost=2.0,
-        description="Locus tag of a gene feature overlapping the protocluster.",
-    ),
-    SearchField(
-        name="product",
-        tokenizer="raw",
         boost=2.0,
         in_hits=True,
-        description="Product of the protocluster, from its own product qualifier.",
-    ),
-    SearchField(
-        name="category",
-        tokenizer="raw",
-        boost=2.0,
-        in_hits=True,
-        description=(
-            "Product category of the protocluster, from its own "
-            "product_category qualifier."
-        ),
-    ),
-    SearchField(
-        name="record",
-        tokenizer="raw",
-        boost=2.0,
-        in_hits=True,
-        description="antiSMASH record ID the protocluster belongs to.",
-    ),
-    SearchField(
-        name="region",
-        tokenizer="numeric",
-        in_hits=True,
-        description=(
-            "Region number of the smallest region feature containing the "
-            "protocluster."
-        ),
-    ),
-    SearchField(
-        name="protocluster",
-        tokenizer="numeric",
-        in_hits=True,
-        description="Protocluster number of the protocluster itself.",
-    ),
-    SearchField(
-        name="start",
-        tokenizer="numeric",
-        in_hits=True,
-        description=(
-            "Lowest coordinate of the protocluster location, across every part "
-            "of a compound location."
-        ),
-    ),
-    SearchField(
-        name="end",
-        tokenizer="numeric",
-        in_hits=True,
-        description=(
-            "Highest coordinate of the protocluster location, across every "
-            "part of a compound location."
-        ),
     ),
     SearchField(
         name="output_file",
         tokenizer="path",
+        label="antiSMASH file",
+        group=GROUP_SOURCE,
+        description=(
+            "Path of the antiSMASH JSON file the region was indexed from, "
+            "relative to the source directory that was indexed. Searched as a "
+            "path: the whole value matches, and it also splits on / and ., so "
+            "a directory, the file stem, or the extension each match on their "
+            "own."
+        ),
         boost=2.0,
         in_hits=True,
-        description=(
-            "Path of the antiSMASH JSON file the protocluster was indexed "
-            "from, relative to the source directory that was indexed. "
-            "Searched as a path: the whole value matches, and it also splits "
-            "on / and ., so a directory, the file stem, or the extension "
-            "each match on their own."
-        ),
+        in_text=False,
     ),
     SearchField(
         name="input_file",
         tokenizer="path",
-        boost=2.0,
-        in_hits=True,
+        label="Input file",
+        group=GROUP_SOURCE,
         description=(
             "Input sequence filename antiSMASH reported for the source JSON; "
             "empty when absent. Searched as a path: the whole value matches, "
-            "and it also splits on / and ., so a directory, the file stem, "
-            "or the extension each match on their own."
+            "and it also splits on / and ., so a directory, the file stem, or "
+            "the extension each match on their own."
+        ),
+        boost=2.0,
+        in_hits=True,
+        in_text=False,
+    ),
+    # Genes
+    _keyword(
+        "gene",
+        "Gene name",
+        GROUP_GENES,
+        "Gene name of a gene feature overlapping the region.",
+    ),
+    _keyword(
+        "locus",
+        "Locus tag",
+        GROUP_GENES,
+        "Locus tag of a gene feature overlapping the region.",
+    ),
+    _number(
+        "num_cds_features",
+        "# Genes",
+        GROUP_GENES,
+        "Number of CDS features overlapping the region.",
+    ),
+    _number(
+        "n_core_biosynthetic",
+        "Core biosynthetic genes",
+        GROUP_GENES,
+        "Number of CDS features in the region whose gene kind is biosynthetic.",
+    ),
+    _number(
+        "n_additional_biosynthetic",
+        "Additional biosynthetic genes",
+        GROUP_GENES,
+        (
+            "Number of CDS features in the region whose gene kind is "
+            "biosynthetic-additional."
         ),
     ),
+    _number(
+        "n_transport",
+        "Transport genes",
+        GROUP_GENES,
+        "Number of CDS features in the region whose gene kind is transport.",
+    ),
+    _number(
+        "n_regulatory",
+        "Regulatory genes",
+        GROUP_GENES,
+        "Number of CDS features in the region whose gene kind is regulatory.",
+    ),
+    _number(
+        "n_resistance",
+        "Resistance genes",
+        GROUP_GENES,
+        "Number of CDS features in the region whose gene kind is resistance.",
+    ),
+    # Functional hits
+    _keyword(
+        "pfam",
+        "PFAM",
+        GROUP_FUNCTIONAL,
+        (
+            "PFAM accession of a PFAM_domain feature or a cluster_hmmer hit "
+            "overlapping the region, with the version suffix removed, so "
+            "PF00512.28 is searched as PF00512."
+        ),
+    ),
+    _keyword(
+        "pfam_desc",
+        "PFAM domain (name)",
+        GROUP_FUNCTIONAL,
+        "Description of a PFAM domain overlapping the region.",
+    ),
+    _keyword(
+        "tigrfam",
+        "TIGRFAM",
+        GROUP_FUNCTIONAL,
+        "TIGRFAM accession of a TIGRFAM hit in the region.",
+    ),
+    _keyword(
+        "tigrfam_desc",
+        "TIGRFAM domain (name)",
+        GROUP_FUNCTIONAL,
+        "Description of a TIGRFAM hit in the region.",
+    ),
+    _keyword(
+        "smcog",
+        "smCoG",
+        GROUP_FUNCTIONAL,
+        "smCoG of a gene in the region, from its best smCoG hit.",
+    ),
+    _keyword(
+        "smcog_desc",
+        "smCoG (name)",
+        GROUP_FUNCTIONAL,
+        "Description of the best smCoG hit of a gene in the region.",
+    ),
+    _keyword(
+        "go_terms",
+        "GO term",
+        GROUP_FUNCTIONAL,
+        "GO term mapped by pfam2go from a PFAM accession of the region.",
+    ),
+    _keyword(
+        "antismash_domains",
+        "antiSMASH domain",
+        GROUP_FUNCTIONAL,
+        "NRPS/PKS domain HMM hit on a gene in the region.",
+    ),
+    _number(
+        "tta_codons",
+        "# TTA codons",
+        GROUP_FUNCTIONAL,
+        "Number of TTA codons starting within the region.",
+    ),
+    # NRPS/PKS
+    _keyword(
+        "substrates",
+        "A-domain substrate",
+        GROUP_NRPS_PKS,
+        "Predicted substrate of an adenylation domain in the region.",
+    ),
+    _keyword(
+        "monomers",
+        "Monomer",
+        GROUP_NRPS_PKS,
+        "Consensus monomer predicted for an NRPS/PKS domain in the region.",
+    ),
+    _keyword(
+        "module_signatures",
+        "Module signature",
+        GROUP_NRPS_PKS,
+        (
+            "Domains of an NRPS/PKS module in the region, joined with -, such "
+            "as Condensation_LCL-AMP-binding-PCP."
+        ),
+    ),
+    _number(
+        "num_modules",
+        "# Modules",
+        GROUP_NRPS_PKS,
+        "Number of NRPS/PKS modules in the region.",
+    ),
+    _keyword(
+        "stachelhaus_codes",
+        "Stachelhaus code",
+        GROUP_NRPS_PKS,
+        "Stachelhaus signature of an adenylation domain in the region.",
+    ),
+    _keyword(
+        "at_specificity",
+        "AT specificity",
+        GROUP_NRPS_PKS,
+        "Top predicted substrate of an acyltransferase domain in the region.",
+    ),
+    _keyword(
+        "kr_stereochemistry",
+        "KR stereochemistry",
+        GROUP_NRPS_PKS,
+        "Predicted stereochemistry of a ketoreductase domain in the region.",
+    ),
+    SearchField(
+        name="pks_trans_at",
+        tokenizer="boolean",
+        label="trans-AT PKS",
+        group=GROUP_NRPS_PKS,
+        description=(
+            "Whether the region has a transAT-PKS product or a trans-AT "
+            "domain; absent when the NRPS/PKS analysis did not run."
+        ),
+    ),
+    _sequence(
+        "predicted_smiles",
+        "Predicted SMILES",
+        GROUP_NRPS_PKS,
+        "SMILES of a predicted NRPS/PKS product of the region.",
+    ),
+    _sequence(
+        "monomer_consensus",
+        "Monomer consensus",
+        GROUP_NRPS_PKS,
+        "Predicted NRPS/PKS polymer of the region, as a monomer sequence.",
+    ),
+    _keyword(
+        "pks_t2_class",
+        "PKS type II class",
+        GROUP_NRPS_PKS,
+        "Predicted product class of a type II PKS protocluster in the region.",
+    ),
+    _keyword(
+        "pks_t2_starter",
+        "PKS type II starter",
+        GROUP_NRPS_PKS,
+        "Predicted starter unit of a type II PKS protocluster in the region.",
+    ),
+    _keyword(
+        "pks_t2_elongation",
+        "PKS type II elongation",
+        GROUP_NRPS_PKS,
+        "Predicted elongation of a type II PKS protocluster in the region.",
+    ),
+    # Terpene
+    _keyword(
+        "terpene_products",
+        "Terpene product",
+        GROUP_TERPENE,
+        "Predicted product of a terpene protocluster in the region.",
+    ),
+    _keyword(
+        "terpene_domains",
+        "Terpene domain",
+        GROUP_TERPENE,
+        "Domain type of a terpene enzyme in the region.",
+    ),
+    # RiPP
+    _keyword(
+        "ripp_class",
+        "RiPP class",
+        GROUP_RIPP,
+        "Peptide class of a RiPP precursor in the region.",
+    ),
+    _keyword(
+        "ripp_subclass",
+        "RiPP subclass",
+        GROUP_RIPP,
+        "Peptide subclass of a RiPP precursor in the region.",
+    ),
+    _sequence(
+        "core_seq",
+        "Core peptide",
+        GROUP_RIPP,
+        "Core peptide sequence of a RiPP precursor in the region.",
+    ),
+    _sequence(
+        "leader_seq",
+        "Leader peptide",
+        GROUP_RIPP,
+        "Leader peptide sequence of a RiPP precursor in the region.",
+    ),
+    _number(
+        "ripp_mass",
+        "RiPP monoisotopic mass (Da)",
+        GROUP_RIPP,
+        "Monoisotopic mass of a RiPP precursor in the region.",
+        tokenizer="float",
+        multi=True,
+    ),
+    _number(
+        "rodeo_score",
+        "RODEO score",
+        GROUP_RIPP,
+        "RODEO score of a RiPP precursor in the region.",
+        multi=True,
+    ),
+    _number(
+        "ripp_cut_mass",
+        "RiPP cut mass (Da)",
+        GROUP_RIPP,
+        "Cut mass of a RiPP precursor in the region.",
+        tokenizer="float",
+        multi=True,
+    ),
+    _number(
+        "ripp_cut_weight",
+        "RiPP cut weight (Da)",
+        GROUP_RIPP,
+        "Cut weight of a RiPP precursor in the region.",
+        tokenizer="float",
+        multi=True,
+    ),
+    _number(
+        "ripp_mature_weight",
+        "RiPP mature weight (Da)",
+        GROUP_RIPP,
+        "Mature weight of a RiPP precursor in the region.",
+        tokenizer="float",
+        multi=True,
+    ),
+    _number(
+        "ripp_num_bridges",
+        "# RiPP bridges",
+        GROUP_RIPP,
+        "Number of bridges of a RiPP precursor in the region.",
+        multi=True,
+    ),
+    _sequence(
+        "ripp_macrolactam",
+        "Macrolactam sequence",
+        GROUP_RIPP,
+        "Macrolactam sequence of a RiPP precursor in the region.",
+    ),
+    _keyword(
+        "ripp_modifications",
+        "RiPP modification",
+        GROUP_RIPP,
+        (
+            "Categorical annotation of a RiPP precursor in the region, as "
+            "key:value, such as macrocycle:head-to-tail."
+        ),
+    ),
+    _keyword(
+        "comparippson_hits",
+        "CompaRiPPson hit",
+        GROUP_RIPP,
+        "Accession of a CompaRiPPson hit for a RiPP precursor in the region.",
+    ),
+    # Comparative
+    _keyword(
+        "knowncluster_hits",
+        "KnownClusterBlast hit (MIBiG)",
+        GROUP_COMPARATIVE,
+        "MIBiG accession of a KnownClusterBlast hit for the region.",
+    ),
+    _keyword(
+        "knowncluster_compounds",
+        "KnownClusterBlast compound",
+        GROUP_COMPARATIVE,
+        "Compound of a KnownClusterBlast hit for the region.",
+    ),
+    _keyword(
+        "knowncluster_top",
+        "Top MIBiG hit",
+        GROUP_COMPARATIVE,
+        "MIBiG accession of the best KnownClusterBlast hit for the region.",
+        multi=False,
+    ),
+    _keyword(
+        "knowncluster_top_compound",
+        "Top MIBiG compound",
+        GROUP_COMPARATIVE,
+        "Compound of the best KnownClusterBlast hit for the region.",
+        multi=False,
+    ),
+    _number(
+        "knowncluster_top_similarity",
+        "Top MIBiG similarity (%)",
+        GROUP_COMPARATIVE,
+        "Similarity of the best KnownClusterBlast hit for the region, in percent.",
+    ),
+    _number(
+        "num_knowncluster_hits",
+        "# KnownClusterBlast hits",
+        GROUP_COMPARATIVE,
+        "Number of KnownClusterBlast hits for the region.",
+    ),
+    _keyword(
+        "clusterblast_hits",
+        "ClusterBlast hit",
+        GROUP_COMPARATIVE,
+        "Accession of a ClusterBlast hit for the region.",
+    ),
+    _keyword(
+        "subcluster_hits",
+        "SubClusterBlast hit",
+        GROUP_COMPARATIVE,
+        "Accession of a SubClusterBlast hit for the region.",
+    ),
+    _keyword(
+        "mibig_comparison_top",
+        "ClusterCompare top MIBiG",
+        GROUP_COMPARATIVE,
+        "MIBiG accession of the best ClusterCompare hit for the region.",
+        multi=False,
+    ),
+    _number(
+        "mibig_comparison_top_score",
+        "ClusterCompare score",
+        GROUP_COMPARATIVE,
+        (
+            "Score of the best ClusterCompare hit for the region; higher is "
+            "more similar."
+        ),
+        tokenizer="float",
+    ),
+    # Regulation
+    _keyword(
+        "tfbs_regulators",
+        "TFBS regulator",
+        GROUP_REGULATION,
+        "Regulator of a transcription factor binding site in the region.",
+    ),
 )
+
+SEARCH_FIELDS_BY_NAME: dict[str, SearchField] = {
+    search_field.name: search_field for search_field in SEARCH_FIELDS
+}
 
 
 # The public field list, in registry order, projected from SEARCH_FIELDS.
 PUBLIC_FIELDS: tuple[PublicFieldInfo, ...] = tuple(
     PublicFieldInfo(
-        name=field.name,
-        kind=field.kind,
-        default_search=field.default_search,
-        description=field.description,
+        name=search_field.name,
+        kind=search_field.kind,
+        label=search_field.label,
+        group=search_field.group,
+        multi=search_field.multi,
+        default_search=search_field.default_search,
+        description=search_field.description,
     )
-    for field in SEARCH_FIELDS
+    for search_field in SEARCH_FIELDS
 )
 
 
-# Field names a bare term searches: every field except the numeric ones.
+# Field names a bare term searches: every text field.
 DEFAULT_SEARCH_FIELD_NAMES: tuple[str, ...] = tuple(
-    field.name for field in SEARCH_FIELDS if field.default_search
+    search_field.name for search_field in SEARCH_FIELDS if search_field.default_search
 )
 
 
@@ -378,7 +869,13 @@ EXAMPLE_TEMPLATE_REGISTRY: tuple[ExampleTemplate, ...] = (
     ExampleTemplate(
         template_id="unqualified_word",
         pattern="{word_value}",
-        slots=(ExampleSlot(name="word", candidates=(), value_filter="single_word"),),
+        slots=(
+            ExampleSlot(
+                name="word",
+                candidates=("pfam", "product", "gene", "locus", "record"),
+                value_filter="single_word",
+            ),
+        ),
     ),
     ExampleTemplate(
         template_id="fielded_word",
@@ -386,7 +883,7 @@ EXAMPLE_TEMPLATE_REGISTRY: tuple[ExampleTemplate, ...] = (
         slots=(
             ExampleSlot(
                 name="term",
-                candidates=("category", "product"),
+                candidates=("product_category", "product"),
                 value_filter="single_word",
             ),
         ),
@@ -397,7 +894,7 @@ EXAMPLE_TEMPLATE_REGISTRY: tuple[ExampleTemplate, ...] = (
         slots=(
             ExampleSlot(
                 name="phrase",
-                candidates=("organism", "pfam_name"),
+                candidates=("organism", "pfam_desc"),
                 value_filter="multi_word",
                 quoted=True,
             ),
@@ -423,7 +920,9 @@ EXAMPLE_TEMPLATE_REGISTRY: tuple[ExampleTemplate, ...] = (
         template_id="and_fields",
         pattern="{left_field}:{left_value} AND {right_field}:{right_value}",
         slots=(
-            ExampleSlot(name="left", candidates=("category",), value_filter="any"),
+            ExampleSlot(
+                name="left", candidates=("product_category",), value_filter="any"
+            ),
             ExampleSlot(name="right", candidates=("product",), value_filter="any"),
         ),
     ),

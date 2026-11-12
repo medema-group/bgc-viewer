@@ -5,10 +5,10 @@ import SearchDialog from '@/components/SearchDialog.vue'
 
 const defaultProps = {
   query: '',
-  level: 'protocluster' as const,
+  level: 'region' as const,
   response: null,
   resultsQuery: '',
-  resultsLevel: 'protocluster' as const,
+  resultsLevel: 'region' as const,
   selectedHit: null,
   loading: false,
   loadingMore: false,
@@ -29,7 +29,7 @@ describe('SearchDialog', () => {
 
     expect(wrapper.emitted('update:query')).toEqual([['pfam:PF00512']])
     expect(wrapper.emitted('search')).toEqual([[
-      { query: 'pfam:PF00512', level: 'protocluster', page: 1 }
+      { query: 'pfam:PF00512', level: 'region', page: 1 }
     ]])
     wrapper.unmount()
   })

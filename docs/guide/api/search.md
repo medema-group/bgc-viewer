@@ -1,9 +1,11 @@
-# Protocluster Search API
+# Region Search API
 
-Full-text and exact search over protoclusters, backed by an embedded Tantivy
-index built during preprocessing. The result granularity is selected by the URL
+Full-text and exact search over antiSMASH regions, backed by an embedded
+Tantivy index built during preprocessing. One indexed document is one region,
+holding the products and categories of its protoclusters and the results of the
+antiSMASH analysis modules for it. The result granularity is selected by the URL
 path, which keeps each granularity an addressable resource and avoids
-conflating record-level browsing with protocluster-level search.
+conflating record-level browsing with region-level search.
 
 For how the query language behaves, see the
 [search index guide](/development/search-index).
@@ -13,7 +15,6 @@ For how the query language behaves, see the
 **Endpoints:**
 
 ```text
-POST /api/search/protocluster
 POST /api/search/region
 POST /api/search/record
 ```
@@ -22,7 +23,7 @@ POST /api/search/record
 
 ```json
 {
-  "query": "pfam:PF00512 AND organism:Amycolatopsis",
+  "query": "pfam:PF00550 AND substrates:Leu",
   "page": 1,
   "per_page": 20
 }
@@ -39,8 +40,10 @@ The request body carries no level: the URL path is authoritative.
 
 A successful response contains exactly `hits` and `has_more`.
 
-`protocluster` returns one hit per matching protocluster, with the stored
-identity and display values:
+`region` returns one hit per matching region, with the stored identity and
+display values. `product` and `product_category` are lists, one entry per
+distinct value among the region's protoclusters. `organism` and `input_file`
+are left out when the source has none.
 
 ```json
 {
@@ -49,12 +52,11 @@ identity and display values:
       "score": 4.2135,
       "fields": {
         "record": "NC_003888.3",
-        "region": 1,
-        "protocluster": 2,
+        "region": 2,
         "start": 120400,
         "end": 189300,
-        "product": "terpene",
-        "category": "Terpene",
+        "product": ["terpene", "T2PKS"],
+        "product_category": ["terpene", "PKS"],
         "organism": "Streptomyces coelicolor A3(2)",
         "output_file": "NC_003888.3.json",
         "input_file": "NC_003888.3.gbk"
@@ -65,25 +67,8 @@ identity and display values:
 }
 ```
 
-`region` collapses matching protoclusters to unique regions, each scored by its
-best-matching protocluster:
-
-```json
-{
-  "hits": [
-    {
-      "score": 4.2135,
-      "record": "NC_003888.3",
-      "region": 1,
-      "output_file": "NC_003888.3.json",
-      "input_file": "NC_003888.3.gbk"
-    }
-  ],
-  "has_more": false
-}
-```
-
-`record` collapses matching protoclusters to unique records:
+`record` collapses matching regions to unique records, each scored by its
+best-matching region:
 
 ```json
 {
@@ -102,11 +87,11 @@ best-matching protocluster:
 **Example:**
 
 ```javascript
-const response = await fetch('/api/search/protocluster', {
+const response = await fetch('/api/search/region', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
-    query: 'pfam:PF00512 AND pfam:PF00513',
+    query: 'pfam:PF00550 AND substrates:Leu',
     page: 1,
     per_page: 20,
   }),
@@ -115,7 +100,7 @@ const { hits, has_more } = await response.json();
 
 console.log(`Has more results: ${has_more}`);
 hits.forEach((hit) => {
-  console.log(`${hit.fields.record} region ${hit.fields.region}: ${hit.fields.product}`);
+  console.log(`${hit.fields.record} region ${hit.fields.region}: ${hit.fields.product.join(', ')}`);
 });
 ```
 
@@ -133,29 +118,35 @@ Searchable fields and examples for search help popup.
     {
       "name": "pfam",
       "kind": "exact",
+      "label": "PFAM",
+      "group": "Functional hits",
+      "multi": true,
       "default_search": true,
-      "description": "PFAM accession of a PFAM_domain overlapping the protocluster, with the version suffix removed, so PF00512.28 is searched as PF00512."
+      "description": "PFAM accession of a PFAM_domain feature or a cluster_hmmer hit overlapping the region, with the version suffix removed, so PF00512.28 is searched as PF00512."
     },
     {
       "name": "region",
       "kind": "numeric",
+      "label": "Region number",
+      "group": "Region",
+      "multi": false,
       "default_search": false,
-      "description": "Region number of the smallest region feature containing the protocluster."
+      "description": "Region number of the region within its record."
     }
   ],
   "examples": [
-    "terpene",
-    "category:PKS",
-    "\"Homo Sapiens\"",
-    "category:PKS AND product:T1PKS",
-    "organism:Streptomyces NOT product:T1PKS"
+    "PF00550",
+    "product_category:PKS",
+    "\"Streptomyces coelicolor A3(2)\"",
+    "product_category:PKS AND product:T1PKS",
+    "organism:\"Streptomyces coelicolor A3(2)\" NOT product:T1PKS"
   ],
   "query_syntax_url": "https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html"
 }
 ```
 
 - `fields` — one object per searchable field, in registry order, derived from
-  the field registry. Each field object has exactly four keys:
+  the field registry. Each field object has exactly these keys:
 
   - `name` — the public field name, used as the prefix of a qualified query
     term: `pfam:PF00512` searches the field named `pfam`.
@@ -166,11 +157,19 @@ Searchable fields and examples for search help popup.
     - `full_text` — the value is tokenized into words with lowercase
       normalization, so matching is case-insensitive and phrase queries
       work.
-    - `numeric` — the value is stored as an integer and matched as a
-      number.
+    - `path` — a file path, matched as a whole and by its components,
+      split on `/` and `.`.
+    - `numeric` — the value is stored as an integer or a decimal number and
+      matched as a number.
+    - `boolean` — the value is `true` or `false`.
+  - `label` — a short display name for the field.
+  - `group` — the section the field belongs to, such as `Region`,
+    `NRPS/PKS`, or `Comparative`.
+  - `multi` — whether a region can hold several values; they are returned as
+    a list.
   - `default_search` — whether a bare term with no `field:` prefix is
-    searched against this field. Numeric fields never participate in
-    default search.
+    searched against this field. Only text fields (`exact`, `full_text`, and
+    `path`) participate in default search.
   - `description` — a short plain-prose description of what the field
     holds and where its values come from. The search help popup renders it
     verbatim.
@@ -188,7 +187,7 @@ Every search error uses the same envelope:
   "error": {
     "code": "unknown_field",
     "message": "Unknown field: pfma",
-    "details": { "available_fields": ["category", "gene", "locus", "..."] }
+    "details": { "available_fields": ["antismash_domains", "at_specificity", "..."] }
   }
 }
 ```

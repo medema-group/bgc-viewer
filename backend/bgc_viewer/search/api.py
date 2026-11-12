@@ -1,4 +1,4 @@
-"""Request parsing and response dataclasses for the protocluster search endpoints.
+"""Request parsing and response dataclasses for the region search endpoints.
 
 This module owns the framework-agnostic pieces of the search HTTP layer:
 parsing and validating the JSON request body into a :class:`SearchRequest`,
@@ -20,7 +20,6 @@ from typing import Any
 from .document import PUBLIC_FIELDS, PublicFieldInfo
 from .index import (
     RecordHit,
-    RegionHit,
     Results,
     SearchError,
     SearchHit,
@@ -97,7 +96,7 @@ class SearchResponse:
     can show a "load more" affordance without a total count.
     """
 
-    hits: tuple[SearchHit | RegionHit | RecordHit, ...]
+    hits: tuple[SearchHit | RecordHit, ...]
     has_more: bool
 
     @classmethod
