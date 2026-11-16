@@ -110,7 +110,11 @@ are left out when the source has none.
 ```
 
 `record` collapses matching regions to unique records, each scored by its
-best-matching region:
+best-matching region. Each record hit also carries the details the record list
+shows, read from the SQLite record index rather than the search index:
+`description`, `organism`, `region_count` (all regions of the record, not just
+the matching ones), and `feature_count`. They are `null` for a record the
+SQLite index lacks.
 
 ```json
 {
@@ -119,7 +123,11 @@ best-matching region:
       "score": 4.2135,
       "record": "NC_003888.3",
       "output_file": "NC_003888.3.json",
-      "input_file": "NC_003888.3.gbk"
+      "input_file": "NC_003888.3.gbk",
+      "description": "Streptomyces coelicolor A3(2), complete genome",
+      "organism": "Streptomyces coelicolor A3(2)",
+      "region_count": 29,
+      "feature_count": 17892
     }
   ],
   "has_more": false,

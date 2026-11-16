@@ -212,6 +212,11 @@ export interface RecordSearchHit {
   record: string
   output_file: string
   input_file: string | null
+  /** Record list details from the SQLite record index; null if the record is not found there. */
+  description: string | null
+  organism: string | null
+  region_count: number | null
+  feature_count: number | null
 }
 
 export interface SearchResponse<T> {

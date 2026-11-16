@@ -19,7 +19,16 @@ const regionHit = (record: string, region: number): RegionSearchHit => ({
   }
 })
 
-const recordHit: RecordSearchHit = { score: null, record: 'recA', output_file: 'recA.json', input_file: 'recA.gbk' }
+const recordHit: RecordSearchHit = {
+  score: null,
+  record: 'recA',
+  output_file: 'recA.json',
+  input_file: 'recA.gbk',
+  description: 'Streptomyces coelicolor A3(2), complete genome',
+  organism: 'Streptomyces coelicolor A3(2)',
+  region_count: 29,
+  feature_count: 17892
+}
 
 function mountTable(props: Partial<InstanceType<typeof SearchResultsTable>['$props']> = {}) {
   return mount(SearchResultsTable, {
@@ -51,8 +60,30 @@ describe('SearchResultsTable', () => {
       page: 1,
       response: { hits: [recordHit], has_more: false, total_regions: 3, facets: {} }
     })
-    expect(wrapper.get('tbody tr').findAll('td').map(td => td.text())).toEqual(['recA', 'recA.json', 'recA.gbk'])
+    expect(wrapper.get('tbody tr').findAll('td').map(td => td.text())).toEqual([
+      'recA',
+      'Streptomyces coelicolor A3(2)',
+      'Streptomyces coelicolor A3(2), complete genome',
+      '29',
+      '17,892',
+      'recA.json',
+      'recA.gbk'
+    ])
     expect(wrapper.get('.pager-status').text()).toBe('Records 1–1 · 3 matching regions')
+  })
+
+  it('leaves record details empty when the record index lacks them', () => {
+    const wrapper = mountTable({
+      level: 'record',
+      page: 1,
+      response: {
+        hits: [{ ...recordHit, description: null, organism: null, region_count: null, feature_count: null }],
+        has_more: false,
+        total_regions: 1,
+        facets: {}
+      }
+    })
+    expect(wrapper.get('tbody tr').findAll('td').map(td => td.text())).toEqual(['recA', '', '', '', '', 'recA.json', 'recA.gbk'])
   })
 
   it('only offers sorting on sortable fields and cycles asc, desc, relevance', async () => {

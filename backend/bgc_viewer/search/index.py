@@ -262,12 +262,21 @@ class SearchHit:
 
 @dataclass(frozen=True)
 class RecordHit:
-    """One ranked record, scored by its best-matching region."""
+    """One ranked record, scored by its best-matching region.
+
+    The search index holds only the record's identity; the record list
+    details (``description`` through ``feature_count``) are filled in from the
+    SQLite record index by the HTTP layer and stay ``None`` until then.
+    """
 
     score: float | None
     record: str
     output_file: str
     input_file: str | None
+    description: str | None = None
+    organism: str | None = None
+    region_count: int | None = None
+    feature_count: int | None = None
 
 
 def _index_present(path: Path) -> bool:

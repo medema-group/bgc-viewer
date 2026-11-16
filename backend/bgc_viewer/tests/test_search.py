@@ -6,7 +6,7 @@ Attribute search is served by the Tantivy index; see ``tests/search``.
 
 import sqlite3
 
-from bgc_viewer.database import get_database_entries
+from bgc_viewer.database import get_database_entries, get_record_details
 
 
 class TestDatabaseEntries:
@@ -82,3 +82,39 @@ class TestDatabaseEntries:
         results = get_database_entries(str(db_path), page=1, per_page=10)
 
         assert "run preprocessing again" in results["error"]
+
+
+class TestRecordDetails:
+    """Tests for the record list details looked up for record search hits."""
+
+    def test_details_of_the_given_records(self, processed_data_dir):
+        temp_dir, _ = processed_data_dir
+        db_path = str(temp_dir / "attributes.db")
+
+        details = get_record_details(
+            db_path,
+            [("test_sample.json", "test_record_1"), ("test_sample.json", "nope")],
+        )
+
+        assert details == {
+            ("test_sample.json", "test_record_1"): {
+                "description": "Test record 1",
+                "organism": "Streptomyces coelicolor",
+                "region_count": 1,
+                "feature_count": 6,
+            }
+        }
+
+    def test_no_keys_reads_nothing(self, tmp_path):
+        assert get_record_details(str(tmp_path / "absent.db"), []) == {}
+
+    def test_database_without_the_columns_gives_no_details(self, tmp_path):
+        db_path = tmp_path / "old.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE files (id INTEGER PRIMARY KEY, path TEXT)")
+        conn.execute(
+            "CREATE TABLE records (id INTEGER PRIMARY KEY, file_id INTEGER, record_id TEXT)"
+        )
+        conn.close()
+
+        assert get_record_details(str(db_path), [("a.json", "rec")]) == {}

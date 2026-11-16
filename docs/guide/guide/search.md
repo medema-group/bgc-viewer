@@ -47,8 +47,9 @@ Pressing **Search** without conditions (**Browse all**) lists every region.
 ## Results
 
 **Show Regions** lists one row per matching region. **Show Records** lists
-each record with at least one matching region once. The counter below the
-table counts matching regions in both cases.
+each record with at least one matching region once, with the organism,
+description, and region and feature counts the record list shows. The counter
+below the table counts matching regions in both cases.
 
 Click a column heading to sort by it, again to reverse the order, and a third
 time to go back to the default order. Only columns with one value per region

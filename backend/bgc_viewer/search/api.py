@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from tantivy import Index, Query
 
+from ..database import get_record_details
 from .document import PUBLIC_FIELDS, SEARCH_FIELDS_BY_NAME, PublicFieldInfo
 from .index import (
     FacetBucket,
@@ -234,6 +235,28 @@ def run_search(
         total_regions=results.total_regions,
         facets=facets,
     )
+
+
+def add_record_details(response: SearchResponse, db_path: Path) -> SearchResponse:
+    """Fill in the record list details of a page of record hits from SQLite.
+
+    The details (description, organism, region and feature counts) are what
+    the record list shows. They are looked up for the page only, so the search
+    index does not have to hold them.
+    """
+    records = [hit for hit in response.hits if isinstance(hit, RecordHit)]
+    details = get_record_details(
+        db_path, [(hit.output_file, hit.record) for hit in records]
+    )
+    hits = tuple(
+        (
+            replace(hit, **details.get((hit.output_file, hit.record), {}))
+            if isinstance(hit, RecordHit)
+            else hit
+        )
+        for hit in response.hits
+    )
+    return replace(response, hits=hits)
 
 
 @dataclass(frozen=True)

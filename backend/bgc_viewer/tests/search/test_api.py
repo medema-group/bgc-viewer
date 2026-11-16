@@ -368,7 +368,37 @@ class TestSearchEndpoint:
         data = json.loads(response.data)
         assert set(data) == {"hits", "has_more", "total_regions", "facets"}
         assert data["has_more"] is False
-        assert set(data["hits"][0]) == {"score", "record", "output_file", "input_file"}
+        assert set(data["hits"][0]) == {
+            "score",
+            "record",
+            "output_file",
+            "input_file",
+            "description",
+            "organism",
+            "region_count",
+            "feature_count",
+        }
+
+    def test_record_hits_carry_record_list_details(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/record",
+            json={"query": "product:polyketide"},
+        )
+        hit = json.loads(response.data)["hits"][0]
+        assert hit["record"] == "test_record_1"
+        assert hit["description"] == "Test record 1"
+        assert hit["organism"] == "Streptomyces coelicolor"
+        assert (hit["region_count"], hit["feature_count"]) == (1, 6)
+
+    def test_region_hits_are_unchanged(self, search_client, test_database):
+        db_path, _ = test_database
+        _select_database(search_client, db_path)
+        response = search_client.post(
+            "/api/search/region", json={"query": "product:polyketide"}
+        )
+        assert set(json.loads(response.data)["hits"][0]) == {"score", "fields"}
 
     def test_pagination_limits_hits_without_echoing_request(
         self, search_client, test_database

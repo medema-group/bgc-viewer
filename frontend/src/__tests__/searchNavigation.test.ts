@@ -24,7 +24,11 @@ const recordHit = {
   score: 2,
   record: 'record-1',
   output_file: 'nested/example.json',
-  input_file: 'example.gbk'
+  input_file: 'example.gbk',
+  description: null,
+  organism: null,
+  region_count: null,
+  feature_count: null
 }
 
 describe('recordSelectionFromHit', () => {

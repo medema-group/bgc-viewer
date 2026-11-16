@@ -21,6 +21,7 @@ from .file_utils import match_location
 from .database import get_database_entries, get_database_info
 from .search.api import (
     ValuesResponse,
+    add_record_details,
     build_schema_response,
     error_response,
     parse_search_request,
@@ -1221,10 +1222,14 @@ def search_region_endpoint():
 @app.route("/api/search/record", methods=["POST"])
 @search_errors
 def search_record_endpoint():
-    """Search the embedded index, collapsing matches to unique scored records."""
+    """Search the embedded index, collapsing matches to unique scored records.
+
+    Each record hit carries the record list details from the SQLite index.
+    """
     req = parse_search_request(request.get_json(silent=True))
     index = _open_search_index()
-    return jsonify(run_search(index, req, search_record)), 200
+    response = run_search(index, req, search_record)
+    return jsonify(add_record_details(response, _current_search_database())), 200
 
 
 @app.route("/api/search/values")

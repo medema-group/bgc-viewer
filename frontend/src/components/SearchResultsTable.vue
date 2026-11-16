@@ -28,7 +28,7 @@
             @click="emit('select', hit)"
             @keydown.enter="emit('select', hit)"
           >
-            <td v-for="column in columns" :key="column.key" :class="column.key">
+            <td v-for="column in columns" :key="column.key" :class="column.key" :title="column.value(hit)">
               {{ column.value(hit) }}
             </td>
           </tr>
@@ -123,8 +123,15 @@ const REGION_COLUMNS: Column[] = [
   { key: 'file', label: 'File', value: hit => region(hit).output_file }
 ]
 
+const count = (value: number | null | undefined) => (value == null ? '' : value.toLocaleString())
+
+// The details beside the identity come from the SQLite record index, as in the record list.
 const RECORD_COLUMNS: Column[] = [
   { key: 'record', label: 'Record', sortField: 'record', value: hit => record(hit).record },
+  { key: 'organism', label: 'Organism', sortField: 'organism', value: hit => record(hit).organism ?? '' },
+  { key: 'description', label: 'Description', value: hit => record(hit).description ?? '' },
+  { key: 'regions', label: 'Regions', value: hit => count(record(hit).region_count) },
+  { key: 'features', label: 'Features', value: hit => count(record(hit).feature_count) },
   { key: 'file', label: 'File', value: hit => record(hit).output_file },
   { key: 'input', label: 'Input file', value: hit => record(hit).input_file ?? '' }
 ]
@@ -237,8 +244,15 @@ td {
 }
 
 td.region,
-td.location {
+td.location,
+td.regions,
+td.features {
   font-variant-numeric: tabular-nums;
+}
+
+td.regions,
+td.features {
+  text-align: right;
 }
 
 td.file {
