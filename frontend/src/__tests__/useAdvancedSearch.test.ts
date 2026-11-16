@@ -74,28 +74,27 @@ describe('useAdvancedSearch', () => {
     expect(search.state.response).toEqual(emptyResponse)
   })
 
-  it('searches the query string in query mode and clears on a blank one', async () => {
+  it('puts a query string into the builder as its one condition', async () => {
     const { provider, search } = setup()
-    search.setMode('query')
-    search.state.queryText = 'pfam:PF00550'
-    await search.search()
-    expect(lastSearch(provider)![1]).toEqual({ query: 'pfam:PF00550' })
+    await search.loadSchema()
 
-    search.state.queryText = '  '
+    search.useQueryString('pfam:PF00550')
     await search.search()
-    expect(provider.search).toHaveBeenCalledTimes(1)
-    expect(search.state.response).toBeNull()
+
+    expect(lastSearch(provider)![1].filter.conditions).toMatchObject([
+      { field: RAW_QUERY_FIELD, operator: 'matches', value: 'pfam:PF00550' }
+    ])
   })
 
   it('pages, sorts, and switches level with the searched criteria', async () => {
     const { provider, search } = setup()
-    search.setMode('query')
-    search.state.queryText = 'NRPS'
+    search.useQueryString('NRPS')
     await search.search()
-    search.state.queryText = 'edited but not searched'
+    const searched = lastSearch(provider)![1]
+    search.useQueryString('edited but not searched')
 
     await search.goToPage(3)
-    expect(lastSearch(provider)!.slice(0, 2)).toEqual(['region', { query: 'NRPS' }])
+    expect(lastSearch(provider)!.slice(0, 2)).toEqual(['region', searched])
     expect(lastSearch(provider)![2].page).toBe(3)
     expect(search.state.page).toBe(3)
 
@@ -124,17 +123,14 @@ describe('useAdvancedSearch', () => {
     expect(filter.groups[1].conditions[0]).toMatchObject({ field: 'organism', operator: 'in', value: ['Streptomyces'] })
   })
 
-  it('turns a query string into a builder condition when refining', async () => {
+  it('drops blank rows when refining', async () => {
     const { provider, search } = setup()
     await search.loadSchema()
-    search.setMode('query')
-    search.state.queryText = 'substrates:Leu'
 
     await search.addRefinement('product', 'NRPS')
 
-    expect(search.state.mode).toBe('builder')
     const conditions = lastSearch(provider)![1].filter.conditions
-    expect(conditions.map((c: { field: string }) => c.field)).toEqual([RAW_QUERY_FIELD, 'product'])
+    expect(conditions.map((c: { field: string }) => c.field)).toEqual(['product'])
   })
 
   it('reports API errors with their code', async () => {

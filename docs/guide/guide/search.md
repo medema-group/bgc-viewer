@@ -60,8 +60,9 @@ matching regions. Click one to add it as a condition and search again.
 
 ## Query string
 
-The **Query string** tab takes a query in the Tantivy query language, such as
-`pfam:PF00550 AND substrates:Leu` or `product_category:RiPP NOT organism:"Streptomyces coelicolor A3(2)"`.
+A **Query string** condition takes a query in the Tantivy query language, such
+as `pfam:PF00550 AND substrates:Leu` or `product_category:RiPP NOT organism:"Streptomyces coelicolor A3(2)"`.
 A bare word searches every text field; `field:value` searches one field, using
-the field names listed under **Search help**, which also has examples built from
-your dataset. For how fields match, see the [search index guide](../development/search-index.md#query-language).
+the field names listed under **Search help**. Search help also has example
+queries built from your dataset: **Use** puts one into the builder as its only
+condition. For how fields match, see the [search index guide](../development/search-index.md#query-language).

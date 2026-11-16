@@ -26,7 +26,7 @@
           type="button"
           :class="{ active: view === tab.view }"
           :aria-current="view === tab.view ? 'page' : undefined"
-          @click="showView(tab.view)"
+          @click="view = tab.view"
         >
           {{ tab.label }}
         </button>
@@ -43,56 +43,33 @@
 
         <template v-else>
           <form class="search-form" @submit.prevent="runSearch">
-            <template v-if="view === 'builder'">
-              <p v-if="state.schemaLoading" class="form-note">Loading fields...</p>
-              <p v-else-if="state.schemaError" class="form-note error" role="alert">
-                <strong>{{ state.schemaError.code }}</strong>: {{ state.schemaError.message }}
-              </p>
-              <QueryBuilder
-                v-else-if="state.schema"
-                :rows="state.rows"
-                :fields="search.builderFields.value"
-                :load-values="search.loadValues"
-                @update:rows="state.rows = $event"
-              />
-              <div v-if="summary.length" class="summary" aria-label="Search summary">
-                <div v-for="(line, index) in summary" :key="index" class="summary-line">
-                  <span class="summary-joiner">{{ line.joiner }}</span>
-                  <span>
-                    <template v-for="(part, partIndex) in line.parts" :key="partIndex">
-                      <span v-if="part.kind === 'op'" class="summary-op"> {{ part.value }} </span>
-                      <span v-else-if="part.kind === 'paren'" class="summary-paren">{{ part.value }}</span>
-                      <span v-else>{{ part.value }}</span>
-                    </template>
-                  </span>
-                </div>
+            <p v-if="state.schemaLoading" class="form-note">Loading fields...</p>
+            <p v-else-if="state.schemaError" class="form-note error" role="alert">
+              <strong>{{ state.schemaError.code }}</strong>: {{ state.schemaError.message }}
+            </p>
+            <QueryBuilder
+              v-else-if="state.schema"
+              :rows="state.rows"
+              :fields="search.builderFields.value"
+              :load-values="search.loadValues"
+              @update:rows="state.rows = $event"
+            />
+            <div v-if="summary.length" class="summary" aria-label="Search summary">
+              <div v-for="(line, index) in summary" :key="index" class="summary-line">
+                <span class="summary-joiner">{{ line.joiner }}</span>
+                <span>
+                  <template v-for="(part, partIndex) in line.parts" :key="partIndex">
+                    <span v-if="part.kind === 'op'" class="summary-op"> {{ part.value }} </span>
+                    <span v-else-if="part.kind === 'paren'" class="summary-paren">{{ part.value }}</span>
+                    <span v-else>{{ part.value }}</span>
+                  </template>
+                </span>
               </div>
-            </template>
-
-            <div v-else class="query-control">
-              <span class="search-icon" aria-hidden="true"></span>
-              <input
-                ref="queryInput"
-                v-model="state.queryText"
-                type="search"
-                aria-label="Advanced search query"
-                placeholder="pfam:PF00550 AND substrates:Leu"
-              />
-              <button
-                v-if="state.queryText"
-                type="button"
-                class="clear-button"
-                aria-label="Clear search"
-                title="Clear search"
-                @click="state.queryText = ''"
-              >
-                &times;
-              </button>
             </div>
 
             <div class="form-actions">
               <button type="submit" class="submit-button" :disabled="!search.canSearch.value">
-                {{ view === 'builder' && !search.hasRules.value ? 'Browse all' : 'Search' }}
+                {{ search.hasRules.value ? 'Search' : 'Browse all' }}
               </button>
               <span class="level-label">Show</span>
               <div class="level-toggle" role="group" aria-label="Search result level">
@@ -138,8 +115,7 @@
             <p v-if="state.loading">Searching...</p>
             <template v-else>
               <strong>Search the active index</strong>
-              <p v-if="view === 'builder'">Add conditions, then press Search.</p>
-              <p v-else>Type a word or field query, then press Enter.</p>
+              <p>Add conditions, then press Search.</p>
             </template>
           </div>
         </template>
@@ -154,7 +130,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import QueryBuilder from './QueryBuilder.vue'
 import RefinePanel from './RefinePanel.vue'
 import SearchHelpPopup from './SearchHelpPopup.vue'
@@ -163,7 +139,7 @@ import { PAGE_SIZE, type AdvancedSearch, type SearchHit } from '@/composables/us
 import { describeCondition, summarizeRows } from '@/services/filterRows'
 import type { SearchLevel } from '@/services/dataProviders/types'
 
-type View = 'builder' | 'query' | 'help'
+type View = 'builder' | 'help'
 
 const props = defineProps<{
   search: AdvancedSearch
@@ -175,12 +151,10 @@ const emit = defineEmits<{
 }>()
 
 const state = props.search.state
-const queryInput = ref<HTMLInputElement | null>(null)
-const view = ref<View>(state.mode)
+const view = ref<View>('builder')
 
 const tabs: { view: View; label: string }[] = [
   { view: 'builder', label: 'Query builder' },
-  { view: 'query', label: 'Query string' },
   { view: 'help', label: 'Search help' }
 ]
 
@@ -194,23 +168,14 @@ const summary = computed(() => {
   return summarizeRows(state.rows, condition => describeCondition(condition, fields))
 })
 
-async function showView(next: View) {
-  view.value = next
-  if (next === 'help') return
-  props.search.setMode(next)
-  if (next === 'query') {
-    await nextTick()
-    queryInput.value?.focus()
-  }
-}
-
 function runSearch() {
   props.search.search()
 }
 
-async function useExample(example: string) {
-  state.queryText = example
-  await showView('query')
+// An example is a query string, so it becomes the builder's one condition.
+function useExample(example: string) {
+  props.search.useQueryString(example)
+  view.value = 'builder'
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -220,7 +185,6 @@ function handleKeydown(event: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown)
   props.search.loadSchema()
-  if (view.value === 'query') queryInput.value?.focus()
 })
 onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
 </script>
@@ -263,8 +227,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   letter-spacing: 0;
 }
 
-.close-button,
-.clear-button {
+.close-button {
   border: 0;
   background: transparent;
   color: #5d6c77;
@@ -278,8 +241,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   font-size: 25px;
 }
 
-.close-button:hover,
-.clear-button:hover {
+.close-button:hover {
   background: #edf2f5;
 }
 
@@ -362,58 +324,6 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   color: #687681;
 }
 
-.query-control {
-  position: relative;
-  min-width: 0;
-}
-
-.query-control input {
-  width: 100%;
-  height: 42px;
-  box-sizing: border-box;
-  padding: 8px 36px 8px 38px;
-  border: 1px solid #aebbc4;
-  border-radius: 4px;
-  background: #fff;
-  color: #263442;
-  font: inherit;
-  font-size: 14px;
-}
-
-.query-control input::-webkit-search-cancel-button {
-  appearance: none;
-}
-
-.search-icon {
-  position: absolute;
-  top: 13px;
-  left: 14px;
-  width: 13px;
-  height: 13px;
-  border: 2px solid #687681;
-  border-radius: 50%;
-}
-
-.search-icon::after {
-  position: absolute;
-  right: -5px;
-  bottom: -3px;
-  width: 6px;
-  height: 2px;
-  background: #687681;
-  content: '';
-  transform: rotate(45deg);
-}
-
-.clear-button {
-  position: absolute;
-  top: 7px;
-  right: 6px;
-  width: 28px;
-  height: 28px;
-  font-size: 20px;
-}
-
 .form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -479,7 +389,6 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
   color: #fff;
 }
 
-.query-control input:focus,
 .search-dialog button:focus-visible {
   outline: 2px solid #1976d2;
   outline-offset: 1px;

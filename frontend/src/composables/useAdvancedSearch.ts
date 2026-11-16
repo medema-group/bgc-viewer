@@ -28,7 +28,6 @@ import {
 } from '@/services/filterRows'
 
 export type SearchHit = RegionSearchHit | RecordSearchHit
-export type SearchMode = 'builder' | 'query'
 
 export interface SearchError {
   code: string
@@ -51,9 +50,7 @@ function toSearchError(error: any, fallback: string): SearchError {
 
 export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null) {
   const state = reactive({
-    mode: 'builder' as SearchMode,
     rows: [] as FilterRow[],
-    queryText: '',
     level: 'region' as SearchLevel,
     sort: null as SearchSort | null,
     page: 1,
@@ -87,9 +84,7 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     return REFINE_FIELDS.filter(name => countable.has(name))
   })
 
-  const canSearch = computed(() => (state.mode === 'builder'
-    ? state.schema !== null
-    : state.queryText.trim().length > 0))
+  const canSearch = computed(() => state.schema !== null)
 
   const hasRules = computed(() => rowsHaveRules(state.rows))
 
@@ -146,18 +141,10 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     }
   }
 
-  /** Run what the builder or the query string asks, from the first page. */
+  /** Run what the builder rows ask, from the first page. */
   async function search() {
-    if (state.mode === 'query') {
-      if (!state.queryText.trim()) {
-        clearResults()
-        return
-      }
-      await fetchPage({ query: state.queryText }, state.level, 1)
-    } else {
-      // A builder without conditions browses every region.
-      await fetchPage({ filter: rowsToGroup(state.rows) }, state.level, 1)
-    }
+    // A builder without conditions browses every region.
+    await fetchPage({ filter: rowsToGroup(state.rows) }, state.level, 1)
   }
 
   async function goToPage(page: number) {
@@ -176,11 +163,6 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
 
   /** Narrow the search to `field` = `value`, as a refine-panel click asks, and run it. */
   async function addRefinement(field: string, value: string) {
-    if (state.mode === 'query') {
-      const text = state.queryText.trim()
-      state.rows = text ? [conditionRow(createCondition(RAW_QUERY_FIELD, 'matches', text))] : []
-      state.mode = 'builder'
-    }
     const kept = state.rows.filter(row => row.kind === 'group' || rowsHaveRules([row]))
     // A new AND row would bind to the last OR alternative only, so ORed rows are bracketed first.
     const base = runsOf(kept).length > 1 ? [groupRow(kept)] : kept
@@ -188,9 +170,9 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     await search()
   }
 
-  function setMode(mode: SearchMode) {
-    state.mode = mode
-    if (mode === 'builder') ensureStarterRow()
+  /** Replace the rows with one query-string condition, as a help example asks. */
+  function useQueryString(query: string) {
+    state.rows = [conditionRow(createCondition(RAW_QUERY_FIELD, 'matches', query))]
   }
 
   function clearResults() {
@@ -211,7 +193,6 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     state.schemaLoading = false
     state.schemaError = null
     state.rows = []
-    state.queryText = ''
     state.sort = null
   }
 
@@ -227,7 +208,7 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     goToPage,
     setSort,
     setLevel,
-    setMode,
+    useQueryString,
     addRefinement,
     clearResults,
     reset,

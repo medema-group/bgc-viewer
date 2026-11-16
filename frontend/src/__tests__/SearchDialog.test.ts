@@ -98,16 +98,18 @@ describe('SearchDialog', () => {
     wrapper.unmount()
   })
 
-  it('searches a query string and emits the selected hit', async () => {
-    const { provider, wrapper } = mountDialog()
-    await flushPromises()
+  it('offers only the builder and the help', () => {
+    const { wrapper } = mountDialog()
+    expect(wrapper.findAll('.dialog-tabs button').map(tab => tab.text())).toEqual(['Query builder', 'Search help'])
+    wrapper.unmount()
+  })
 
-    await wrapper.findAll('.dialog-tabs button')[1].trigger('click')
-    await wrapper.get('[aria-label="Advanced search query"]').setValue('product:NRPS')
+  it('emits the selected hit', async () => {
+    const { wrapper } = mountDialog()
+    await flushPromises()
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(provider.search.mock.calls[0][1]).toEqual({ query: 'product:NRPS' })
     await wrapper.get('tbody tr').trigger('click')
     expect(wrapper.emitted('select')).toEqual([[regionHit]])
     wrapper.unmount()
@@ -126,15 +128,17 @@ describe('SearchDialog', () => {
     wrapper.unmount()
   })
 
-  it('uses a help example as the query string', async () => {
+  it('uses a help example as a query string condition in the builder', async () => {
     const { wrapper } = mountDialog()
     await flushPromises()
 
-    await wrapper.findAll('.dialog-tabs button')[2].trigger('click')
+    await wrapper.findAll('.dialog-tabs button')[1].trigger('click')
     await wrapper.get('[aria-label="Use example: product:NRPS"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get<HTMLInputElement>('[aria-label="Advanced search query"]').element.value).toBe('product:NRPS')
+    expect(wrapper.findAll('.condition-row')).toHaveLength(1)
+    expect(wrapper.get<HTMLSelectElement>('[aria-label="Field"]').element.value).toBe('_query')
+    expect(wrapper.get<HTMLInputElement>('[aria-label="Value"]').element.value).toBe('product:NRPS')
     wrapper.unmount()
   })
 
