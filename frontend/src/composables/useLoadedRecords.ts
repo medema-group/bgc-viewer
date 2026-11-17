@@ -3,6 +3,7 @@
 // source leaves the records of the others in place.
 import { computed, markRaw, ref } from 'vue'
 import { GenbankFileProvider, JSONFileProvider, type DataProvider } from '@/services/dataProviders'
+import type { Region } from '@/services/dataProviders/types'
 import { EXTERNAL_SOURCES } from '@/services/externalSources'
 
 /** The upload source; the other source keys are those of EXTERNAL_SOURCES. */
@@ -26,7 +27,19 @@ export interface LoadedRecord {
   description: string
   regionCount: number
   featureCount: number
+  regions: Region[]
   provider: DataProvider
+}
+
+/** A region of a loaded record, for the region-level list. */
+export interface LoadedRegion {
+  /** Unique across sources, for list keys. */
+  key: string
+  record: LoadedRecord
+  regionId: string
+  regionNumber: number
+  length: number | null
+  product: string[]
 }
 
 export function sourceLabel(source: string): string {
@@ -46,17 +59,32 @@ async function providerFor(file: LoadedFile): Promise<DataProvider | null> {
 
 async function recordsOf(source: string, provider: DataProvider): Promise<LoadedRecord[]> {
   const { records } = await provider.searchRecords('', 1, Number.MAX_SAFE_INTEGER)
-  return records.map(record => ({
-    key: `${source}/${record.entryId ?? record.recordId}`,
-    source,
-    sourceLabel: sourceLabel(source),
-    entryId: record.entryId ?? record.recordId,
-    recordId: record.recordId,
-    filename: record.filename ?? '',
-    description: record.recordInfo?.description ?? '',
-    regionCount: record.regionCount ?? 0,
-    featureCount: record.featureCount ?? 0,
-    provider
+  return Promise.all(records.map(async record => {
+    const entryId = record.entryId ?? record.recordId
+    return {
+      key: `${source}/${entryId}`,
+      source,
+      sourceLabel: sourceLabel(source),
+      entryId,
+      recordId: record.recordId,
+      filename: record.filename ?? '',
+      description: record.recordInfo?.description ?? '',
+      regionCount: record.regionCount ?? 0,
+      featureCount: record.featureCount ?? 0,
+      regions: (await provider.getRegions(entryId)).regions,
+      provider
+    }
+  }))
+}
+
+function regionsOf(record: LoadedRecord): LoadedRegion[] {
+  return record.regions.map(region => ({
+    key: `${record.key}#${region.id}`,
+    record,
+    regionId: region.id,
+    regionNumber: region.region_number,
+    length: region.start == null || region.end == null ? null : region.end - region.start,
+    product: region.product
   }))
 }
 
@@ -70,6 +98,9 @@ export function useLoadedRecords() {
     const { [UPLOAD_SOURCE]: uploads = [], ...external } = bySource.value
     return [...uploads, ...Object.values(external).flat()]
   })
+
+  /** The regions of every loaded record, in record order. */
+  const regions = computed(() => records.value.flatMap(regionsOf))
 
   /** Replace the files of one source and return its records. */
   async function setFiles(source: string, files: LoadedFile[]): Promise<LoadedRecord[]> {
@@ -101,6 +132,7 @@ export function useLoadedRecords() {
 
   return {
     records,
+    regions,
     loading: computed(() => loading.value > 0),
     error,
     setFiles,

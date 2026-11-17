@@ -48,10 +48,12 @@ Pressing **Search** without conditions (**Browse all**) lists every region.
 
 ## Results
 
-**Show Regions** lists one row per matching region. **Show Records** lists
-each record with at least one matching region once, with its organism,
-description, and region and feature counts. The counter below the table counts
-matching regions in both cases.
+The **Show Regions / Records** toggle above the results sets what they list.
+**Regions** lists one row per matching region, with its length in kilobases.
+**Records** lists each record with at least one matching region once, with its
+organism, description, and region and feature counts. The counter below the
+table counts matching regions in both cases. The toggle also applies to the
+**Loaded data** tab, which lists the regions or records of loaded files.
 
 Click a column heading to sort by it, again to reverse the order, and a third
 time to go back to the default order. Only columns with one value per region

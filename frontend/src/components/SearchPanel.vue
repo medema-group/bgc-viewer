@@ -43,19 +43,6 @@
           <button type="submit" class="submit-button" :disabled="!search.canSearch.value">
             {{ search.hasRules.value ? 'Search' : 'Browse all' }}
           </button>
-          <span class="level-label">Show</span>
-          <div class="level-toggle" role="group" aria-label="Search result level">
-            <button
-              v-for="option in levels"
-              :key="option.level"
-              type="button"
-              :class="{ active: state.level === option.level }"
-              :aria-pressed="state.level === option.level"
-              @click="changeLevel(option.level)"
-            >
-              {{ option.label }}
-            </button>
-          </div>
         </div>
       </form>
 
@@ -84,7 +71,6 @@ import QueryBuilder from './QueryBuilder.vue'
 import SearchHelpPopup from './SearchHelpPopup.vue'
 import type { AdvancedSearch } from '@/composables/useAdvancedSearch'
 import { describeCondition, summarizeRows } from '@/services/filterRows'
-import type { SearchLevel } from '@/services/dataProviders/types'
 
 const props = withDefaults(defineProps<{
   search: AdvancedSearch
@@ -103,11 +89,6 @@ const emit = defineEmits<{
 const state = props.search.state
 const helpOpen = ref(false)
 
-const levels: { level: SearchLevel; label: string }[] = [
-  { level: 'region', label: 'Regions' },
-  { level: 'record', label: 'Records' }
-]
-
 const summary = computed(() => {
   const fields = new Map(props.search.builderFields.value.map(field => [field.name, field]))
   return summarizeRows(state.rows, condition => describeCondition(condition, fields))
@@ -116,11 +97,6 @@ const summary = computed(() => {
 function runSearch() {
   emit('searched')
   props.search.search()
-}
-
-function changeLevel(level: SearchLevel) {
-  emit('searched')
-  props.search.setLevel(level)
 }
 
 // An example is a query string, so it becomes the builder's one condition.
@@ -260,41 +236,6 @@ function useExample(example: string) {
   border-color: #a3afb7;
   background: #a3afb7;
   cursor: default;
-}
-
-.level-label {
-  color: #52616d;
-  font-size: 13px;
-}
-
-.level-toggle {
-  display: inline-flex;
-}
-
-.level-toggle button {
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid #aebbc4;
-  background: #fff;
-  color: #30434f;
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-}
-
-.level-toggle button:first-child {
-  border-radius: 4px 0 0 4px;
-}
-
-.level-toggle button:last-child {
-  margin-left: -1px;
-  border-radius: 0 4px 4px 0;
-}
-
-.level-toggle button.active {
-  border-color: #1976b5;
-  background: #1976b5;
-  color: #fff;
 }
 
 .search-panel button:focus-visible {

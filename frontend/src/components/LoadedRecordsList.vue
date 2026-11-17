@@ -3,7 +3,51 @@
     <p v-if="loading" class="loading-note">Loading...</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <div class="table-scroll">
-      <table>
+      <table v-if="level === 'region'">
+        <thead>
+          <tr>
+            <th scope="col">Record</th>
+            <th scope="col" class="number">Region</th>
+            <th scope="col" class="number">Length (kb)</th>
+            <th scope="col">Products</th>
+            <th scope="col">Source</th>
+            <th scope="col">File</th>
+            <th scope="col"><span class="sr-only">Remove</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="(region, index) in regions"
+            :key="region.key"
+            :class="{ selected: region.key === selectedKey }"
+            tabindex="0"
+            @click="emit('select-region', region)"
+            @keydown.enter="emit('select-region', region)"
+          >
+            <td>{{ region.record.recordId }}</td>
+            <td class="number">{{ region.regionNumber }}</td>
+            <td class="number">{{ formatKilobases(region.length) }}</td>
+            <td :title="region.product.join(', ')">{{ region.product.join(', ') }}</td>
+            <td>{{ region.record.sourceLabel }}</td>
+            <td class="muted" :title="region.record.filename">{{ region.record.filename }}</td>
+            <td class="remove">
+              <button
+                v-if="startsSource(regionRecords, index)"
+                type="button"
+                :aria-label="`Remove ${region.record.sourceLabel} records`"
+                :title="`Remove ${region.record.sourceLabel} records`"
+                @click.stop="emit('remove-source', region.record.source)"
+              >
+                &times;
+              </button>
+            </td>
+          </tr>
+          <tr v-if="regions.length === 0 && !loading">
+            <td colspan="7" class="empty">The loaded records have no regions.</td>
+          </tr>
+        </tbody>
+      </table>
+      <table v-else>
         <thead>
           <tr>
             <th scope="col">Record</th>
@@ -17,7 +61,7 @@
         </thead>
         <tbody>
           <tr
-            v-for="record in records"
+            v-for="(record, index) in records"
             :key="record.key"
             :class="{ selected: record.key === selectedKey }"
             tabindex="0"
@@ -32,7 +76,7 @@
             <td class="number">{{ record.featureCount.toLocaleString() }}</td>
             <td class="remove">
               <button
-                v-if="record.source !== UPLOAD_SOURCE && isFirstOfSource(record)"
+                v-if="startsSource(records, index)"
                 type="button"
                 :aria-label="`Remove ${record.sourceLabel} records`"
                 :title="`Remove ${record.sourceLabel} records`"
@@ -49,16 +93,25 @@
 </template>
 
 <script setup lang="ts">
-// Records loaded from files or external databases, beside the index search.
-// Uploaded files are removed in the load dialog, where they were added.
-import { UPLOAD_SOURCE, type LoadedRecord } from '@/composables/useLoadedRecords'
+// Records loaded from files or external databases, beside the index search, as a
+// list of records or of their regions. Uploaded files are removed in the load
+// dialog, where they were added.
+import { computed } from 'vue'
+import type { SearchLevel } from '@/services/dataProviders/types'
+import { UPLOAD_SOURCE, type LoadedRecord, type LoadedRegion } from '@/composables/useLoadedRecords'
+import { formatKilobases } from '@/utils/format'
 
 const props = withDefaults(defineProps<{
   records: LoadedRecord[]
+  regions?: LoadedRegion[]
+  level?: SearchLevel
+  /** Key of the selected record, or of the selected region. */
   selectedKey?: string | null
   loading?: boolean
   error?: string | null
 }>(), {
+  regions: () => [],
+  level: 'record',
   selectedKey: null,
   loading: false,
   error: null
@@ -66,11 +119,16 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'select', record: LoadedRecord): void
+  (event: 'select-region', region: LoadedRegion): void
   (event: 'remove-source', source: string): void
 }>()
 
-function isFirstOfSource(record: LoadedRecord) {
-  return props.records.find(candidate => candidate.source === record.source) === record
+const regionRecords = computed(() => props.regions.map(region => region.record))
+
+/** Whether the row at `index` is the first of a downloaded source, which carries its remove button. */
+function startsSource(rows: LoadedRecord[], index: number) {
+  const { source } = rows[index]
+  return source !== UPLOAD_SOURCE && rows.findIndex(row => row.source === source) === index
 }
 </script>
 
@@ -128,7 +186,9 @@ td {
   white-space: nowrap;
 }
 
+/* As in the search results: narrow, right-aligned number columns. */
 .number {
+  width: 1%;
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -154,6 +214,13 @@ tbody tr.selected {
 td.remove {
   width: 30px;
   padding: 0 4px;
+}
+
+td.empty {
+  padding: 24px;
+  color: #687681;
+  cursor: default;
+  text-align: center;
 }
 
 td.remove button {

@@ -12,6 +12,7 @@ const regionHit = {
     region: 2,
     start: 100,
     end: 250,
+    length: 151,
     product: ['NRPS', 'T1PKS'],
     product_category: ['NRPS', 'PKS'],
     organism: 'Example organism',

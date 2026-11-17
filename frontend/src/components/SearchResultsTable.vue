@@ -4,7 +4,13 @@
       <table>
         <thead>
           <tr>
-            <th v-for="column in columns" :key="column.key" scope="col" :aria-sort="ariaSort(column)">
+            <th
+              v-for="column in columns"
+              :key="column.key"
+              scope="col"
+              :class="{ number: column.numeric }"
+              :aria-sort="ariaSort(column)"
+            >
               <button
                 v-if="column.sortField && sortable.has(column.sortField)"
                 type="button"
@@ -28,7 +34,12 @@
             @click="emit('select', hit)"
             @keydown.enter="emit('select', hit)"
           >
-            <td v-for="column in columns" :key="column.key" :class="column.key" :title="column.value(hit)">
+            <td
+              v-for="column in columns"
+              :key="column.key"
+              :class="[column.key, { number: column.numeric }]"
+              :title="column.value(hit)"
+            >
               {{ column.value(hit) }}
             </td>
           </tr>
@@ -70,6 +81,7 @@ import type {
   SearchResponse,
   SearchSort
 } from '@/services/dataProviders/types'
+import { formatKilobases } from '@/utils/format'
 
 type SearchHit = RegionSearchHit | RecordSearchHit
 
@@ -77,6 +89,7 @@ interface Column {
   key: string
   label: string
   sortField?: string
+  numeric?: boolean
   value: (hit: SearchHit) => string
 }
 
@@ -107,16 +120,8 @@ const record = (hit: SearchHit) => hit as RecordSearchHit
 
 const REGION_COLUMNS: Column[] = [
   { key: 'record', label: 'Record', sortField: 'record', value: hit => region(hit).record },
-  { key: 'region', label: 'Region', sortField: 'region', value: hit => `${region(hit).region}` },
-  {
-    key: 'location',
-    label: 'Location',
-    sortField: 'start',
-    value: hit => {
-      const { start, end } = region(hit)
-      return start === null || end === null ? '' : `${start.toLocaleString()}–${end.toLocaleString()}`
-    }
-  },
+  { key: 'region', label: 'Region', sortField: 'region', numeric: true, value: hit => `${region(hit).region}` },
+  { key: 'length', label: 'Length (kb)', sortField: 'length', numeric: true, value: hit => formatKilobases(region(hit).length) },
   { key: 'product', label: 'Products', value: hit => region(hit).product.join(', ') },
   { key: 'category', label: 'Categories', value: hit => region(hit).product_category.join(', ') },
   { key: 'organism', label: 'Organism', sortField: 'organism', value: hit => region(hit).organism ?? '' },
@@ -130,8 +135,8 @@ const RECORD_COLUMNS: Column[] = [
   { key: 'record', label: 'Record', sortField: 'record', value: hit => record(hit).record },
   { key: 'organism', label: 'Organism', sortField: 'organism', value: hit => record(hit).organism ?? '' },
   { key: 'description', label: 'Description', value: hit => record(hit).description ?? '' },
-  { key: 'regions', label: 'Regions', value: hit => count(record(hit).region_count) },
-  { key: 'features', label: 'Features', value: hit => count(record(hit).feature_count) },
+  { key: 'regions', label: 'Regions', numeric: true, value: hit => count(record(hit).region_count) },
+  { key: 'features', label: 'Features', numeric: true, value: hit => count(record(hit).feature_count) },
   { key: 'file', label: 'File', value: hit => record(hit).output_file },
   { key: 'input', label: 'Input file', value: hit => record(hit).input_file ?? '' }
 ]
@@ -243,15 +248,11 @@ td {
   white-space: nowrap;
 }
 
-td.region,
-td.location,
-td.regions,
-td.features {
+/* Numbers align by place value, and their columns take only the width they
+   need, leaving the spare width to the text columns. */
+.number {
+  width: 1%;
   font-variant-numeric: tabular-nums;
-}
-
-td.regions,
-td.features {
   text-align: right;
 }
 

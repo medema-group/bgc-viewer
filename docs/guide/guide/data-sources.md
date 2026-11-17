@@ -13,7 +13,7 @@ BGC Viewer supports two main approaches for exploring biosynthetic gene cluster 
 
 The fastest way to get started. Upload files directly in your browser—no server or preprocessing required.
 
-**How it works:** Click **Load data** in the header, then select one or more files using the file picker or drag them into the upload area. Files are read and processed in your browser, and data stays on your computer. Their records appear in the **Loaded records** tab next to the search results, beside any index you have open. Perfect for quick visualization without any setup.
+**How it works:** Click **Load data** in the header, then select one or more files using the file picker or drag them into the upload area. Files are read and processed in your browser, and data stays on your computer. Their records appear in the **Loaded data** tab next to the search results, beside any index you have open. Perfect for quick visualization without any setup.
 
 **Supported formats:**
 - antiSMASH JSON files (`.json`)

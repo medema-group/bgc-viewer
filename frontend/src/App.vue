@@ -44,15 +44,17 @@
         v-model:tab="resultsTab"
         :search="advancedSearch"
         :loaded-records="loadedRecords.records.value"
+        :loaded-regions="loadedRecords.regions.value"
         :selected-loaded-key="selectedLoadedKey"
         :loaded-loading="loadedRecords.loading.value"
         :loaded-error="loadedRecords.error.value"
         @select-hit="handleSearchSelected"
         @select-loaded="handleLoadedSelected"
+        @select-loaded-region="handleLoadedRegionSelected"
         @remove-source="handleRemoveSource"
       />
 
-      <section ref="viewerRef" class="viewer-section" aria-label="Record viewer">
+      <section class="viewer-section" aria-label="Record viewer">
         <RegionViewerContainer
           v-if="viewerProvider && currentRecordId"
           :key="viewerKey"
@@ -106,7 +108,7 @@
 </template>
 
 <script>
-import { computed, markRaw, nextTick, onMounted, ref } from 'vue'
+import { computed, markRaw, onMounted, ref } from 'vue'
 import axios from 'axios'
 import AppDialog from './components/AppDialog.vue'
 import IndexCreation from './components/IndexCreation.vue'
@@ -144,8 +146,6 @@ export default {
     SearchPanel
   },
   setup() {
-    const viewerRef = ref(null)
-
     // Version information
     const appVersion = ref('')
     const appName = ref('BGC Viewer')
@@ -202,7 +202,7 @@ export default {
       selectedLoadedKey.value = null
     }
 
-    const showRecord = async (provider, recordData, regionId = '') => {
+    const showRecord = (provider, recordData, regionId = '') => {
       viewerProvider.value = provider
       viewerKey.value = providerKey(provider)
       currentRecordData.value = {
@@ -213,26 +213,25 @@ export default {
       // Use entryId (which includes the filename) for uniqueness, not recordId
       currentRecordId.value = recordData.entryId
       initialRegionId.value = regionId
-
-      // Bring the viewer up when it starts below the middle of the screen
-      await nextTick()
-      const viewer = viewerRef.value
-      if (viewer && viewer.getBoundingClientRect().top > window.innerHeight / 2) {
-        viewer.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-      }
     }
 
-    const handleSearchSelected = async (hit) => {
+    const handleSearchSelected = (hit) => {
       const level = advancedSearch.state.searchedLevel
       advancedSearch.state.selectedHit = hit
       selectedLoadedKey.value = null
-      await showRecord(apiProvider, recordSelectionFromHit(level, hit), regionIdFromHit(level, hit))
+      showRecord(apiProvider, recordSelectionFromHit(level, hit), regionIdFromHit(level, hit))
     }
 
-    const handleLoadedSelected = async (record) => {
+    const handleLoadedSelected = (record) => {
       advancedSearch.state.selectedHit = null
       selectedLoadedKey.value = record.key
-      await showRecord(record.provider, record)
+      showRecord(record.provider, record)
+    }
+
+    const handleLoadedRegionSelected = (region) => {
+      advancedSearch.state.selectedHit = null
+      selectedLoadedKey.value = region.key
+      showRecord(region.record.provider, region.record, region.regionId)
     }
 
     // Clear the viewer when the record it shows is no longer loaded
@@ -254,7 +253,7 @@ export default {
       // An entry fetched from a database is shown right away; uploads may still grow
       if (source !== UPLOAD_SOURCE && records.length > 0) {
         loadDialogOpen.value = false
-        await handleLoadedSelected(records[0])
+        handleLoadedSelected(records[0])
       }
     }
 
@@ -360,7 +359,6 @@ export default {
     })
 
     return {
-      viewerRef,
       appVersion,
       appName,
       isPublicMode,
@@ -386,6 +384,7 @@ export default {
       initialRegionId,
       handleSearchSelected,
       handleLoadedSelected,
+      handleLoadedRegionSelected,
       handleLoaded,
       handleRemoveSource,
       handleIndexChanged,

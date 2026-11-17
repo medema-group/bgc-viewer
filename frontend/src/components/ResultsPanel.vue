@@ -1,26 +1,45 @@
 <template>
   <section class="panel" aria-label="Results">
-    <nav class="result-tabs" role="tablist" aria-label="Result lists">
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="active === 'search'"
-        :class="{ active: active === 'search' }"
-        @click="emit('update:tab', 'search')"
-      >
-        Search results
-      </button>
-      <button
-        v-if="hasLoaded"
-        type="button"
-        role="tab"
-        :aria-selected="active === 'loaded'"
-        :class="{ active: active === 'loaded' }"
-        @click="emit('update:tab', 'loaded')"
-      >
-        Loaded records <span class="tab-count">{{ loadedRecords.length }}</span>
-      </button>
-    </nav>
+    <div class="results-bar">
+      <nav class="result-tabs" role="tablist" aria-label="Result lists">
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="active === 'search'"
+          :class="{ active: active === 'search' }"
+          @click="emit('update:tab', 'search')"
+        >
+          Search results
+        </button>
+        <button
+          v-if="hasLoaded"
+          type="button"
+          role="tab"
+          :aria-selected="active === 'loaded'"
+          :class="{ active: active === 'loaded' }"
+          @click="emit('update:tab', 'loaded')"
+        >
+          Loaded data <span class="tab-count">{{ loadedCount.toLocaleString() }}</span>
+        </button>
+      </nav>
+
+      <!-- One level for both lists -->
+      <div class="level-switch">
+        <span class="level-label">Show</span>
+        <div class="level-toggle" role="group" aria-label="Result level">
+          <button
+            v-for="option in levels"
+            :key="option.level"
+            type="button"
+            :class="{ active: state.level === option.level }"
+            :aria-pressed="state.level === option.level"
+            @click="search.setLevel(option.level)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="active === 'search'" class="panel-body" role="tabpanel">
       <div v-if="state.response" class="results">
@@ -54,10 +73,13 @@
     <div v-else class="panel-body" role="tabpanel">
       <LoadedRecordsList
         :records="loadedRecords"
+        :regions="loadedRegions"
+        :level="state.level"
         :selected-key="selectedLoadedKey"
         :loading="loadedLoading"
         :error="loadedError"
         @select="emit('select-loaded', $event)"
+        @select-region="emit('select-loaded-region', $event)"
         @remove-source="emit('remove-source', $event)"
       />
     </div>
@@ -66,13 +88,15 @@
 
 <script setup lang="ts">
 // The result lists of the main view: the index search results and the records
-// loaded beside the index, as tabs over one panel.
+// loaded beside the index, as tabs over one panel. Both list regions or records,
+// as the level toggle says.
 import { computed } from 'vue'
 import LoadedRecordsList from './LoadedRecordsList.vue'
 import RefinePanel from './RefinePanel.vue'
 import SearchResultsTable from './SearchResultsTable.vue'
 import { PAGE_SIZE, type AdvancedSearch, type SearchHit } from '@/composables/useAdvancedSearch'
-import type { LoadedRecord } from '@/composables/useLoadedRecords'
+import type { LoadedRecord, LoadedRegion } from '@/composables/useLoadedRecords'
+import type { SearchLevel } from '@/services/dataProviders/types'
 
 export type ResultsTab = 'search' | 'loaded'
 
@@ -80,10 +104,12 @@ const props = withDefaults(defineProps<{
   search: AdvancedSearch
   tab: ResultsTab
   loadedRecords: LoadedRecord[]
+  loadedRegions?: LoadedRegion[]
   selectedLoadedKey?: string | null
   loadedLoading?: boolean
   loadedError?: string | null
 }>(), {
+  loadedRegions: () => [],
   selectedLoadedKey: null,
   loadedLoading: false,
   loadedError: null
@@ -93,10 +119,20 @@ const emit = defineEmits<{
   (event: 'update:tab', tab: ResultsTab): void
   (event: 'select-hit', hit: SearchHit): void
   (event: 'select-loaded', record: LoadedRecord): void
+  (event: 'select-loaded-region', region: LoadedRegion): void
   (event: 'remove-source', source: string): void
 }>()
 
 const state = props.search.state
+
+const levels: { level: SearchLevel; label: string }[] = [
+  { level: 'region', label: 'Regions' },
+  { level: 'record', label: 'Records' }
+]
+
+const loadedCount = computed(() =>
+  state.level === 'region' ? props.loadedRegions.length : props.loadedRecords.length
+)
 
 const hasLoaded = computed(
   () => props.loadedRecords.length > 0 || props.loadedLoading || Boolean(props.loadedError)
@@ -117,11 +153,19 @@ const active = computed<ResultsTab>(() => {
   background: #fff;
 }
 
+.results-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 20px;
+  padding: 0 16px;
+  border-bottom: 1px solid #dce3e8;
+}
+
 .result-tabs {
   display: flex;
   gap: 20px;
-  padding: 0 16px;
-  border-bottom: 1px solid #dce3e8;
 }
 
 .result-tabs button {
@@ -144,7 +188,49 @@ const active = computed<ResultsTab>(() => {
   color: #145f92;
 }
 
-.result-tabs button:focus-visible {
+.level-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.level-label {
+  color: #52616d;
+  font-size: 13px;
+}
+
+.level-toggle {
+  display: inline-flex;
+}
+
+.level-toggle button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid #aebbc4;
+  background: #fff;
+  color: #30434f;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.level-toggle button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.level-toggle button:last-child {
+  margin-left: -1px;
+  border-radius: 0 4px 4px 0;
+}
+
+.level-toggle button.active {
+  border-color: #1976b5;
+  background: #1976b5;
+  color: #fff;
+}
+
+.result-tabs button:focus-visible,
+.level-toggle button:focus-visible {
   outline: 2px solid #1976d2;
   outline-offset: 1px;
 }

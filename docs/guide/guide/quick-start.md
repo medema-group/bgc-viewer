@@ -31,7 +31,7 @@ The application will be available at http://localhost:5000
 5. Click a result to view it below, and explore the interactive visualization!
 
 To look at a few files without indexing them, or at an entry from antiSMASH DB or MIBiG,
-click **Load data** in the header. Loaded records are listed in the **Loaded records** tab next to the search results.
+click **Load data** in the header. Loaded records are listed in the **Loaded data** tab next to the search results.
 
 ## Basic Navigation
 

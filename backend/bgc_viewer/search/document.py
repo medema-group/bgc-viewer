@@ -274,6 +274,7 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         "Length (bp)",
         GROUP_REGION,
         "Length of the region, summed over the parts of a compound location.",
+        in_hits=True,
     ),
     _keyword(
         "product",

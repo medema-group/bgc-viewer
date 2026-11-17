@@ -19,7 +19,7 @@ const antismashFile = (name: string, recordIds: string[]): LoadedFile => {
       id,
       description: `${id} description`,
       features: [
-        { type: 'region', location: '[0:100](+)', qualifiers: { region_number: ['1'] } },
+        { type: 'region', location: '[0:100](+)', qualifiers: { region_number: ['1'], product: ['NRPS'] } },
         { type: 'CDS', location: '[10:50](+)', qualifiers: {} }
       ]
     }))
@@ -51,6 +51,11 @@ describe('useLoadedRecords', () => {
       regionCount: 1,
       featureCount: 2
     })
+    expect(loaded.regions.value.map(region => [region.record.recordId, region.regionId, region.length])).toEqual([
+      ['recA', 'region_1', 100],
+      ['recB', 'region_1', 100],
+      ['BGC0000001', 'region_1', 100]
+    ])
   })
 
   it('replaces the files of one source and leaves the others', async () => {
@@ -100,5 +105,29 @@ describe('LoadedRecordsList', () => {
 
     expect(wrapper.emitted('select')).toEqual([[records[2]]])
     expect(wrapper.emitted('remove-source')).toEqual([['mibig']])
+  })
+
+  it('lists regions with their record when asked for the region level', async () => {
+    const loaded = useLoadedRecords()
+    await loaded.setFiles('mibig', [antismashFile('BGC.json', ['BGC0000001', 'BGC0000002'])])
+    const regions = loaded.regions.value
+
+    const wrapper = mount(LoadedRecordsList, {
+      props: { records: loaded.records.value, regions, level: 'region', selectedKey: regions[1].key }
+    })
+
+    expect(wrapper.findAll('tbody tr')[1].classes()).toContain('selected')
+    expect(wrapper.findAll('tbody tr')[0].findAll('td').map(td => td.text()).slice(0, 6)).toEqual([
+      'BGC0000001',
+      '1',
+      '0.1',
+      'NRPS',
+      'MIBiG',
+      'BGC.json'
+    ])
+    expect(wrapper.findAll('td.remove button')).toHaveLength(1)
+
+    await wrapper.findAll('tbody tr')[1].trigger('click')
+    expect(wrapper.emitted('select-region')).toEqual([[regions[1]]])
   })
 })

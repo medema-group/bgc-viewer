@@ -110,17 +110,6 @@ describe('SearchPanel', () => {
     wrapper.unmount()
   })
 
-  it('switches the result level of the shown search', async () => {
-    const { provider, wrapper } = await mountPanel()
-
-    await wrapper.findAll('.level-toggle button')[0].trigger('click')
-    await flushPromises()
-
-    expect(provider.search.mock.calls.slice(-1)[0][0]).toBe('region')
-    expect(wrapper.emitted('searched')).toHaveLength(1)
-    wrapper.unmount()
-  })
-
   it('opens the search help in a dialog and uses an example as a query string condition', async () => {
     const { wrapper } = await mountPanel()
     const dialog = () => wrapper.get('[role="dialog"]').element.parentElement as HTMLElement

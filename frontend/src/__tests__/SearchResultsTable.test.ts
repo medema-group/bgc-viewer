@@ -12,6 +12,7 @@ const regionHit = (record: string, region: number): RegionSearchHit => ({
     region,
     start: 1000,
     end: 25000,
+    length: 24000,
     product: ['NRPS', 'T1PKS'],
     product_category: ['NRPS', 'PKS'],
     organism: 'Streptomyces coelicolor',
@@ -38,7 +39,7 @@ function mountTable(props: Partial<InstanceType<typeof SearchResultsTable>['$pro
       page: 2,
       perPage: 20,
       sort: null,
-      sortableFields: ['record', 'region', 'start', 'organism'],
+      sortableFields: ['record', 'region', 'length', 'organism'],
       selectedHit: null,
       ...props
     }
@@ -46,12 +47,14 @@ function mountTable(props: Partial<InstanceType<typeof SearchResultsTable>['$pro
 }
 
 describe('SearchResultsTable', () => {
-  it('shows region rows with products, location, and paging status', () => {
+  it('shows region rows with products, length, and paging status', () => {
     const wrapper = mountTable()
     const cells = wrapper.findAll('tbody tr')[0].findAll('td').map(td => td.text())
 
-    expect(cells).toEqual(['recA', '1', '1,000–25,000', 'NRPS, T1PKS', 'NRPS, PKS', 'Streptomyces coelicolor', 'recA.json'])
+    expect(cells).toEqual(['recA', '1', '24.0', 'NRPS, T1PKS', 'NRPS, PKS', 'Streptomyces coelicolor', 'recA.json'])
     expect(wrapper.get('.pager-status').text()).toBe('21–22 of 45 matching regions')
+    // Number columns are right-aligned, headers included
+    expect(wrapper.findAll('th.number').map(th => th.text())).toEqual(['Region ↕', 'Length (kb) ↕'])
   })
 
   it('shows record rows', () => {

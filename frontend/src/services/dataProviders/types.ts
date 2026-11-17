@@ -202,6 +202,7 @@ export interface RegionSearchHit {
     region: number
     start: number | null
     end: number | null
+    length: number | null
     product: string[]
     product_category: string[]
     organism?: string
