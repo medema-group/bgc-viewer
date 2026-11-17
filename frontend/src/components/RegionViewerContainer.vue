@@ -45,7 +45,7 @@ export default {
       type: String,
       default: ''
     },
-    // Full record data from RecordListSelector (includes entryId, recordId, filename for API provider)
+    // Full record data of the selected record (includes entryId, recordId, filename for API provider)
     recordData: {
       type: Object,
       default: null

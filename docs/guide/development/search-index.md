@@ -20,9 +20,9 @@ it reuses.
 | Region facets from the antiSMASH analysis modules | `backend/bgc_viewer/search/facets.py` |
 | Build sentinel and rebuild signaling | `backend/bgc_viewer/search/build_state.py` |
 | HTTP request/response contract | `backend/bgc_viewer/search/api.py` |
-| Search dialog state (builder rows, results, paging, sorting) | `frontend/src/composables/useAdvancedSearch.ts` |
+| Search state (builder rows, results, paging, sorting) | `frontend/src/composables/useAdvancedSearch.ts` |
 | Builder rows to and from `FilterGroup`, summary, operator labels | `frontend/src/services/filterRows.ts` |
-| Search dialog, query builder, results table, refine panel | `frontend/src/components/SearchDialog.vue`, `QueryBuilder.vue`, `ConditionRow.vue`, `ValueCombobox.vue`, `SearchResultsTable.vue`, `RefinePanel.vue` |
+| Search panel, query builder, results table, refine panel | `frontend/src/components/SearchPanel.vue`, `QueryBuilder.vue`, `ConditionRow.vue`, `ValueCombobox.vue`, `SearchResultsTable.vue`, `RefinePanel.vue` |
 | Search CLI | `backend/bgc_viewer/search/cli.py` |
 | Indexing CLI | `backend/preprocess_cli.py` |
 | Preprocessing integration | `backend/bgc_viewer/preprocessing.py` |

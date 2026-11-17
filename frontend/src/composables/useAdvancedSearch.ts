@@ -185,6 +185,14 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     state.page = 1
   }
 
+  /** Start over on a newly opened index and list its records, as the record list did. */
+  async function openIndex() {
+    reset()
+    state.level = 'record'
+    await loadSchema()
+    if (state.schema) await search()
+  }
+
   /** Forget the conditions and results, as when another index is selected. */
   function reset() {
     clearResults()
@@ -212,6 +220,7 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     addRefinement,
     clearResults,
     reset,
+    openIndex,
     loadValues: async (field: string, contains: string): Promise<FacetBucket[]> => {
       const provider = getProvider()
       if (!provider) throw new Error(NOT_AVAILABLE)

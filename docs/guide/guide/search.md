@@ -1,10 +1,12 @@
 # Searching
 
-When the viewer reads an indexed dataset from the backend (see
-[Data Sources & Formats](./data-sources.md#bgc-viewer-api-backend-with-database)),
-the **Search** button in the header, or <kbd>Ctrl</kbd>+<kbd>K</kbd>, opens a
-search across every region in the dataset. Clicking a result opens its record
-at that region.
+The main view searches the open index (see
+[Data Sources & Formats](./data-sources.md#bgc-viewer-api-backend-with-database))
+across every region in the dataset. The query builder comes first, then the
+results, and then the viewer, which shows the result you click: a region
+result opens its record at that region. When an index opens, the results list
+all its records. **Search help** beside the builder explains the fields and has
+example queries.
 
 The search works on antiSMASH regions. Each region holds the products and
 categories of its protoclusters and the results of the antiSMASH analysis
@@ -47,9 +49,9 @@ Pressing **Search** without conditions (**Browse all**) lists every region.
 ## Results
 
 **Show Regions** lists one row per matching region. **Show Records** lists
-each record with at least one matching region once, with the organism,
-description, and region and feature counts the record list shows. The counter
-below the table counts matching regions in both cases.
+each record with at least one matching region once, with its organism,
+description, and region and feature counts. The counter below the table counts
+matching regions in both cases.
 
 Click a column heading to sort by it, again to reverse the order, and a third
 time to go back to the default order. Only columns with one value per region

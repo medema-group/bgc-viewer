@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 
-import SearchDialog from '@/components/SearchDialog.vue'
+import SearchPanel from '@/components/SearchPanel.vue'
 import { useAdvancedSearch } from '@/composables/useAdvancedSearch'
 import type { BGCViewerAPIProvider } from '@/services/dataProviders/BGCViewerAPIProvider'
 import type { SearchSchema } from '@/services/dataProviders/types'
@@ -52,7 +52,7 @@ const regionHit = {
   }
 }
 
-function mountDialog() {
+async function mountPanel({ open = true, canChooseIndex = false } = {}) {
   const provider = {
     getSearchSchema: vi.fn().mockResolvedValue(schema),
     search: vi.fn().mockResolvedValue({
@@ -64,91 +64,78 @@ function mountDialog() {
     getFieldValues: vi.fn().mockResolvedValue({ field: 'product', values: [] })
   }
   const search = useAdvancedSearch(() => provider as unknown as BGCViewerAPIProvider)
-  const wrapper = mount(SearchDialog, { props: { search }, attachTo: document.body })
+  const wrapper = mount(SearchPanel, { props: { search, canChooseIndex }, attachTo: document.body })
+  if (open) await search.openIndex()
+  await flushPromises()
   return { provider, search, wrapper }
 }
 
-describe('SearchDialog', () => {
-  it('opens on the builder with one condition from the schema', async () => {
-    const { wrapper } = mountDialog()
-    await flushPromises()
+describe('SearchPanel', () => {
+  it('asks for an index until one is open', async () => {
+    const { wrapper } = await mountPanel({ open: false, canChooseIndex: true })
 
+    expect(wrapper.text()).toContain('No index is open.')
+    expect(wrapper.find('.condition-row').exists()).toBe(false)
+    await wrapper.get('.secondary-button').trigger('click')
+    expect(wrapper.emitted('open-index')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('lists every record of a newly opened index under one starter condition', async () => {
+    const { provider, wrapper } = await mountPanel()
+
+    expect(provider.search.mock.calls[0][0]).toBe('record')
+    // Only the blank starter condition, which the backend drops
+    expect(provider.search.mock.calls[0][1].filter.conditions).toMatchObject([{ field: 'text', value: '' }])
     expect(wrapper.findAll('.condition-row')).toHaveLength(1)
     expect(wrapper.get<HTMLSelectElement>('[aria-label="Field"]').element.value).toBe('text')
     expect(wrapper.get('.submit-button').text()).toBe('Browse all')
     wrapper.unmount()
   })
 
-  it('runs the builder and shows results with refine values', async () => {
-    const { provider, wrapper } = mountDialog()
-    await flushPromises()
+  it('runs the builder and reports the search', async () => {
+    const { provider, wrapper } = await mountPanel()
     await wrapper.get('[aria-label="Value"]').setValue('coelicolor')
 
     expect(wrapper.text()).toContain('Any text contains coelicolor')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(provider.search.mock.calls[0][1].filter.conditions[0]).toMatchObject({
+    expect(provider.search.mock.calls.slice(-1)[0][1].filter.conditions[0]).toMatchObject({
       field: 'text',
       operator: 'contains',
       value: 'coelicolor'
     })
-    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
-    expect(wrapper.get('.refine-panel').text()).toContain('NRPS')
-    wrapper.unmount()
-  })
-
-  it('offers only the builder and the help', () => {
-    const { wrapper } = mountDialog()
-    expect(wrapper.findAll('.dialog-tabs button').map(tab => tab.text())).toEqual(['Query builder', 'Search help'])
-    wrapper.unmount()
-  })
-
-  it('emits the selected hit', async () => {
-    const { wrapper } = mountDialog()
-    await flushPromises()
-    await wrapper.get('form').trigger('submit')
-    await flushPromises()
-
-    await wrapper.get('tbody tr').trigger('click')
-    expect(wrapper.emitted('select')).toEqual([[regionHit]])
+    expect(wrapper.emitted('searched')).toHaveLength(1)
     wrapper.unmount()
   })
 
   it('switches the result level of the shown search', async () => {
-    const { provider, wrapper } = mountDialog()
-    await flushPromises()
-    await wrapper.get('form').trigger('submit')
+    const { provider, wrapper } = await mountPanel()
+
+    await wrapper.findAll('.level-toggle button')[0].trigger('click')
     await flushPromises()
 
-    await wrapper.findAll('.level-toggle button')[1].trigger('click')
-    await flushPromises()
-
-    expect(provider.search.mock.calls.slice(-1)[0]![0]).toBe('record')
+    expect(provider.search.mock.calls.slice(-1)[0][0]).toBe('region')
+    expect(wrapper.emitted('searched')).toHaveLength(1)
     wrapper.unmount()
   })
 
-  it('uses a help example as a query string condition in the builder', async () => {
-    const { wrapper } = mountDialog()
-    await flushPromises()
+  it('opens the search help in a dialog and uses an example as a query string condition', async () => {
+    const { wrapper } = await mountPanel()
+    const dialog = () => wrapper.get('[role="dialog"]').element.parentElement as HTMLElement
 
-    await wrapper.findAll('.dialog-tabs button')[1].trigger('click')
+    expect(dialog().style.display).toBe('none')
+    await wrapper.get('.help-button').trigger('click')
+    expect(dialog().style.display).toBe('')
+
     await wrapper.get('[aria-label="Use example: product:NRPS"]').trigger('click')
     await flushPromises()
 
+    expect(dialog().style.display).toBe('none')
     expect(wrapper.findAll('.condition-row')).toHaveLength(1)
     expect(wrapper.get<HTMLSelectElement>('[aria-label="Field"]').element.value).toBe('_query')
-    expect(wrapper.get<HTMLInputElement>('[aria-label="Value"]').element.value).toBe('product:NRPS')
-    wrapper.unmount()
-  })
-
-  it('closes on Escape and backdrop interaction', async () => {
-    const { wrapper } = mountDialog()
-
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    await wrapper.get('.search-overlay').trigger('mousedown')
-
-    expect(wrapper.emitted('close')).toHaveLength(2)
+    expect(wrapper.get<HTMLInputElement>('.query-input').element.value).toBe('product:NRPS')
     wrapper.unmount()
   })
 })

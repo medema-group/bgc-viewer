@@ -13,6 +13,9 @@ export interface RecordInfo {
   recordInfo: {
     description?: string
   }
+  /** Counts the file providers report in record searches. */
+  regionCount?: number
+  featureCount?: number
 }
 
 export interface Region {

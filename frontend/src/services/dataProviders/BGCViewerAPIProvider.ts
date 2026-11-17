@@ -69,8 +69,7 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get a list of available records
    */
   async getRecords(): Promise<RecordInfo[]> {
-    // This is currently handled by RecordListSelector component
-    // We might want to add an endpoint for this in the future
+    // Records are listed through searchRecords() or found with search()
     throw new Error('getRecords() is not yet implemented in the API')
   }
 

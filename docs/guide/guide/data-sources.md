@@ -13,7 +13,7 @@ BGC Viewer supports two main approaches for exploring biosynthetic gene cluster 
 
 The fastest way to get started. Upload files directly in your browser—no server or preprocessing required.
 
-**How it works:** Select one or more files using the file picker or drag them into the upload area. Files are read and processed in your browser, and data stays on your computer. Perfect for quick visualization without any setup.
+**How it works:** Click **Load data** in the header, then select one or more files using the file picker or drag them into the upload area. Files are read and processed in your browser, and data stays on your computer. Their records appear in the **Loaded records** tab next to the search results, beside any index you have open. Perfect for quick visualization without any setup.
 
 **Supported formats:**
 - antiSMASH JSON files (`.json`)
@@ -63,10 +63,12 @@ Recursively indexes JSON files, including compressed files, into SQLite and a si
 When running BGC Viewer locally:
 
 1. Start the application: `python -m bgc_viewer.app`
-2. Navigate to the data management section
-3. Select the directory containing your antiSMASH output
-4. Click "Index Directory" to start preprocessing
-5. Monitor progress in the interface
-6. Once complete, your indexed data is ready to explore
+2. Click **Index** in the header
+3. Click "Select folder to index" and select the directory containing your antiSMASH output
+4. Start preprocessing and monitor its progress in the dialog
+5. Once complete, the new index opens and its records are listed under **Results**
+
+The same dialog selects an existing index file. The last index used opens again
+when the viewer starts.
 
 The UI method provides real-time progress feedback and error messages if anything goes wrong during indexing.
