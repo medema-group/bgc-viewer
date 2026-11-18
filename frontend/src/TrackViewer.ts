@@ -260,6 +260,9 @@ export class TrackViewer {
       .scaleExtent(this.config.zoomExtent)
       .translateExtent([[0, 0], [chartWidth, chartHeight]])
       .extent([[0, 0], [chartWidth, chartHeight]])
+      // Without some tolerance, the slightest mouse movement turns a click into a pan,
+      // and d3 then suppresses the click event
+      .clickDistance(4)
       .filter((event: any) => {
         // Track when dragging starts (mousedown without wheel)
         if (event.type === 'mousedown' && event.button === 0) {
@@ -539,26 +542,34 @@ export class TrackViewer {
     } else {
       // Use minimal margin when labels are hidden
       this.config.margin.left = this.originalLeftMargin;
-      
-      // Update chart transform
-      this.chart.attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
-      
-      // Update x scale range
-      this.x.range([0, this.config.width - this.config.margin.left - this.config.margin.right]);
-      
-      // Update clipping path width
-      const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
-      this.svg.select('clipPath rect').attr('width', chartWidth);
-      
-      // Update chart background width
-      this.clippedChart.select('.chart-background').attr('width', chartWidth);
-      
-      // Redraw to apply new scale
-      this.drawTracks();
+      this.updateChartWidth();
     }
-    
+
     // Update checkbox in context menu UI
     this.contextMenuController?.updateCheckbox('Show track labels', this.showTrackLabels);
+  }
+
+  // Apply a changed width or left margin to the chart area, while keeping the visible domain
+  private updateChartWidth(): void {
+    const domain = this.getCurrentDomain();
+    const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
+    const chartHeight = this.config.height - this.config.margin.top - this.config.margin.bottom;
+
+    this.chart.attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
+    this.x.range([0, chartWidth]);
+    this.svg.select('clipPath rect').attr('width', chartWidth);
+    this.clippedChart.select('.chart-background').attr('width', chartWidth);
+    this.zoom
+      .translateExtent([[0, 0], [chartWidth, chartHeight]])
+      .extent([[0, 0], [chartWidth, chartHeight]]);
+
+    // The zoom transform is in pixels, so it has to be adjusted to the new range to keep
+    // showing the same domain. This triggers a zoom event, which redraws the tracks.
+    const k = this.currentTransform.k;
+    const transform = d3.zoomIdentity
+      .translate(-this.x(domain[0]) * k, this.currentTransform.y)
+      .scale(k);
+    this.svg.call(this.zoom.transform, transform);
   }
 
   private toggleAllAnnotationLabels(): void {
@@ -852,10 +863,14 @@ export class TrackViewer {
           });
         // Always try to hide tooltip on mouseout
         this.hideTooltip();
-      })
-      .on('click', () => {
-        this.config.onAnnotationClick(annotation, trackData);
       });
+
+    // Handle clicks on the container rather than on the shape: the shape is recreated on every
+    // redraw, so if a (small) pan happens between mousedown and mouseup, the click is
+    // dispatched to the container instead
+    container.on('click', () => {
+      this.config.onAnnotationClick(annotation, trackData);
+    });
 
     // Collect label data for rendering in a separate layer
     if (labelsData && annotation.label && annotation.showLabel !== 'never') {
@@ -1368,20 +1383,7 @@ export class TrackViewer {
     // Only update if margin has changed significantly
     if (Math.abs(this.config.margin.left - newLeftMargin) > 5) {
       this.config.margin.left = newLeftMargin;
-      
-      // Update chart transform
-      this.chart.attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
-      
-      // Update x scale range
-      this.x.range([0, this.config.width - this.config.margin.left - this.config.margin.right]);
-      
-      // Update clipping path width
-      const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
-      this.svg.select('clipPath rect').attr('width', chartWidth);
-      
-      // Update chart background width
-      this.clippedChart.select('.chart-background')
-        .attr('width', chartWidth);
+      this.updateChartWidth();
     }
   }
 
@@ -1392,9 +1394,9 @@ export class TrackViewer {
       annotations: data.annotations,
       primitives: data.primitives || []
     };
-    this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
+    this.updateMarginAndLayout();
     this.drawTracks();
   }
 
@@ -1409,9 +1411,9 @@ export class TrackViewer {
       }
       this.data.primitives.push(...primitives);
     }
-    this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
+    this.updateMarginAndLayout();
     this.drawTracks();
   }
 
@@ -1419,9 +1421,9 @@ export class TrackViewer {
     this.data.tracks = this.data.tracks.filter(track => track.id !== trackId);
     this.data.annotations = this.data.annotations.filter(annotation => annotation.trackId !== trackId);
     this.data.primitives = (this.data.primitives || []).filter(primitive => primitive.trackId !== trackId);
-    this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
+    this.updateMarginAndLayout();
     this.drawTracks();
   }
 
@@ -1521,26 +1523,8 @@ export class TrackViewer {
     // Only update if the width has changed significantly
     if (Math.abs(this.config.width - newWidth) > 10) {
       this.config.width = newWidth;
-      
-      // Update SVG width
       this.svg.attr('width', newWidth);
-      
-      // Update x scale range
-      this.x.range([0, newWidth - this.config.margin.left - this.config.margin.right]);
-      
-      // Update clipping path and background width
-      const chartWidth = newWidth - this.config.margin.left - this.config.margin.right;
-      this.svg.select('clipPath rect').attr('width', chartWidth);
-      this.clippedChart.select('.chart-background').attr('width', chartWidth);
-      
-      // Update zoom behavior with new dimensions
-      const chartHeight = this.config.height - this.config.margin.top - this.config.margin.bottom;
-      this.zoom
-        .translateExtent([[0, 0], [chartWidth, chartHeight]])
-        .extent([[0, 0], [chartWidth, chartHeight]]);
-      
-      // Redraw everything with new dimensions
-      this.drawTracks();
+      this.updateChartWidth();
     }
   }
 }
