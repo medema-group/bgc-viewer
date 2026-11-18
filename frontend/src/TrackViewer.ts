@@ -783,6 +783,17 @@ export class TrackViewer {
         break;
     }
 
+    // Put an opaque copy of the shape underneath, so that primitives (e.g. a horizontal line)
+    // don't show through when the annotation is semi-transparent
+    if (annotation.type !== 'pin') {
+      element.clone(false)
+        .attr('class', 'annotation-backdrop')
+        .style('fill', 'white')
+        .style('stroke', 'white')
+        .style('pointer-events', 'none')
+        .lower();
+    }
+
     // Apply common styling and event handlers
     // Set data-label on the container (the group with .annotation class) for export
     container.attr('data-label', annotation.label);
