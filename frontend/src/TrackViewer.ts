@@ -19,7 +19,7 @@ export type AnnotationData = {
   classes: string[];
   label: string;
   labelPosition?: 'above' | 'center';
-  showLabel?: 'hover' | 'always' | 'never';
+  showLabel?: 'hover' | 'always' | 'never' | 'auto'; // 'auto': always if it doesn't overlap other labels, else hover
   start: number;
   end: number;
   fy?: number; // Fractional y position of the annotation, default is 0.5
@@ -565,26 +565,34 @@ export class TrackViewer {
     this.showAllAnnotationLabels = !this.showAllAnnotationLabels;
     
     // Update all annotation labels in the labels layer
-    const showAll = this.showAllAnnotationLabels;
-    this.clippedChart.selectAll<SVGGElement, unknown>('.annotation-labels-layer .annotation-label-group').each(function() {
-      const labelGroup = d3.select(this);
-      const label = labelGroup.select('.annotation-label');
-      const showLabel = label.attr('data-show-label');
-      
-      if (showLabel === 'never') {
-        // Never show these labels
-        labelGroup.style('display', 'none');
-      } else if (showLabel === 'always') {
-        // Always show these labels
-        labelGroup.style('display', '');
-      } else {
-        // 'hover' - controlled by toggle
-        labelGroup.style('display', showAll ? '' : 'none');
-      }
-    });
-    
+    this.clippedChart.selectAll<SVGGElement, unknown>('.annotation-labels-layer .annotation-label-group')
+      .each((_, i, nodes) => this.applyLabelVisibility(d3.select(nodes[i])));
+
     // Update checkbox in context menu UI
     this.contextMenuController?.updateCheckbox('Show all annotation labels', this.showAllAnnotationLabels);
+  }
+
+  // Show or hide a label group according to its showLabel mode and the
+  // showAllAnnotationLabels toggle (hover is handled by the annotation's event handlers)
+  private applyLabelVisibility(labelGroup: Selection<SVGGElement, unknown, null, undefined>): void {
+    const label = labelGroup.select('.annotation-label');
+    const showLabel = label.attr('data-show-label');
+
+    let visible: boolean;
+    if (showLabel === 'always') {
+      visible = true;
+    } else if (showLabel === 'never') {
+      visible = false;
+    } else if (this.showAllAnnotationLabels) {
+      visible = true;
+    } else if (showLabel === 'auto') {
+      // Set by updateAutoLabelFits()
+      visible = label.attr('data-fits') === 'true';
+    } else {
+      // 'hover'
+      visible = false;
+    }
+    labelGroup.style('display', visible ? '' : 'none');
   }
  
 
@@ -820,11 +828,12 @@ export class TrackViewer {
         if (this.isDragging) return;
         
         element.classed('hovered', true);
-        // Show hover labels if needed - find label in the labels layer
-        this.clippedChart.selectAll(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
+        // Show hidden labels (with a background) on hover - find label in the labels layer
+        this.clippedChart.selectAll<SVGGElement, unknown>(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
+          .filter(function() { return this.style.display === 'none'; })
           .style('display', 'block')
           .select('.annotation-label-background')
-          .style('display', ''); // Show background on hover
+          .style('display', '');
         // Only show tooltip if tooltip content is provided
         if (annotation.tooltip !== undefined) {
           this.showTooltip(event, annotation, trackData);
@@ -834,20 +843,10 @@ export class TrackViewer {
       .on('mouseout', () => {
         element.classed('hovered', false);
         // Hide hover labels if needed, but respect the showAllAnnotationLabels toggle
-        const showAll = this.showAllAnnotationLabels;
         this.clippedChart.selectAll<SVGGElement, unknown>(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
-          .each(function() {
-            const labelGroup = d3.select(this);
-            const labelElement = labelGroup.select('.annotation-label');
-            const showLabel = labelElement.attr('data-show-label');
-            // If showAllAnnotationLabels is on, keep hover labels visible
-            if (showLabel === 'hover' && showAll) {
-              labelGroup.style('display', ''); // Keep visible
-            } else if (showLabel === 'hover') {
-              labelGroup.style('display', 'none');
-            } else {
-              labelGroup.style('display', '');
-            }
+          .each((_, i, nodes) => {
+            const labelGroup = d3.select(nodes[i]);
+            this.applyLabelVisibility(labelGroup);
             // Always hide background on mouseout
             labelGroup.select('.annotation-label-background').style('display', 'none');
           });
@@ -1138,6 +1137,10 @@ export class TrackViewer {
       return;
     }
 
+    // Make sure the group is displayed while rendering, so that the text can be measured.
+    // The final visibility is set by applyLabelVisibility() in renderAllLabels().
+    container.style('display', '');
+
     // Calculate label position (default to 'above')
     const labelPosition = annotation.labelPosition || 'above';
     let labelX: number;
@@ -1180,8 +1183,9 @@ export class TrackViewer {
       .style('fill', 'currentColor') // Use currentColor to inherit from CSS color property
       .text(annotation.label);
 
-    // Only add background for hover labels - it will be shown/hidden based on hover state
-    if (showLabel === 'hover') {
+    // Only add background for (possibly) hover labels - it will be shown/hidden based on hover state.
+    // Centered labels don't need one, since the annotation's shape is behind them.
+    if ((showLabel === 'hover' || showLabel === 'auto') && labelPosition !== 'center') {
       // Get text dimensions to create background
       const textNode = labelElement.node() as SVGTextElement;
       if (textNode && typeof textNode.getBBox === 'function') {
@@ -1200,6 +1204,7 @@ export class TrackViewer {
             .attr('ry', 2)
             .attr('class', 'annotation-label-background')
             .style('fill', 'white')
+            .style('stroke', 'none') // Don't inherit stroke from annotation classes on the group
             .style('opacity', '0.8');
           
           // Initially hide the background - it will only show on actual hover
@@ -1209,15 +1214,51 @@ export class TrackViewer {
         }
       }
     }
+  }
 
-    // Handle show/hide behavior based on showLabel attribute and current toggle state
-    if (showLabel === 'always') {
-      container.style('display', '');
-    } else if (showLabel === 'never') {
-      container.style('display', 'none');
-    } else {
-      // For hover labels, respect the showAllAnnotationLabels toggle
-      container.style('display', this.showAllAnnotationLabels ? '' : 'none');
+  // Mark each 'auto' label with whether it fits, i.e. doesn't overlap any other
+  // 'always' or 'auto' label. Expects all label groups to be displayed.
+  private updateAutoLabelFits<D extends { trackY: number }>(
+    labelGroups: Selection<SVGGElement, D, SVGGElement, unknown>
+  ): void {
+    const minGap = 4; // Minimum horizontal space between labels (px)
+
+    // Measure all labels first, before changing anything, to avoid repeated layout
+    const boxes: Array<{ label: SVGTextElement; auto: boolean; x1: number; x2: number; y1: number; y2: number }> = [];
+    labelGroups.each(function(d) {
+      const label = this.querySelector<SVGTextElement>('.annotation-label');
+      const showLabel = label?.getAttribute('data-show-label');
+      if (!label || (showLabel !== 'always' && showLabel !== 'auto')) return;
+      try {
+        const bbox = label.getBBox();
+        boxes.push({
+          label,
+          auto: showLabel === 'auto',
+          x1: bbox.x,
+          x2: bbox.x + bbox.width + minGap,
+          y1: d.trackY + bbox.y,
+          y2: d.trackY + bbox.y + bbox.height
+        });
+      } catch (error) {
+        // getBBox not available (e.g. in tests): treat the label as fitting
+        if (showLabel === 'auto') label.setAttribute('data-fits', 'true');
+      }
+    });
+
+    // Sweep from left to right, comparing each label only to the ones that start before it ends
+    boxes.sort((a, b) => a.x1 - b.x1);
+    const overlapping = new Set<SVGTextElement>();
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length && boxes[j].x1 < boxes[i].x2; j++) {
+        if (boxes[j].y1 < boxes[i].y2 && boxes[i].y1 < boxes[j].y2) {
+          overlapping.add(boxes[i].label);
+          overlapping.add(boxes[j].label);
+        }
+      }
+    }
+
+    for (const box of boxes) {
+      if (box.auto) box.label.setAttribute('data-fits', String(!overlapping.has(box.label)));
     }
   }
 
@@ -1254,6 +1295,9 @@ export class TrackViewer {
       group.selectAll('*').remove();
       self.renderAnnotationLabel(group, d.annotation, d.x, d.y, d.width, d.height);
     });
+
+    this.updateAutoLabelFits(labelGroups);
+    labelGroups.each((_, i, nodes) => this.applyLabelVisibility(d3.select(nodes[i])));
   }
 
   private showTooltip(event: MouseEvent, annotation: AnnotationData, trackData: TrackData): void {

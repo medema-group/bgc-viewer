@@ -518,7 +518,7 @@ export default {
               classes: classes,
               label: `CC ${cluster_index}: ${stringToLabel(cluster_kind)}`,
               labelPosition: 'center',
-              showLabel: 'always',
+              showLabel: 'auto',
               start: location.start,
               end: location.end,
               data: feature
@@ -621,7 +621,7 @@ export default {
                 heightFraction: 0.35,
                 classes: [...classes, 'proto-core'],
                 label: getFeatureLabel(feature),
-                showLabel: 'always',
+                showLabel: 'auto',
                 start: core_location.start,
                 end: core_location.end,
                 stroke: 'black',
@@ -1240,7 +1240,6 @@ export default {
 :global(.track-placeholder) {
   fill: #cccccc;
   stroke: #999999;
-  opacity: 0.6;
 }
 
 /* Feature styling classes for the RegionViewer */
