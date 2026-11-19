@@ -1,68 +1,5 @@
 <template>
   <div class="region-viewer-wrapper">
-    <!-- Region Selector (shown when record is loaded) -->
-    <div v-if="recordInfo" class="controls">
-      <select v-if="regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
-        <option value="">Show all features</option>
-        <option v-for="region in regions" :key="region.id" :value="region.id">
-          Region {{ region.region_number }} - {{ region.product.join(', ') }}
-        </option>
-      </select>
-
-      <!-- Show message when no regions are available -->
-      <div v-if="regions.length === 0 && !loading" class="no-regions-message">
-        No regions found - showing all features for this record
-      </div>
-      
-      <div v-if="availableTracks.length > 0" class="feature-controls">
-        <div class="multi-select-container">
-          <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
-            <div class="selected-display">
-              <span v-if="selectedTracks.length === availableTracks.length">
-                All tracks ({{ selectedTracks.length }})
-              </span>
-              <span v-else-if="selectedTracks.length === 0">
-                No tracks selected
-              </span>
-              <span v-else>
-                {{ selectedTracks.length }} tracks selected
-              </span>
-              <span class="dropdown-arrow">▼</span>
-            </div>
-            <div v-if="dropdownOpen" class="dropdown-options" @click.stop>
-              <div class="select-all-option">
-                <label>
-                  <input 
-                    type="checkbox" 
-                    :checked="selectedTracks.length === availableTracks.length"
-                    :indeterminate="selectedTracks.length > 0 && selectedTracks.length < availableTracks.length"
-                    @change="toggleSelectAll"
-                  >
-                  Select All
-                </label>
-              </div>
-              <div class="option-separator"></div>
-              <div 
-                v-for="track in availableTracks" 
-                :key="track.id" 
-                class="dropdown-option"
-              >
-                <label>
-                  <input 
-                    type="checkbox" 
-                    :value="track.id"
-                    v-model="selectedTracks"
-                    @change="updateViewer"
-                  >
-                  {{ track.label }} ({{ track.annotationCount }})
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Current Record Info -->
     <div v-if="recordInfo" class="current-record-info">
       <span>Current Record: {{ recordInfo.recordId }} - {{ recordInfo?.recordInfo?.description }} </span>
@@ -190,7 +127,6 @@ export default {
     // Track management
     const availableTracks = ref([])
     const selectedTracks = ref([])
-    const dropdownOpen = ref(false)
     const currentDomain = ref(null)
     
     let regionViewer = null
@@ -244,14 +180,13 @@ export default {
       selectedRegion.value = newVal
     }, { immediate: true })
 
+    // Covers regions picked from the menu as well as from search results (via selectedRegionId)
     watch(selectedRegion, () => {
+      clearSelection()
       zoomToSelectedRegion()
     })
 
     onMounted(() => {
-      // Add event listeners
-      document.addEventListener('click', handleClickOutside)
-      
       // Initial build if we already have features
       if (props.features && props.features.length > 0) {
         rebuildViewer()
@@ -259,8 +194,6 @@ export default {
     })
 
     onUnmounted(() => {
-      document.removeEventListener('click', handleClickOutside)
-      
       // Clean up TrackViewer instance to prevent stale references after HMR
       if (regionViewer) {
         regionViewer.destroy()
@@ -339,9 +272,67 @@ export default {
       }
     }
     
-    const onRegionChange = () => {
-      // Emit event to parent to handle region change
-      emit('region-changed', selectedRegion.value)
+    const selectRegion = (regionId) => {
+      if (regionId === selectedRegion.value) {
+        // Zoom back to the region, e.g. after panning away from it
+        clearSelection()
+        zoomToSelectedRegion()
+      } else {
+        // The selectedRegion watcher zooms to the region
+        selectedRegion.value = regionId
+        emit('region-changed', regionId)
+      }
+    }
+
+    const toggleTrack = (trackId) => {
+      selectedTracks.value = selectedTracks.value.includes(trackId)
+        ? selectedTracks.value.filter(id => id !== trackId)
+        : [...selectedTracks.value, trackId]
+      updateViewer()
+    }
+
+    const toggleAllTracks = () => {
+      selectedTracks.value = selectedTracks.value.length === availableTracks.value.length
+        ? []
+        : availableTracks.value.map(t => t.id)
+      updateViewer()
+    }
+
+    // Region and track options for the track viewer's menu
+    const getMenuItems = () => {
+      const items = [{
+        label: 'Zoom to',
+        children: [
+          { label: 'Whole record', action: () => selectRegion('') },
+          ...(props.regions.length > 0 ? [{ type: 'separator' }] : []),
+          ...props.regions.map(region => ({
+            label: `Region ${region.region_number} - ${region.product.join(', ')}`,
+            action: () => selectRegion(region.id)
+          }))
+        ]
+      }]
+      if (availableTracks.value.length > 0) {
+        items.push({
+          label: 'Tracks',
+          children: [
+            {
+              label: 'All tracks',
+              keepOpen: true,
+              checked: () => selectedTracks.value.length === availableTracks.value.length
+                || (selectedTracks.value.length > 0 && 'mixed'),
+              action: toggleAllTracks
+            },
+            { type: 'separator' },
+            ...availableTracks.value.map(track => ({
+              label: `${track.label} (${track.annotationCount})`,
+              keepOpen: true,
+              checked: () => selectedTracks.value.includes(track.id),
+              action: () => toggleTrack(track.id)
+            }))
+          ]
+        })
+      }
+      return items
     }
 
     // Zoom to the selected region, or out to the whole record if none is selected
@@ -400,6 +391,7 @@ export default {
         // Zooming out stops at the whole record; zooming in goes down to about 100 bp
         zoomExtent: [1, Math.max(1000, (maxPos - minPos) / 100)],
         showTrackLabels: false,
+        menuItems: getMenuItems,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
           handleAnnotationClick(annotation, track)
@@ -411,9 +403,7 @@ export default {
         },
         onBackgroundClick: () => {
           // Clear selection when clicking background
-          selectedAnnotation.value = null
-          updateAnnotationHighlighting()
-          updateViewer()
+          clearSelection()
         },
         onDomainChange: (domain) => {
           currentDomain.value = domain
@@ -876,31 +866,6 @@ export default {
       })
     }
     
-    const toggleDropdown = () => {
-      dropdownOpen.value = !dropdownOpen.value
-    }
-    
-    const toggleSelectAll = (event) => {
-      if (event.target.checked) {
-        selectedTracks.value = [...availableTracks.value.map(t => t.id)]
-      } else {
-        selectedTracks.value = []
-      }
-      updateViewer()
-    }
-    
-    // Close dropdown when clicking outside
-    const handleClickOutside = (event) => {
-      // Use composedPath() to check across shadow DOM boundaries
-      const path = event.composedPath()
-      const clickedInside = path.some(el => 
-        el.classList && el.classList.contains('multi-select-dropdown')
-      )
-      if (!clickedInside) {
-        dropdownOpen.value = false
-      }
-    }
-    
     // Handle annotation click for highlighting
     const handleAnnotationClick = (annotation, track) => {
       // Set selected annotation (don't toggle)
@@ -932,6 +897,13 @@ export default {
     // Clear selected element
     const clearSelectedElement = () => {
       selectedAnnotation.value = null
+    }
+
+    // Deselect the selected feature and undo its highlighting
+    const clearSelection = () => {
+      selectedAnnotation.value = null
+      updateAnnotationHighlighting()
+      updateViewer()
     }
     
     // Determine if an annotation should be highlighted
@@ -1034,15 +1006,8 @@ export default {
       selectedRegion,
       loading,
       error,
-      availableTracks,
-      selectedTracks,
-      dropdownOpen,
       selectedElement,
       currentRegionNumber,
-      onRegionChange,
-      updateViewer,
-      toggleDropdown,
-      toggleSelectAll,
       clearSelectedElement
     }
   }
@@ -1069,139 +1034,6 @@ export default {
   margin-top: 4px;
   font-size: 12px;
   color: #666;
-}
-
-.controls {
-  margin-bottom: 12px;
-  background: white;
-  padding: 10px;
-  border-radius: 6px;
-  border: 1px solid #e0e0e0;
-}
-
-.region-select {
-  margin: 0;
-  padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 13px;
-  margin-right: 8px;
-  min-width: 200px;
-}
-
-.no-regions-message {
-  display: inline-block;
-  padding: 6px 10px;
-  background-color: #e8f4fd;
-  border: 1px solid #bee5eb;
-  border-radius: 4px;
-  color: #0c5460;
-  font-size: 13px;
-  margin-right: 8px;
-  font-style: italic;
-}
-
-.feature-controls {
-  display: inline-flex;
-  gap: 10px;
-  margin-left: 8px;
-}
-
-.multi-select-container {
-  position: relative;
-  display: inline-block;
-}
-
-.multi-select-container label {
-  display: block;
-  margin-bottom: 5px;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.multi-select-dropdown {
-  position: relative;
-  min-width: 200px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background: white;
-  cursor: pointer;
-}
-
-.multi-select-dropdown.open {
-  border-color: #1976d2;
-}
-
-.selected-display {
-  padding: 6px 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-}
-
-.dropdown-arrow {
-  transition: transform 0.2s ease;
-  color: #666;
-}
-
-.multi-select-dropdown.open .dropdown-arrow {
-  transform: rotate(180deg);
-}
-
-.dropdown-options {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background: white;
-  border: 1px solid #ccc;
-  border-top: none;
-  border-radius: 0 0 4px 4px;
-  max-height: 200px;
-  overflow-y: auto;
-  z-index: 1000;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.select-all-option {
-  padding: 8px 12px;
-  border-bottom: 1px solid #eee;
-  background-color: #f8f9fa;
-}
-
-.select-all-option label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.option-separator {
-  height: 1px;
-  background-color: #e0e0e0;
-}
-
-.dropdown-option {
-  padding: 6px 12px;
-}
-
-.dropdown-option:hover {
-  background-color: #f5f5f5;
-}
-
-.dropdown-option label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  margin: 0;
-}
-
-.dropdown-option input[type="checkbox"] {
-  margin: 0;
 }
 
 .viewer-container {

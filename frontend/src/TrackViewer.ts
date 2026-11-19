@@ -3,6 +3,9 @@ import type { Selection, EnterElement } from 'd3-selection';
 import type { ScaleLinear } from 'd3-scale';
 import type { ZoomBehavior, ZoomTransform, D3ZoomEvent } from 'd3-zoom';
 import { initTrackViewerContextMenu } from './TrackViewerContextMenu';
+import type { MenuItem, ContextMenuController } from './TrackViewerContextMenu';
+
+export type { MenuItem };
 
 export type TrackData = {
   id: string;
@@ -73,6 +76,8 @@ export interface TrackViewerConfig {
   onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
   onBackgroundClick?: () => void;
   onDomainChange?: (domain: [number, number]) => void;
+  // Extra items shown at the top of the options menu, read each time the menu opens
+  menuItems?: () => MenuItem[];
 }
 
 
@@ -95,7 +100,7 @@ export class TrackViewer {
   private resizeHandler?: () => void; // Store resize handler for cleanup
   private resizeObserver?: ResizeObserver; // Store ResizeObserver for cleanup
   private static readonly LABEL_PADDING = 24; // Padding for labels that extend above tracks
-  private contextMenuController?: any;
+  private contextMenuController?: ContextMenuController;
   private showTrackLabels: boolean;
   private showAllAnnotationLabels: boolean = false;
   private labelGroups!: Selection<SVGGElement, TrackData, SVGGElement, unknown>;
@@ -137,7 +142,8 @@ export class TrackViewer {
       onAnnotationClick: config.onAnnotationClick || (() => {}),
       onAnnotationHover: config.onAnnotationHover || (() => {}),
       onBackgroundClick: config.onBackgroundClick || (() => {}),
-      onDomainChange: config.onDomainChange || (() => {})
+      onDomainChange: config.onDomainChange || (() => {}),
+      menuItems: config.menuItems || (() => [])
     };
 
     // Store the original left margin as minimum
@@ -318,12 +324,18 @@ export class TrackViewer {
   private createContextMenu(): void {
     this.contextMenuController = initTrackViewerContextMenu({
       containerElement: this.containerElement,
-      onSaveSVG: () => this.saveAsSVG(),
-      onSavePNG: () => this.saveAsPNG(),
-      getShowTrackLabels: () => this.showTrackLabels,
-      getShowAllAnnotationLabels: () => this.showAllAnnotationLabels,
-      onToggleTrackLabels: () => this.toggleTrackLabels(),
-      onToggleAllAnnotationLabels: () => this.toggleAllAnnotationLabels()
+      getMenuItems: () => {
+        const extraItems = this.config.menuItems();
+        return [
+          ...extraItems,
+          ...(extraItems.length > 0 ? [{ type: 'separator' as const }] : []),
+          { label: 'Save as SVG', action: () => this.saveAsSVG() },
+          { label: 'Save as PNG', action: () => this.saveAsPNG() },
+          { type: 'separator' },
+          { label: 'Show track labels', action: () => this.toggleTrackLabels(), checked: () => this.showTrackLabels },
+          { label: 'Show all annotation labels', action: () => this.toggleAllAnnotationLabels(), checked: () => this.showAllAnnotationLabels }
+        ];
+      }
     });
   }
 
@@ -544,9 +556,6 @@ export class TrackViewer {
       this.config.margin.left = this.originalLeftMargin;
       this.updateChartWidth();
     }
-
-    // Update checkbox in context menu UI
-    this.contextMenuController?.updateCheckbox('Show track labels', this.showTrackLabels);
   }
 
   // Apply a changed width or left margin to the chart area, while keeping the visible domain
@@ -578,9 +587,6 @@ export class TrackViewer {
     // Update all annotation labels in the labels layer
     this.clippedChart.selectAll<SVGGElement, unknown>('.annotation-labels-layer .annotation-label-group')
       .each((_, i, nodes) => this.applyLabelVisibility(d3.select(nodes[i])));
-
-    // Update checkbox in context menu UI
-    this.contextMenuController?.updateCheckbox('Show all annotation labels', this.showAllAnnotationLabels);
   }
 
   // Show or hide a label group according to its showLabel mode and the
