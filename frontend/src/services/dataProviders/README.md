@@ -24,9 +24,6 @@ const { regions } = await provider.getRegions('NC_003888.3')
 // Get all features for a record
 const { features } = await provider.getRecordFeatures('NC_003888.3')
 
-// Get features for a specific region
-const { features, region_boundaries } = await provider.getRegionFeatures('NC_003888.3', 'region_1')
-
 // Get PFAM color mapping
 const colorMap = await provider.getPfamColorMap()
 ```
@@ -76,15 +73,6 @@ Returns all features for a record (no region filtering).
 - `recordId` (string) - The record identifier
 
 **Returns:** `Promise<{features: Feature[]}>`
-
-### `async getRegionFeatures(recordId, regionId)`
-Returns features for a specific region within a record.
-
-**Parameters:**
-- `recordId` (string) - The record identifier
-- `regionId` (string) - The region identifier
-
-**Returns:** `Promise<{features: Feature[], region_boundaries?: {start: number, end: number}}>`
 
 ### `async getPfamColorMap()`
 Returns PFAM domain color mapping.

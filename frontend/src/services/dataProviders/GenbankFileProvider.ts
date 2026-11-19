@@ -302,44 +302,6 @@ export class GenbankFileProvider extends DataProvider {
   }
 
   /**
-   * Get features for a region
-   */
-  async getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse> {
-    const record = this.findRecord(recordId)
-    if (!record) {
-      throw new Error(`Record not found: ${recordId}`)
-    }
-
-    // Get the region to determine boundaries
-    const regionsResponse = await this.getRegions(recordId)
-    const region = regionsResponse.regions.find(r => r.id === regionId)
-    
-    if (!region) {
-      // If region not found, return all features
-      return this.getRecordFeatures(recordId)
-    }
-
-    // Filter features that fall within the region boundaries
-    const featuresInRegion = (record.features || []).filter((feature: any) => {
-      const location = parseLocation(feature.location)
-      if (!location) return false
-
-      const { start, end } = location
-
-      // Feature overlaps with region if it starts before region ends and ends after region starts
-      return start < region.end && end > region.start
-    })
-
-    return {
-      features: featuresInRegion,
-      region_boundaries: {
-        start: region.start,
-        end: region.end
-      }
-    }
-  }
-
-  /**
    * Get PFAM color map
    */
   async getPfamColorMap(): Promise<PfamColorMap> {

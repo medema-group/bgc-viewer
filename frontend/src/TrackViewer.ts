@@ -1458,7 +1458,7 @@ export class TrackViewer {
     this.drawTracks();
   }
 
-  public zoomTo(start: number, end: number): void {
+  public zoomTo(start: number, end: number, duration: number = 750): void {
     const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
     const scale = chartWidth / (this.x(end) - this.x(start));
     const translate = -this.x(start) * scale;
@@ -1467,17 +1467,27 @@ export class TrackViewer {
       .translate(translate, 0)
       .scale(scale);
 
-    this.svg
-      .transition()
-      .duration(750)
-      .call(this.zoom.transform, transform);
+    this.applyTransform(transform, duration);
   }
 
-  public resetZoom(): void {
-    this.svg
-      .transition()
-      .duration(750)
-      .call(this.zoom.transform, d3.zoomIdentity);
+  public resetZoom(duration: number = 750): void {
+    this.applyTransform(d3.zoomIdentity, duration);
+  }
+
+  // Without a duration, the transform is applied immediately instead of in a transition
+  private applyTransform(transform: ZoomTransform, duration: number): void {
+    if (duration > 0) {
+      // d3 zooms out, pans and zooms in along a smooth path. The default cubic easing peaks
+      // at 3x the average speed mid-transition, which makes the panning in the middle rush;
+      // sine easing peaks at ~1.6x, spreading the pan more evenly over the transition.
+      this.svg
+        .transition()
+        .duration(duration)
+        .ease(d3.easeSinInOut)
+        .call(this.zoom.transform, transform);
+    } else {
+      this.svg.call(this.zoom.transform, transform);
+    }
   }
 
   public destroy(): void {

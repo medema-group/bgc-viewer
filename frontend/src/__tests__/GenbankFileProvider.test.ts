@@ -83,7 +83,7 @@ ORIGIN
     const provider = new GenbankFileProvider()
     await provider.loadFromFile(createMockFile(content, 'test.gb'))
     const records = await provider.getRecords()
-    const { features } = await provider.getRegionFeatures(records[0].recordId, 'region_1')
+    const { features } = await provider.getRecordFeatures(records[0].recordId)
 
     const cdsLocations = features.filter((f: any) => f.type === 'CDS').map((f: any) => f.location)
     expect(cdsLocations).toEqual([

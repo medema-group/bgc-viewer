@@ -189,18 +189,6 @@ export class BGCViewerAPIProvider extends DataProvider {
   }
 
   /**
-   * Get features for a specific region within a record
-   */
-  async getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse> {
-    // Extract actual record ID from entryId format (filename:recordId)
-    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
-    const response = await this.axiosInstance.get<FeaturesResponse>(
-      `/api/records/${actualRecordId}/regions/${regionId}/features`
-    )
-    return response.data
-  }
-
-  /**
    * Get PFAM domain color mapping
    */
   async getPfamColorMap(): Promise<PfamColorMap> {

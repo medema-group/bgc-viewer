@@ -33,11 +33,6 @@ export interface Feature {
   [key: string]: any
 }
 
-export interface RegionBoundaries {
-  start: number
-  end: number
-}
-
 export interface MiBIGEntry {
   mibig_protein: string
   description: string
@@ -108,7 +103,6 @@ export interface ResistanceFeaturesResponse {
 
 export interface FeaturesResponse {
   features: Feature[]
-  region_boundaries?: RegionBoundaries
 }
 
 export interface RegionsResponse {
@@ -274,11 +268,6 @@ export abstract class DataProvider {
    * Get all features for a record (no region filtering)
    */
   abstract getRecordFeatures(recordId: string): Promise<FeaturesResponse>
-
-  /**
-   * Get features for a specific region within a record
-   */
-  abstract getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse>
 
   /**
    * Get PFAM domain color mapping

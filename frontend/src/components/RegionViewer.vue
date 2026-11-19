@@ -132,19 +132,13 @@ export default {
     regions: {
       type: Array,
       default: () => []
-      // Expected shape: [{ id, region_number, product }]
+      // Expected shape: [{ id, region_number, product, start, end }]
     },
     // Features to display
     features: {
       type: Array,
       default: () => []
       // Expected shape: [{ type, location, qualifiers }]
-    },
-    // Region boundaries (optional, for region-specific view)
-    regionBoundaries: {
-      type: Object,
-      default: null
-      // Expected shape: { start, end }
     },
     // PFAM color mapping
     pfamColorMap: {
@@ -199,23 +193,23 @@ export default {
     const dropdownOpen = ref(false)
     const currentDomain = ref(null)
     
-    // Compute current region number from selected region
-    const currentRegionNumber = computed(() => {
-      if (!selectedRegion.value || !props.regions.length) {
-        return '1' // Default to region 1 if no region selected
-      }
-      const region = props.regions.find(r => r.id === selectedRegion.value)
-      return region ? String(region.region_number) : '1'
-    })
-    
     let regionViewer = null
     let allTrackData = {} // Store all generated tracks
     const selectedAnnotation = ref(null) // Track the selected annotation for highlighting
     const ANNOTATION_THRESHOLD = 500 // Max annotations to render before showing placeholder
+    const REGION_ZOOM_DURATION = 1500 // Duration (ms) of the zoom out, pan and zoom in to a selected region
     
     // Derive selected element from selected annotation
     const selectedElement = computed(() => {
       return selectedAnnotation.value?.data || null
+    })
+
+    // Region number of the selected element: the region it lies in, else the selected region
+    const currentRegionNumber = computed(() => {
+      const location = selectedElement.value?.location && parseLocation(selectedElement.value.location)
+      const region = (location && props.regions.find(r => r.start < location.end && location.start < r.end))
+        || props.regions.find(r => r.id === selectedRegion.value)
+      return region ? String(region.region_number) : '1' // Default to region 1
     })
 
     // Watch for prop changes and rebuild the viewer
@@ -249,6 +243,10 @@ export default {
     watch(() => props.selectedRegionId, (newVal) => {
       selectedRegion.value = newVal
     }, { immediate: true })
+
+    watch(selectedRegion, () => {
+      zoomToSelectedRegion()
+    })
 
     onMounted(() => {
       // Add event listeners
@@ -345,6 +343,18 @@ export default {
       // Emit event to parent to handle region change
       emit('region-changed', selectedRegion.value)
     }
+
+    // Zoom to the selected region, or out to the whole record if none is selected
+    const zoomToSelectedRegion = (duration = REGION_ZOOM_DURATION) => {
+      if (!regionViewer) return
+      const region = props.regions.find(r => r.id === selectedRegion.value)
+      if (region && region.start != null && region.end != null) {
+        const padding = (region.end - region.start) * 0.02
+        regionViewer.zoomTo(region.start - padding, region.end + padding, duration)
+      } else {
+        regionViewer.resetZoom(duration)
+      }
+    }
     
     const initializeViewer = () => {
       if (regionViewer) {
@@ -353,39 +363,32 @@ export default {
       
       if (!viewerContainer.value) return
       
-      let minPos, maxPos, padding
+      let minPos, maxPos
       
-      if (props.regionBoundaries) {
-        // Use region boundaries if provided
-        minPos = props.regionBoundaries.start
-        maxPos = props.regionBoundaries.end
-        padding = (maxPos - minPos) * 0.02
-        console.log('Using region boundaries:', minPos, '-', maxPos)
+      // The domain always spans the whole record; a selected region is zoomed to below
+      console.log('Calculating boundaries from', props.features.length, 'features')
+      const positions = props.features
+        .filter(f => f.location)
+        .map(f => {
+          const location = parseLocation(f.location)
+          return location ? [location.start, location.end] : null
+        })
+        .filter(Boolean)
+        .flat()
+      
+      console.log('Extracted positions:', positions.slice(0, 10), positions.length > 10 ? `... (${positions.length} total)` : '')
+      
+      if (positions.length === 0) {
+        console.warn('No valid positions found, using default domain')
+        minPos = 0
+        maxPos = 1000
       } else {
-        // Fallback to calculating from features
-        console.log('Calculating boundaries from', props.features.length, 'features')
-        const positions = props.features
-          .filter(f => f.location)
-          .map(f => {
-            const location = parseLocation(f.location)
-            return location ? [location.start, location.end] : null
-          })
-          .filter(Boolean)
-          .flat()
-        
-        console.log('Extracted positions:', positions.slice(0, 10), positions.length > 10 ? `... (${positions.length} total)` : '')
-        
-        if (positions.length === 0) {
-          console.warn('No valid positions found, using default domain')
-          minPos = 0
-          maxPos = 1000
-        } else {
-          minPos = Math.min(...positions)
-          maxPos = Math.max(...positions)
-        }
-        padding = (maxPos - minPos) * 0.02  // Reduced padding from 0.1 to 0.02 for more zoomed-in view
-        console.log('Calculated domain:', minPos - padding, 'to', maxPos + padding)
+        // Reduce instead of Math.min(...positions): whole records can exceed the argument limit
+        minPos = positions.reduce((a, b) => Math.min(a, b))
+        maxPos = positions.reduce((a, b) => Math.max(a, b))
       }
+      const padding = (maxPos - minPos) * 0.02
+      console.log('Calculated domain:', minPos - padding, 'to', maxPos + padding)
       
       console.log('Creating TrackViewer...')
       regionViewer = new TrackViewer({
@@ -394,7 +397,8 @@ export default {
         height: 400,
         domain: [minPos - padding, maxPos + padding],
         trackHeight: 40,
-        zoomExtent: [0.1, 1000],
+        // Zooming out stops at the whole record; zooming in goes down to about 100 bp
+        zoomExtent: [1, Math.max(1000, (maxPos - minPos) / 100)],
         showTrackLabels: false,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
@@ -419,6 +423,9 @@ export default {
         }
       })
       console.log('TrackViewer created successfully')
+
+      // Start zoomed to the selected region, without animation
+      zoomToSelectedRegion(0)
     }
     
     const makeSureTrackExists = (trackId, trackLabel, trackHeight) => {
