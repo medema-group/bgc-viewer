@@ -785,6 +785,8 @@ export default {
             stroke: '#999999',
             opacity: 0.6,
             heightFraction: 0.8,
+            // Keep the default double-click zoom in: zooming to the placeholder would zoom out
+            zoomOnDoubleClick: false,
             data: { 
               _elementType: 'Placeholder', 
               count: visibleAnnotations.length,

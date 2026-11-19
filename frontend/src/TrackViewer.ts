@@ -34,6 +34,7 @@ export type AnnotationData = {
   opacity?: number;
   corner_radius?: number;
   tooltip?: string; // Optional custom tooltip content
+  zoomOnDoubleClick?: boolean; // Zoom to the annotation when double clicked, default true for boxes and arrows
   data?: any; // Optional reference to original data object
 }
 
@@ -100,11 +101,15 @@ export class TrackViewer {
   private resizeHandler?: () => void; // Store resize handler for cleanup
   private resizeObserver?: ResizeObserver; // Store ResizeObserver for cleanup
   private static readonly LABEL_PADDING = 24; // Padding for labels that extend above tracks
+  private static readonly ZOOM_TO_ANNOTATION_FILL = 0.75; // Fraction of the view an annotation zoomed to takes up, the rest is split as margin on both sides
   private contextMenuController?: ContextMenuController;
   private showTrackLabels: boolean;
   private showAllAnnotationLabels: boolean = false;
   private labelGroups!: Selection<SVGGElement, TrackData, SVGGElement, unknown>;
   private isDragging: boolean = false;
+  private lastAnnotationClick: { id: string; time: number } | null = null;
+  private lastAnnotationDoubleClickTime: number = -Infinity;
+  private static readonly DOUBLE_CLICK_INTERVAL = 500; // Max ms between the clicks of a double click
 
   constructor(config: TrackViewerConfig) {
     // Check if width was explicitly provided
@@ -277,6 +282,10 @@ export class TrackViewer {
         // Reset dragging flag on mouseup
         if (event.type === 'mouseup') {
           this.isDragging = false;
+        }
+        // Skip d3's double-click zoom when an annotation was just double clicked
+        if (event.type === 'dblclick' && Date.now() - this.lastAnnotationDoubleClickTime < TrackViewer.DOUBLE_CLICK_INTERVAL) {
+          return false;
         }
         // Allow default zoom behavior
         return !event.ctrlKey && !event.button;
@@ -876,12 +885,35 @@ export class TrackViewer {
     // dispatched to the container instead
     container.on('click', () => {
       this.config.onAnnotationClick(annotation, trackData);
+      this.handlePossibleDoubleClick(annotation);
     });
 
     // Collect label data for rendering in a separate layer
     if (labelsData && annotation.label && annotation.showLabel !== 'never') {
       labelsData.push({ annotation, trackData, x, y, width, height, trackY });
     }
+  }
+
+  // Double clicking a box or arrow zooms to it (its clicks have selected it already). Double
+  // clicks are detected from the clicks rather than with dblclick events: a click usually leads
+  // to a redraw, which replaces the clicked shape, and then browsers don't see the next click
+  // on the new shape as part of a double click.
+  private handlePossibleDoubleClick(annotation: AnnotationData): void {
+    const now = Date.now();
+    const isDoubleClick = this.lastAnnotationClick?.id === annotation.id
+      && now - this.lastAnnotationClick.time < TrackViewer.DOUBLE_CLICK_INTERVAL;
+    // A third click starts a new double click, rather than completing another one
+    this.lastAnnotationClick = isDoubleClick ? null : { id: annotation.id, time: now };
+    if (!isDoubleClick) return;
+
+    // Other annotations are points, so they keep d3's default double-click zoom
+    const zoomOnDoubleClick = annotation.zoomOnDoubleClick ?? (annotation.type === 'box' || annotation.type === 'arrow');
+    if (!zoomOnDoubleClick) return;
+
+    this.lastAnnotationDoubleClickTime = now;
+    const length = annotation.end - annotation.start;
+    const margin = length * (1 - TrackViewer.ZOOM_TO_ANNOTATION_FILL) / 2 / TrackViewer.ZOOM_TO_ANNOTATION_FILL;
+    this.zoomTo(annotation.start - margin, annotation.end + margin);
   }
 
   private renderPrimitive(
@@ -1466,8 +1498,10 @@ export class TrackViewer {
 
   public zoomTo(start: number, end: number, duration: number = 750): void {
     const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
-    const scale = chartWidth / (this.x(end) - this.x(start));
-    const translate = -this.x(start) * scale;
+    // Stay within the zoom extent (zooming to a tiny range would exceed it), centered on the range
+    const [minScale, maxScale] = this.zoom.scaleExtent();
+    const scale = Math.max(minScale, Math.min(maxScale, chartWidth / (this.x(end) - this.x(start))));
+    const translate = chartWidth / 2 - (this.x(start) + this.x(end)) / 2 * scale;
 
     const transform = d3.zoomIdentity
       .translate(translate, 0)
