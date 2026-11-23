@@ -33,8 +33,6 @@ from .search.index import (
     SearchError,
     field_values,
     open_index,
-    search_record,
-    search_regions,
 )
 
 # Load environment variables from .env file
@@ -1145,7 +1143,7 @@ def search_region_endpoint():
     """Search the embedded index, returning one self-contained hit per region."""
     req = parse_search_request(request.get_json(silent=True))
     index = _open_search_index()
-    return jsonify(run_search(index, req, search_regions)), 200
+    return jsonify(run_search(index, req, "region")), 200
 
 
 @app.route("/api/search/record", methods=["POST"])
@@ -1157,17 +1155,30 @@ def search_record_endpoint():
     """
     req = parse_search_request(request.get_json(silent=True))
     index = _open_search_index()
-    response = run_search(index, req, search_record)
+    response = run_search(index, req, "record")
     return jsonify(add_record_details(response, _current_search_database())), 200
+
+
+@app.route("/api/search/protocluster", methods=["POST"])
+@search_errors
+def search_protocluster_endpoint():
+    """Search the embedded index, returning one hit per protocluster.
+
+    A protocluster matches only when every condition holds for that one
+    protocluster, unlike a region, whose values combine all its protoclusters.
+    """
+    req = parse_search_request(request.get_json(silent=True))
+    index = _open_search_index()
+    return jsonify(run_search(index, req, "protocluster")), 200
 
 
 @app.route("/api/search/values")
 @search_errors
 def search_values_endpoint():
-    """Suggest values of one field, with region counts, for a filter's value picker."""
+    """Suggest values of one field, with counts at a level, for a value picker."""
     req = parse_values_request(request.args)
     index = _open_search_index()
-    values = field_values(index, req.field, req.contains, req.size)
+    values = field_values(index, req.field, req.contains, req.size, kind=req.kind)
     return jsonify(ValuesResponse(field=req.field, values=tuple(values))), 200
 
 

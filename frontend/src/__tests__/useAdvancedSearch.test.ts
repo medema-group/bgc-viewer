@@ -30,7 +30,7 @@ const schema: SearchSchema = {
   raw_query_field: RAW_QUERY_FIELD
 }
 
-const emptyResponse = { hits: [], has_more: false, total_regions: 0, facets: {} }
+const emptyResponse = { hits: [], has_more: false, total: 0, facets: {} }
 
 function fakeProvider() {
   return {
@@ -104,6 +104,10 @@ describe('useAdvancedSearch', () => {
     await search.setLevel('record')
     expect(lastSearch(provider)![0]).toBe('record')
     expect(search.state.searchedLevel).toBe('record')
+
+    await search.setLevel('protocluster')
+    expect(lastSearch(provider)!.slice(0, 2)).toEqual(['protocluster', searched])
+    expect(search.state.searchedLevel).toBe('protocluster')
   })
 
   it('adds a refinement as an AND condition, bracketing ORed rows', async () => {
@@ -161,6 +165,13 @@ describe('useAdvancedSearch', () => {
   it('loads suggested values through the provider', async () => {
     const { provider, search } = setup()
     expect(await search.loadValues('product', 'NR')).toEqual([{ value: 'NRPS', count: 3 }])
-    expect(provider.getFieldValues).toHaveBeenCalledWith('product', 'NR')
+    expect(provider.getFieldValues).toHaveBeenCalledWith('product', 'NR', undefined, 'region')
+  })
+
+  it('counts suggested values at the chosen level', async () => {
+    const { provider, search } = setup()
+    await search.setLevel('protocluster')
+    await search.loadValues('product', 'NR')
+    expect(provider.getFieldValues).toHaveBeenCalledWith('product', 'NR', undefined, 'protocluster')
   })
 })

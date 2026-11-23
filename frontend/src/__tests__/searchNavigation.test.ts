@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  protoclusterNumberFromHit,
   recordSelectionFromHit,
   regionIdFromHit
 } from '@/services/searchNavigation'
@@ -21,6 +22,11 @@ const regionHit = {
   }
 }
 
+const protoclusterHit = {
+  score: 1,
+  fields: { ...regionHit.fields, product: ['NRPS'], product_category: ['NRPS'], protocluster_number: 5 }
+}
+
 const recordHit = {
   score: 2,
   record: 'record-1',
@@ -35,7 +41,8 @@ const recordHit = {
 describe('recordSelectionFromHit', () => {
   it.each([
     ['region', regionHit],
-    ['record', recordHit]
+    ['record', recordHit],
+    ['protocluster', protoclusterHit]
   ] as const)('composes the existing entry id for a %s hit', (level, hit) => {
     expect(recordSelectionFromHit(level, hit)).toEqual({
       entryId: 'nested/example.json:record-1',
@@ -50,7 +57,22 @@ describe('regionIdFromHit', () => {
     expect(regionIdFromHit('region', regionHit)).toBe('region_2')
   })
 
+  it('opens the parent region of a protocluster hit', () => {
+    expect(regionIdFromHit('protocluster', protoclusterHit)).toBe('region_2')
+  })
+
   it('clears the region target for a record hit', () => {
     expect(regionIdFromHit('record', recordHit)).toBe('')
+  })
+})
+
+describe('protoclusterNumberFromHit', () => {
+  it('returns the protocluster of a protocluster hit', () => {
+    expect(protoclusterNumberFromHit('protocluster', protoclusterHit)).toBe(5)
+  })
+
+  it('returns nothing at the region and record levels', () => {
+    expect(protoclusterNumberFromHit('region', regionHit)).toBeNull()
+    expect(protoclusterNumberFromHit('record', recordHit)).toBeNull()
   })
 })

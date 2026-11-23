@@ -20,7 +20,7 @@
               <li>
                 <strong>is</strong> and <strong>is any of</strong> match whole values
                 exactly, including case; pick them from the suggestions, which show
-                how many regions hold each value. <strong>contains</strong>,
+                how many regions (or protoclusters) hold each value. <strong>contains</strong>,
                 <strong>starts with</strong>, and <strong>ends with</strong> ignore case.
               </li>
               <li>
@@ -33,6 +33,13 @@
               </li>
               <li>
                 Click a value under <strong>Refine</strong> to add it as a condition.
+              </li>
+              <li>
+                A region matches when its protoclusters together meet the
+                conditions. <strong>Show Protoclusters</strong> lists only
+                protoclusters that meet every condition by themselves. Results
+                antiSMASH reports per region, such as KnownClusterBlast hits,
+                are shared by all protoclusters of the region.
               </li>
             </ul>
           </section>

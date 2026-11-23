@@ -88,6 +88,11 @@ export default {
       type: String,
       default: ''
     },
+    // Number of a protocluster to zoom to and select instead of the region, as for a protocluster search hit
+    selectedProtoclusterNumber: {
+      type: Number,
+      default: null
+    },
     // Data provider for fetching additional data
     dataProvider: {
       type: Object,
@@ -121,6 +126,8 @@ export default {
   setup(props, { emit, expose }) {
     const viewerContainer = ref(null)
     const selectedRegion = ref('')
+    // Protocluster the view is focused on; picking a region from the menu drops it
+    const focusedProtocluster = ref(null)
     const loading = ref(false)
     const error = ref('')
     
@@ -180,10 +187,15 @@ export default {
       selectedRegion.value = newVal
     }, { immediate: true })
 
-    // Covers regions picked from the menu as well as from search results (via selectedRegionId)
-    watch(selectedRegion, () => {
+    watch(() => props.selectedProtoclusterNumber, (newVal) => {
+      focusedProtocluster.value = newVal
+    }, { immediate: true })
+
+    // Covers regions picked from the menu as well as region and protocluster search results.
+    // One watcher for both, so a hit that changes region and protocluster at once zooms once.
+    watch([selectedRegion, focusedProtocluster], () => {
       clearSelection()
-      zoomToSelectedRegion()
+      zoomToSelection()
     })
 
     onMounted(() => {
@@ -273,12 +285,15 @@ export default {
     }
     
     const selectRegion = (regionId) => {
-      if (regionId === selectedRegion.value) {
+      const unchanged = regionId === selectedRegion.value && focusedProtocluster.value === null
+      // A region picked from the menu replaces a focused protocluster
+      focusedProtocluster.value = null
+      if (unchanged) {
         // Zoom back to the region, e.g. after panning away from it
         clearSelection()
-        zoomToSelectedRegion()
-      } else {
-        // The selectedRegion watcher zooms to the region
+        zoomToSelection()
+      } else if (regionId !== selectedRegion.value) {
+        // The selection watcher zooms to the region
         selectedRegion.value = regionId
         emit('region-changed', regionId)
       }
@@ -335,13 +350,41 @@ export default {
       return items
     }
 
-    // Zoom to the selected region, or out to the whole record if none is selected
-    const zoomToSelectedRegion = (duration = REGION_ZOOM_DURATION) => {
+    // The full-location annotation of protocluster `number`, also when the viewport filters it out
+    const findProtoclusterAnnotation = (number) => {
+      const id = `protocluster-${number}`
+      for (const track of Object.values(allTrackData)) {
+        if (!track.id.startsWith('protocluster-track-')) continue
+        const annotation = (track._originalAnnotations || track.annotations).find(ann => ann.id === id)
+        if (annotation) return annotation
+      }
+      return null
+    }
+
+    // Zoom to start..end with a little room on either side
+    const zoomToSpan = (start, end, duration) => {
+      const padding = (end - start) * 0.02
+      regionViewer.zoomTo(start - padding, end + padding, duration)
+    }
+
+    // Zoom to and select the focused protocluster, else zoom to the selected region,
+    // or out to the whole record if none is selected
+    const zoomToSelection = (duration = REGION_ZOOM_DURATION) => {
       if (!regionViewer) return
+      const protocluster = focusedProtocluster.value !== null
+        ? findProtoclusterAnnotation(focusedProtocluster.value)
+        : null
+      if (protocluster) {
+        // Selected as a click on it would, so its details show and its genes are highlighted
+        selectedAnnotation.value = protocluster
+        updateAnnotationHighlighting()
+        updateViewer()
+        zoomToSpan(protocluster.start, protocluster.end, duration)
+        return
+      }
       const region = props.regions.find(r => r.id === selectedRegion.value)
       if (region && region.start != null && region.end != null) {
-        const padding = (region.end - region.start) * 0.02
-        regionViewer.zoomTo(region.start - padding, region.end + padding, duration)
+        zoomToSpan(region.start, region.end, duration)
       } else {
         regionViewer.resetZoom(duration)
       }
@@ -414,8 +457,8 @@ export default {
       })
       console.log('TrackViewer created successfully')
 
-      // Start zoomed to the selected region, without animation
-      zoomToSelectedRegion(0)
+      // Start zoomed to the focused protocluster or selected region, without animation
+      zoomToSelection(0)
     }
     
     const makeSureTrackExists = (trackId, trackLabel, trackHeight) => {

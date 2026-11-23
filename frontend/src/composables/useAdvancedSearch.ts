@@ -4,8 +4,6 @@ import { computed, reactive } from 'vue'
 import type { BGCViewerAPIProvider } from '@/services/dataProviders/BGCViewerAPIProvider'
 import type {
   FacetBucket,
-  RecordSearchHit,
-  RegionSearchHit,
   SearchCriteria,
   SearchFieldInfo,
   SearchLevel,
@@ -26,8 +24,9 @@ import {
   runsOf,
   type FilterRow
 } from '@/services/filterRows'
+import type { SearchHit } from '@/services/searchNavigation'
 
-export type SearchHit = RegionSearchHit | RecordSearchHit
+export type { SearchHit }
 
 export interface SearchError {
   code: string
@@ -185,10 +184,10 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     state.page = 1
   }
 
-  /** Start over on a newly opened index and list its records, as the record list did. */
+  /** Start over on a newly opened index and list its regions. */
   async function openIndex() {
     reset()
-    state.level = 'record'
+    state.level = 'region'
     await loadSchema()
     if (state.schema) await search()
   }
@@ -224,7 +223,8 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     loadValues: async (field: string, contains: string): Promise<FacetBucket[]> => {
       const provider = getProvider()
       if (!provider) throw new Error(NOT_AVAILABLE)
-      return (await provider.getFieldValues(field, contains)).values
+      // Counts follow the level the results are listed at.
+      return (await provider.getFieldValues(field, contains, undefined, state.level)).values
     }
   }
 }

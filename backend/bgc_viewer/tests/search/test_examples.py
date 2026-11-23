@@ -10,6 +10,7 @@ import sqlite3
 
 from bgc_viewer.search.document import (
     EXAMPLE_TEMPLATE_REGISTRY,
+    KIND_FIELD,
     Location,
     generate_example_queries,
 )
@@ -34,6 +35,7 @@ def _doc(
 ):
     location = Location.parse("[100:500](+)")
     document = Document()
+    document.add_text(KIND_FIELD, "region")
     document.add_text("record", "rec")
     document.add_integer("region", 1)
     document.add_integer("start", location.start)

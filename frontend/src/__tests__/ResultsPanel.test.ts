@@ -38,6 +38,20 @@ const recordHit = {
   feature_count: 40
 }
 
+const regionHit = {
+  score: 1,
+  fields: {
+    record: 'recA',
+    region: 1,
+    start: 0,
+    end: 30000,
+    length: 30000,
+    product: ['NRPS'],
+    product_category: ['NRPS'],
+    output_file: 'recA.json'
+  }
+}
+
 const loadedRecord: LoadedRecord = {
   key: 'mibig/BGC.json:BGC0000001',
   source: 'mibig',
@@ -64,12 +78,12 @@ const loadedRegion: LoadedRegion = {
 async function mountPanel(tab: ResultsTab, loadedRecords: LoadedRecord[], searched = true) {
   const provider = {
     getSearchSchema: vi.fn().mockResolvedValue(schema),
-    search: vi.fn().mockResolvedValue({
-      hits: [recordHit],
+    search: vi.fn(async (level: string) => ({
+      hits: [level === 'record' ? recordHit : regionHit],
       has_more: false,
-      total_regions: 2,
+      total: 2,
       facets: { product: [{ value: 'NRPS', count: 2 }] }
-    }),
+    })),
     getFieldValues: vi.fn()
   }
   const search = useAdvancedSearch(() => provider as unknown as BGCViewerAPIProvider)
@@ -93,7 +107,7 @@ describe('ResultsPanel', () => {
     expect(wrapper.get('.refine-scroll').text()).toContain('NRPS')
 
     await wrapper.get('tbody tr').trigger('click')
-    expect(wrapper.emitted('select-hit')).toEqual([[recordHit]])
+    expect(wrapper.emitted('select-hit')).toEqual([[regionHit]])
   })
 
   it('offers the loaded records as a second tab', async () => {
@@ -107,6 +121,8 @@ describe('ResultsPanel', () => {
 
   it('lists the loaded records on their tab', async () => {
     const { wrapper } = await mountPanel('loaded', [loadedRecord])
+    await wrapper.findAll('.level-toggle button').find(button => button.text() === 'Records')!.trigger('click')
+    await flushPromises()
 
     expect(wrapper.find('.refine-scroll').exists()).toBe(false)
     await wrapper.get('tbody tr').trigger('click')
@@ -124,16 +140,30 @@ describe('ResultsPanel', () => {
     ])
   })
 
+  it('offers protoclusters, regions, and records, with regions selected', async () => {
+    const { wrapper } = await mountPanel('search', [loadedRecord])
+    const buttons = wrapper.findAll('.level-toggle button')
+
+    expect(buttons.map(button => button.text())).toEqual(['Protoclusters', 'Regions', 'Records'])
+    expect(buttons.map(button => button.attributes('aria-pressed'))).toEqual(['false', 'true', 'false'])
+  })
+
   it('switches both lists between regions and records', async () => {
     const { wrapper, provider } = await mountPanel('loaded', [loadedRecord])
     const levelButton = (label: string) =>
       wrapper.findAll('.level-toggle button').find(button => button.text() === label)!
 
-    expect(levelButton('Records').attributes('aria-pressed')).toBe('true')
+    await levelButton('Records').trigger('click')
+    await flushPromises()
+
+    // The search is fetched again at record level, and the loaded data lists records
+    expect(provider.search.mock.calls.slice(-1)[0][0]).toBe('record')
+    expect(wrapper.findAll('thead th').map(th => th.text()).slice(0, 2)).toEqual(['Record', 'Source'])
+
     await levelButton('Regions').trigger('click')
     await flushPromises()
 
-    // The search is fetched again at region level, and the loaded data lists regions
+    // And back at region level, where the loaded data lists regions
     expect(provider.search.mock.calls.slice(-1)[0][0]).toBe('region')
     expect(tabs({ wrapper, provider })[1]).toEqual(['Loaded data 1', 'true'])
     expect(wrapper.findAll('thead th').map(th => th.text()).slice(0, 3)).toEqual(['Record', 'Region', 'Length (kb)'])
@@ -146,5 +176,18 @@ describe('ResultsPanel', () => {
 
     await wrapper.get('tbody tr').trigger('click')
     expect(wrapper.emitted('select-loaded-region')).toEqual([[loadedRegion]])
+  })
+
+  it('searches protoclusters and lists loaded data by region', async () => {
+    const { wrapper, provider } = await mountPanel('loaded', [loadedRecord])
+    const protoclusters = wrapper.findAll('.level-toggle button').find(button => button.text() === 'Protoclusters')!
+
+    await protoclusters.trigger('click')
+    await flushPromises()
+
+    expect(provider.search.mock.calls.slice(-1)[0][0]).toBe('protocluster')
+    expect(protoclusters.attributes('aria-pressed')).toBe('true')
+    // Only the index holds protoclusters, so loaded data stays listed by region
+    expect(wrapper.findAll('thead th').map(th => th.text()).slice(0, 2)).toEqual(['Record', 'Region'])
   })
 })

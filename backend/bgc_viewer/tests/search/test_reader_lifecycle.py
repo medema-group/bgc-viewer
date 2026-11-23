@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 import bgc_viewer.app as app_module
 from bgc_viewer.app import app
-from bgc_viewer.search.document import Location
+from bgc_viewer.search.document import KIND_FIELD, Location
 from bgc_viewer.search.index import (
     build_index,
     open_index,
@@ -81,6 +81,7 @@ def _doc(
 ) -> Document:
     location = Location.parse("[100:500](+)")
     document = Document()
+    document.add_text(KIND_FIELD, "region")
     document.add_text("record", record_id)
     document.add_integer("region", region_number)
     document.add_integer("start", location.start)

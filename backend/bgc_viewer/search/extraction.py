@@ -14,7 +14,14 @@ from tantivy import Document
 from bgc_viewer.data_loader import open_file
 
 from . import facets
-from .document import SEARCH_FIELDS, TEXT_FIELD, Location, SourceFile
+from .document import (
+    KIND_FIELD,
+    SEARCH_FIELDS,
+    TEXT_FIELD,
+    DocumentKind,
+    Location,
+    SourceFile,
+)
 from .facets import RegionScope, normalize_pfam
 
 
@@ -306,41 +313,114 @@ def _protocluster_values(
     return products, categories, rules, frozenset(numbers)
 
 
-def _document_values(
+@dataclass(frozen=True)
+class _Extent:
+    """What one document covers: a whole region, or one of its protoclusters.
+
+    ``feature`` is the region or protocluster whose location bounds every
+    location-derived value. ``protoclusters`` are the protoclusters the
+    document describes: all of the region's, or the one protocluster.
+    ``rules`` are detection rules beyond the protoclusters' own,
+    ``candidate_kinds`` the kinds of the candidate clusters it belongs to, and
+    ``contig_edge`` the contig edge qualifier that decides ``is_complete``.
+    Region-level values (``region_number`` and ``num_protoclusters``) are those
+    of the region or the protocluster's parent region.
+    """
+
+    kind: DocumentKind
+    feature: _Feature
+    region_number: int
+    num_protoclusters: int
+    protoclusters: list[_Feature]
+    rules: tuple[str, ...]
+    candidate_kinds: list[str]
+    contig_edge: tuple[str, ...]
+    protocluster_number: int | None = None
+
+
+def _region_extent(
     region: _Feature,
     region_number: int,
     protoclusters: list[_Feature],
+    context: _RecordContext,
+) -> _Extent:
+    return _Extent(
+        kind="region",
+        feature=region,
+        region_number=region_number,
+        num_protoclusters=len(protoclusters),
+        protoclusters=protoclusters,
+        rules=_values(region.qualifiers, "rules"),
+        candidate_kinds=[
+            kind
+            for candidate in context.candidates
+            if region.location.contains(candidate.location)
+            for kind in _values(candidate.qualifiers, "kind")
+        ],
+        contig_edge=_values(region.qualifiers, "contig_edge"),
+    )
+
+
+def _protocluster_extent(
+    protocluster: _Feature,
+    region: _Feature,
+    region_number: int,
+    siblings: list[_Feature],
+    context: _RecordContext,
+) -> _Extent:
+    """The extent of one protocluster, over its full location.
+
+    A protocluster belongs to the candidate clusters that list its number, and
+    falls back to its region's contig edge mark when it has none of its own.
+    """
+    number = _number(
+        protocluster.qualifiers, "protocluster_number", context.record_path
+    )
+    return _Extent(
+        kind="protocluster",
+        feature=protocluster,
+        region_number=region_number,
+        num_protoclusters=len(siblings),
+        protoclusters=[protocluster],
+        rules=(),
+        candidate_kinds=[
+            kind
+            for candidate in context.candidates
+            if str(number) in _values(candidate.qualifiers, "protoclusters")
+            for kind in _values(candidate.qualifiers, "kind")
+        ],
+        contig_edge=_values(protocluster.qualifiers, "contig_edge")
+        or _values(region.qualifiers, "contig_edge"),
+        protocluster_number=number,
+    )
+
+
+def _document_values(
+    extent: _Extent,
     context: _RecordContext,
     source: SourceFile,
     warning_counts: dict[str, int],
     warning_threshold: int,
 ) -> dict[str, list[Any]]:
-    """Collect every field value of one region, keyed by field name."""
-    qualifiers = region.qualifiers
+    """Collect every field value of one region or protocluster, keyed by field."""
+    feature = extent.feature
     products, categories, rules, protocluster_numbers = _protocluster_values(
-        protoclusters, context.record_path
+        extent.protoclusters, context.record_path
     )
-    if not protoclusters:
-        products = list(_values(qualifiers, "product"))
-    contig_edge = _values(qualifiers, "contig_edge")
-    candidate_kinds = [
-        kind
-        for candidate in context.candidates
-        if region.location.contains(candidate.location)
-        for kind in _values(candidate.qualifiers, "kind")
-    ]
+    if not extent.protoclusters:
+        products = list(_values(feature.qualifiers, "product"))
 
-    region_cds = [
-        cds for cds in context.cds_features if region.location.overlaps(cds.location)
+    extent_cds = [
+        cds for cds in context.cds_features if feature.location.overlaps(cds.location)
     ]
     gene_kind_counts = dict.fromkeys(_GENE_KIND_FIELDS.values(), 0)
-    for cds in region_cds:
+    for cds in extent_cds:
         kinds = _values(cds.qualifiers, "gene_kind")
         if kinds and kinds[0] in _GENE_KIND_FIELDS:
             gene_kind_counts[_GENE_KIND_FIELDS[kinds[0]]] += 1
 
     genes, loci, pfams, pfam_names = _annotation_values(
-        region,
+        feature,
         context.annotations,
         source.output_file,
         context.record_id,
@@ -348,33 +428,42 @@ def _document_values(
         warning_threshold,
     )
 
+    contig_edge = extent.contig_edge
     values: dict[str, list[Any]] = {
         "record": [context.record_id],
-        "region": [region_number],
-        "start": [region.location.start],
-        "end": [region.location.end],
-        "length": [sum(part.end - part.start for part in region.location.parts)],
+        "region": [extent.region_number],
+        "start": [feature.location.start],
+        "end": [feature.location.end],
+        "length": [sum(part.end - part.start for part in feature.location.parts)],
         "product": list(dict.fromkeys(products)),
         "product_category": list(dict.fromkeys(categories)),
-        "num_protoclusters": [len(protoclusters)],
-        "candidate_kind": list(dict.fromkeys(candidate_kinds)),
-        "detection_rules": list(dict.fromkeys([*_values(qualifiers, "rules"), *rules])),
+        "protocluster_number": (
+            [extent.protocluster_number]
+            if extent.protocluster_number is not None
+            else []
+        ),
+        "num_protoclusters": [extent.num_protoclusters],
+        "candidate_kind": list(dict.fromkeys(extent.candidate_kinds)),
+        "detection_rules": list(dict.fromkeys([*extent.rules, *rules])),
         "is_complete": [not (contig_edge and contig_edge[0].lower() == "true")],
         "organism": [context.organism] if context.organism else [],
         "output_file": [source.output_file],
         "input_file": [source.input_file] if source.input_file else [],
         "gene": list(genes),
         "locus": list(loci),
-        "num_cds_features": [len(region_cds)],
+        "num_cds_features": [len(extent_cds)],
         **{name: [count] for name, count in gene_kind_counts.items()},
     }
 
+    # Module results keyed by region number resolve against the parent region,
+    # so a protocluster inherits them; everything else is bounded by the
+    # extent's own location and protocluster numbers.
     scope = RegionScope(
-        location=region.location,
-        number=region_number,
+        location=feature.location,
+        number=extent.region_number,
         products=tuple(values["product"]),
         cds_names=frozenset(
-            name for name in map(_cds_name, region_cds) if name is not None
+            name for name in map(_cds_name, extent_cds) if name is not None
         ),
         protocluster_numbers=protocluster_numbers,
         domain_cds=context.domain_cds,
@@ -393,17 +482,20 @@ def _document_values(
     return values
 
 
-def build_document(values: Mapping[str, list[Any]]) -> Document:
-    """Write collected field values into a Tantivy document.
+def build_document(
+    values: Mapping[str, list[Any]], kind: DocumentKind = "region"
+) -> Document:
+    """Write collected field values into a Tantivy document of ``kind``.
 
     Each value is added once with the method for its field's type, so facet
-    counts count a region once per value, and the text values of every field
+    counts count a document once per value, and the text values of every field
     that sets ``in_text`` are also added to the catch-all text field.
     """
     unknown = set(values) - {field.name for field in SEARCH_FIELDS}
     if unknown:
         raise AssertionError(f"Values for unregistered fields: {sorted(unknown)}")
     document = Document()
+    document.add_text(KIND_FIELD, kind)
     text: list[str] = []
     for field in SEARCH_FIELDS:
         for value in dict.fromkeys(values.get(field.name, ())):
@@ -526,17 +618,22 @@ def _extract_records(
         for region in regions:
             found_region = True
             region_number = _number(region.qualifiers, "region_number", record_path)
-            values = _document_values(
-                region,
-                region_number,
-                protoclusters[region.json_path],
-                context,
-                source,
-                warning_counts,
-                warning_threshold,
-            )
+            children = protoclusters[region.json_path]
+            extents = [
+                _region_extent(region, region_number, children, context),
+                *(
+                    _protocluster_extent(
+                        protocluster, region, region_number, children, context
+                    )
+                    for protocluster in children
+                ),
+            ]
             _check_identity(source, record_id, region_number, identities)
-            yield build_document(values)
+            for extent in extents:
+                values = _document_values(
+                    extent, context, source, warning_counts, warning_threshold
+                )
+                yield build_document(values, extent.kind)
 
     if not found_region:
         _emit_warning(
@@ -751,9 +848,9 @@ def _merge_results(
             raise result.error
         assert result.source is not None
         source = result.source
-        for document, (_, record_id, region) in zip(
-            result.documents, result.identities
-        ):
+        # A file yields a region document and its protoclusters' documents per
+        # identity, so the whole file is checked before any of it is yielded.
+        for _, record_id, region in result.identities:
             try:
                 _check_identity(source, record_id, region, identities)
             except ExtractionError as error:
@@ -761,6 +858,6 @@ def _merge_results(
                     f"{source.output_file} (antiSMASH {source.antismash_version}): "
                     f"{error}"
                 ) from error
-            yield document
+        yield from result.documents
         if file_progress:
             file_progress(files_done, total_files)

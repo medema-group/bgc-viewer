@@ -11,6 +11,7 @@
       :features="features"
       :pfam-color-map="pfamColorMap"
       :selected-region-id="selectedRegionId"
+      :selected-protocluster-number="initialProtoclusterNumber"
       :data-provider="dataProvider"
       :tfbs-hits="tfbsHits"
       :tta-codons="ttaCodons"
@@ -53,6 +54,11 @@ export default {
     initialRegionId: {
       type: String,
       default: ''
+    },
+    // Number of a protocluster to zoom to instead of the region (optional)
+    initialProtoclusterNumber: {
+      type: Number,
+      default: null
     }
   },
   emits: [

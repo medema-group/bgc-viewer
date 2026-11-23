@@ -176,9 +176,19 @@ describe('BGCViewerAPIProvider', () => {
       const result = await provider.getFieldValues('pfam', 'PF005', 5)
 
       expect(axiosInstance.get).toHaveBeenCalledWith('/api/search/values', {
-        params: { field: 'pfam', q: 'PF005', size: 5 }
+        params: { field: 'pfam', q: 'PF005', size: 5, level: 'region' }
       })
       expect(result).toBe(values)
+    })
+
+    it('gets suggested field values counted at a level', async () => {
+      axiosInstance.get.mockResolvedValue({ data: { field: 'pfam', values: [] } })
+
+      await provider.getFieldValues('pfam', '', 20, 'protocluster')
+
+      expect(axiosInstance.get).toHaveBeenCalledWith('/api/search/values', {
+        params: { field: 'pfam', q: '', size: 20, level: 'protocluster' }
+      })
     })
 
     it('gets the shared search schema', async () => {

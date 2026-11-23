@@ -1,4 +1,4 @@
-"""Query region search indexes with ``python -m bgc_viewer.search.cli``."""
+"""Query search indexes with ``python -m bgc_viewer.search.cli``."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from .api import LEVEL_SEARCHES, SEARCH_LEVELS
 from .index import (
     RecordHit,
     Results,
@@ -19,12 +20,8 @@ from .index import (
     field_values,
     open_index,
     prepare_query,
-    search_record,
-    search_regions,
 )
 from .query import build_filter_query, parse_filter_group
-
-_CLI_LEVELS = ("region", "record")
 
 
 HitFormatter = Callable[[int, Any], str]
@@ -58,9 +55,11 @@ examples (run these from the backend/ directory):
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' \\
       --offset 2 --limit 2
 
-  # Result granularity: region (default) or record
+  # Result granularity: region (default), record, or protocluster
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550' \\
       --level record
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \\
+      'product:NRPS AND substrates:Leu' --level protocluster
 
   # Structured filter (the query builder's JSON), sorted, with facet counts
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index --filter \\
@@ -87,13 +86,14 @@ def _format_region_hit(position: int, hit: SearchHit) -> str:
     fields = hit.fields
     source = _source_label(fields.get("output_file", ""), fields.get("input_file"))
     location = f"[{fields.get('start', '')}:{fields.get('end', '')}]"
+    protocluster = fields.get("protocluster_number")
+    unit = f"region={fields.get('region', '')}"
+    if protocluster is not None:
+        unit += f"  protocluster={protocluster}"
     return "\n".join(
         (
             f"[{position}] {_score_label(hit.score)}  {source}",
-            (
-                f"      record={fields.get('record', '')}  "
-                f"region={fields.get('region', '')}  {location}"
-            ),
+            f"      record={fields.get('record', '')}  {unit}  {location}",
             (
                 f"      product={', '.join(fields.get('product', []))}  "
                 f"category={', '.join(fields.get('product_category', []))}"
@@ -114,7 +114,11 @@ def _format_record_hit(position: int, hit: RecordHit) -> str:
 
 
 def _print_results(
-    result: Results[Any], format_hit: HitFormatter, query: str, offset: int
+    result: Results[Any],
+    format_hit: HitFormatter,
+    query: str,
+    offset: int,
+    unit: str,
 ) -> None:
     print(f"query: {query}")
     shown = len(result.hits)
@@ -124,7 +128,7 @@ def _print_results(
     first = offset + 1
     last = offset + shown
     more = " (more available)" if result.has_more else ""
-    print(f"showing {first}-{last}{more} of {result.total_regions} matching regions")
+    print(f"showing {first}-{last}{more} of {result.total} matching {unit}s")
     for position, hit in enumerate(result.hits, start=first):
         print(format_hit(position, hit))
 
@@ -151,7 +155,7 @@ def _search_command(args: argparse.Namespace) -> int:
             )
         else:
             query = prepare_query(target, label)
-        search = search_record if args.level == "record" else search_regions
+        search, kind = LEVEL_SEARCHES[args.level]
         format_hit = (
             _format_record_hit if args.level == "record" else _format_region_hit
         )
@@ -162,7 +166,7 @@ def _search_command(args: argparse.Namespace) -> int:
             limit=args.limit,
             sort=_parse_sort(args.sort),
         )
-        facets = facet_counts(target, query, args.facet or ())
+        facets = facet_counts(target, query, args.facet or (), kind=kind)
     except SearchError as error:
         print(f"error: [{error.code}] {error}", file=sys.stderr)
         return 2
@@ -170,7 +174,7 @@ def _search_command(args: argparse.Namespace) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
-    _print_results(result, format_hit, label, args.offset)
+    _print_results(result, format_hit, label, args.offset, kind)
     for name, buckets in facets.items():
         counts = ", ".join(f"{bucket.value} ({bucket.count})" for bucket in buckets)
         print(f"facet {name}: {counts or 'no values'}")
@@ -180,7 +184,13 @@ def _search_command(args: argparse.Namespace) -> int:
 def _values_command(args: argparse.Namespace) -> int:
     try:
         target = open_index(Path(args.index_directory))
-        values = field_values(target, args.field, args.contains, args.size)
+        values = field_values(
+            target,
+            args.field,
+            args.contains,
+            args.size,
+            kind=LEVEL_SEARCHES[args.level][1],
+        )
     except SearchError as error:
         print(f"error: [{error.code}] {error}", file=sys.stderr)
         return 2
@@ -247,16 +257,17 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     query_parser.add_argument(
         "--level",
-        choices=_CLI_LEVELS,
+        choices=SEARCH_LEVELS,
         default="region",
         help=(
             "Result granularity: region (default) reports each matching "
-            "region, and record collapses matches to unique records."
+            "region, record collapses matches to unique records, and "
+            "protocluster reports each protocluster that matches on its own."
         ),
     )
 
     values_parser = subparsers.add_parser(
-        "values", help="Suggest values of a field, with region counts."
+        "values", help="Suggest values of a field, with region or protocluster counts."
     )
     values_parser.add_argument("index_directory", metavar="INDEX_DIRECTORY")
     values_parser.add_argument("field", metavar="FIELD")
@@ -269,6 +280,12 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     values_parser.add_argument(
         "--size", type=int, default=20, help="Number of values (default: 20)."
+    )
+    values_parser.add_argument(
+        "--level",
+        choices=SEARCH_LEVELS,
+        default="region",
+        help="Count regions (default and record) or protoclusters.",
     )
     return parser
 

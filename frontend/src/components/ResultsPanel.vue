@@ -74,7 +74,7 @@
       <LoadedRecordsList
         :records="loadedRecords"
         :regions="loadedRegions"
-        :level="state.level"
+        :level="loadedLevel"
         :selected-key="selectedLoadedKey"
         :loading="loadedLoading"
         :error="loadedError"
@@ -89,7 +89,8 @@
 <script setup lang="ts">
 // The result lists of the main view: the index search results and the records
 // loaded beside the index, as tabs over one panel. Both list regions or records,
-// as the level toggle says.
+// as the level toggle says; at the protocluster level, loaded data is listed by
+// region, as only the index holds protoclusters.
 import { computed } from 'vue'
 import LoadedRecordsList from './LoadedRecordsList.vue'
 import RefinePanel from './RefinePanel.vue'
@@ -126,12 +127,15 @@ const emit = defineEmits<{
 const state = props.search.state
 
 const levels: { level: SearchLevel; label: string }[] = [
+  { level: 'protocluster', label: 'Protoclusters' },
   { level: 'region', label: 'Regions' },
   { level: 'record', label: 'Records' }
 ]
 
+const loadedLevel = computed<SearchLevel>(() => (state.level === 'protocluster' ? 'region' : state.level))
+
 const loadedCount = computed(() =>
-  state.level === 'region' ? props.loadedRegions.length : props.loadedRecords.length
+  loadedLevel.value === 'region' ? props.loadedRegions.length : props.loadedRecords.length
 )
 
 const hasLoaded = computed(
@@ -207,6 +211,7 @@ const active = computed<ResultsTab>(() => {
   height: 28px;
   padding: 0 12px;
   border: 1px solid #aebbc4;
+  border-radius: 0;
   background: #fff;
   color: #30434f;
   cursor: pointer;
@@ -214,12 +219,16 @@ const active = computed<ResultsTab>(() => {
   font-size: 12px;
 }
 
+/* Neighbouring buttons share one border. */
+.level-toggle button + button {
+  margin-left: -1px;
+}
+
 .level-toggle button:first-child {
   border-radius: 4px 0 0 4px;
 }
 
 .level-toggle button:last-child {
-  margin-left: -1px;
   border-radius: 0 4px 4px 0;
 }
 

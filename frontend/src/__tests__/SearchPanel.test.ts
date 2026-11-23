@@ -58,7 +58,7 @@ async function mountPanel({ open = true, canChooseIndex = false } = {}) {
     search: vi.fn().mockResolvedValue({
       hits: [regionHit],
       has_more: false,
-      total_regions: 1,
+      total: 1,
       facets: { product: [{ value: 'NRPS', count: 1 }] }
     }),
     getFieldValues: vi.fn().mockResolvedValue({ field: 'product', values: [] })
@@ -81,10 +81,10 @@ describe('SearchPanel', () => {
     wrapper.unmount()
   })
 
-  it('lists every record of a newly opened index under one starter condition', async () => {
+  it('lists every region of a newly opened index under one starter condition', async () => {
     const { provider, wrapper } = await mountPanel()
 
-    expect(provider.search.mock.calls[0][0]).toBe('record')
+    expect(provider.search.mock.calls[0][0]).toBe('region')
     // Only the blank starter condition, which the backend drops
     expect(provider.search.mock.calls[0][1].filter.conditions).toMatchObject([{ field: 'text', value: '' }])
     expect(wrapper.findAll('.condition-row')).toHaveLength(1)

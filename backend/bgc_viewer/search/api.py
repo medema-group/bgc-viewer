@@ -1,4 +1,4 @@
-"""Request parsing and response dataclasses for the region search endpoints.
+"""Request parsing and response dataclasses for the search endpoints.
 
 This module owns the framework-agnostic pieces of the search HTTP layer:
 parsing and validating the JSON request body into a :class:`SearchRequest`,
@@ -7,8 +7,8 @@ building the :class:`SearchResponse` from the core
 :mod:`bgc_viewer.search.index` result types, assembling the level-independent
 :class:`SchemaResponse` from the field registry and the SQLite example table,
 and mapping structured search errors onto HTTP status codes. The Flask routes
-stay thin: each resolves its index, calls its own ``search_*`` function, wraps
-the result in a response dataclass, and returns it through ``jsonify``.
+stay thin: each resolves its index, runs its level through :func:`run_search`,
+and returns the response dataclass through ``jsonify``.
 """
 
 from __future__ import annotations
@@ -17,12 +17,17 @@ import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_args
 
 from tantivy import Index, Query
 
 from ..database import get_record_details
-from .document import PUBLIC_FIELDS, SEARCH_FIELDS_BY_NAME, PublicFieldInfo
+from .document import (
+    PUBLIC_FIELDS,
+    SEARCH_FIELDS_BY_NAME,
+    DocumentKind,
+    PublicFieldInfo,
+)
 from .index import (
     FacetBucket,
     RecordHit,
@@ -33,6 +38,9 @@ from .index import (
     UnknownFieldError,
     facet_counts,
     prepare_query,
+    search_protoclusters,
+    search_record,
+    search_regions,
 )
 from .query import (
     RAW_QUERY_FIELD,
@@ -41,6 +49,19 @@ from .query import (
     build_filter_query,
     parse_filter_group,
 )
+
+# The unit a search returns. The record level collapses matching regions onto
+# their records; the region and protocluster levels return the documents of
+# their own kind.
+SearchLevel = Literal["region", "record", "protocluster"]
+SEARCH_LEVELS: tuple[SearchLevel, ...] = get_args(SearchLevel)
+
+# Each level's search function and the kind of document it matches and counts.
+LEVEL_SEARCHES: dict[SearchLevel, tuple[Callable[..., Results[Any]], DocumentKind]] = {
+    "region": (search_regions, "region"),
+    "record": (search_record, "region"),
+    "protocluster": (search_protoclusters, "protocluster"),
+}
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
@@ -67,7 +88,8 @@ class SearchRequest:
 
     Exactly one of ``query`` (a query string) and ``filter`` (a structured
     filter) is set. ``facets`` names the fields whose values are counted over
-    every matching region, ``facet_size`` values each.
+    every matching region (or protocluster, at that level), ``facet_size``
+    values each.
     """
 
     query: str | None
@@ -170,13 +192,30 @@ class ValuesRequest:
     field: str
     contains: str
     size: int
+    level: SearchLevel = "region"
+
+    @property
+    def kind(self) -> DocumentKind:
+        """The kind of document whose values are suggested and counted."""
+        return LEVEL_SEARCHES[self.level][1]
+
+
+def parse_level(value: str) -> SearchLevel:
+    """Validate a level name, raising :class:`InvalidRequestError` otherwise."""
+    for level in SEARCH_LEVELS:
+        if value == level:
+            return level
+    raise InvalidRequestError(
+        f"'level' must be one of {', '.join(SEARCH_LEVELS)}"
+    )
 
 
 def parse_values_request(args: Mapping[str, str]) -> ValuesRequest:
     """Validate the query-string arguments of a values request.
 
-    ``field`` is required; ``q`` is the text a value must contain and ``size``
-    the number of values, clamped to :data:`MAX_FACET_SIZE`.
+    ``field`` is required; ``q`` is the text a value must contain, ``size``
+    the number of values, clamped to :data:`MAX_FACET_SIZE`, and ``level``
+    the search level whose documents are counted (``region`` by default).
     """
     field = args.get("field", "")
     if not field:
@@ -188,13 +227,16 @@ def parse_values_request(args: Mapping[str, str]) -> ValuesRequest:
     if size < 1:
         raise InvalidRequestError("'size' must be at least 1")
     return ValuesRequest(
-        field=field, contains=args.get("q", ""), size=min(size, MAX_FACET_SIZE)
+        field=field,
+        contains=args.get("q", ""),
+        size=min(size, MAX_FACET_SIZE),
+        level=parse_level(args.get("level", "region")),
     )
 
 
 @dataclass(frozen=True)
 class ValuesResponse:
-    """Suggested values of one field with their region counts."""
+    """Suggested values of one field with their region or protocluster counts."""
 
     field: str
     values: tuple[FacetBucket, ...]
@@ -207,32 +249,36 @@ class SearchResponse:
     Request parameters (query, page, per-page) are deliberately not echoed
     back; the client already knows them. ``has_more`` reports whether more
     matching units exist beyond this page at the selected level, so the client
-    can show a "load more" affordance. ``total_regions`` counts every matching
-    region, at the record level too. ``facets`` maps each requested facet
-    field to its most common values over every matching region.
+    can show a "load more" affordance. ``total`` counts every matching
+    protocluster at the protocluster level, and every matching region at the
+    region and record levels. ``facets`` maps each requested facet field to its
+    most common values over those same matching documents.
     """
 
     hits: tuple[SearchHit | RecordHit, ...]
     has_more: bool
-    total_regions: int
+    total: int
     facets: dict[str, list[FacetBucket]]
 
 
 def run_search(
     index: Index,
     request: SearchRequest,
-    search: Callable[..., Results[Any]],
+    level: SearchLevel,
 ) -> SearchResponse:
-    """Run ``request`` with a level's ``search`` function and count its facets."""
+    """Run ``request`` at ``level`` and count its facets at that level."""
+    search, kind = LEVEL_SEARCHES[level]
     query = request.build_query(index)
     results = search(
         index, query, offset=request.offset, limit=request.per_page, sort=request.sort
     )
-    facets = facet_counts(index, query, request.facets, request.facet_size)
+    facets = facet_counts(
+        index, query, request.facets, request.facet_size, kind=kind
+    )
     return SearchResponse(
         hits=results.hits,
         has_more=results.has_more,
-        total_regions=results.total_regions,
+        total=results.total,
         facets=facets,
     )
 

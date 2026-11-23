@@ -1,10 +1,24 @@
 # Search Index
 
-Region search runs on an embedded [Tantivy](https://github.com/quickwit-oss/tantivy) index built from antiSMASH JSON output and queried through Tantivy's native query language.
+Region and protocluster search runs on an embedded [Tantivy](https://github.com/quickwit-oss/tantivy) index built from antiSMASH JSON output and queried through Tantivy's native query language.
 
-One Tantivy document is one antiSMASH region. The products, categories, and
-detection rules of the region's protoclusters are multi-valued fields of the
-region, and the record level is found by grouping matching regions by record.
+The index holds two kinds of document, told apart by the internal `kind`
+field (`KIND_FIELD` in `document.py`), which is not in the field registry:
+
+- A **region** document is one antiSMASH region. The products, categories, and
+  detection rules of the region's protoclusters are multi-valued fields of the
+  region, and the record level is found by grouping matching region documents
+  by record.
+- A **protocluster** document holds the same registry fields for one
+  protocluster, collected within its full location (core and neighbourhood),
+  plus `protocluster_number`. Tantivy has no nested documents, so a
+  protocluster cannot be found inside a region document: a condition on one
+  protocluster and a condition on its sibling both match the region.
+
+Every search, facet count, and value suggestion is restricted to one kind by
+`restrict_to_kind()` in `index.py`: region documents at the region and record
+levels, protocluster documents at the protocluster level. The kind clause
+scores zero, so relevance comes from the query alone.
 The field set follows the antiSMASH facets of the
 [BGC Atlas](https://github.com/ZiemertLab/bgc-atlas-web-v2), whose field names
 it reuses.
@@ -72,9 +86,14 @@ equal, so `coelicolor` finds `organism:"Streptomyces coelicolor A3(2)"`.
 
 The fields read from the antiSMASH analysis modules (NRPS/PKS predictions,
 RiPP precursors, ClusterBlast, ClusterCompare, TFBS, …) are scoped to a region
-with the full antiSMASH location and by the antiSMASH CDS name, which falls
-back from the locus tag to the gene name and protein ID, as the modules key
-their results by that name. Module content is read leniently: a missing or
+or protocluster with its full antiSMASH location and by the antiSMASH CDS name,
+which falls back from the locus tag to the gene name and protein ID, as the
+modules key their results by that name. Terpene and type II PKS predictions
+are keyed by protocluster number. Results the modules key by region number
+(NRPS/PKS region predictions, ClusterBlast, ClusterCompare, TFBS) resolve
+against the parent region for a protocluster; those fields set
+`from_region=True`, which adds a note to their public description.
+Module content is read leniently: a missing or
 differently shaped part yields no values instead of failing the file, and a
 field whose module did not run is absent rather than zero.
 
@@ -186,16 +205,18 @@ uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF005
 uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'substrates:Leu AND knowncluster_top_similarity:[50 TO 100]'
 uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' --offset 2 --limit 2
 
-# Result granularity: region (default) or record
+# Result granularity: region (default), record, or protocluster
 uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550' --level record
+uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:NRPS AND substrates:Leu' --level protocluster
 
 # Structured filter (the query builder's JSON), sorted, with facet counts
 uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \
     --filter '{"conditions": [{"field": "length", "operator": "gt", "value": 40000}]}' \
     --sort length:desc --facet product_category
 
-# Suggested values of a field, with region counts
+# Suggested values of a field, with region (or protocluster) counts
 uv run python -m bgc_viewer.search.cli values /tmp/bgv/tantivy.index pfam PF005
+uv run python -m bgc_viewer.search.cli values /tmp/bgv/tantivy.index product_category --level protocluster
 ```
 
 Search documents are extracted from the JSON files in parallel worker processes,
@@ -222,7 +243,7 @@ field's:
 
 Do **not** bump it for query-time or display-only changes: the boost
 (`boost`), the returned-field flag (`in_hits`), and the public `label`,
-`group`, and `description` are projected from the registry and applied when a
+`group`, `description`, and `from_region` note are projected from the registry and applied when a
 query is parsed or a response is assembled, leaving the stored index
 untouched.
 
@@ -253,8 +274,9 @@ A new field touches two places plus tests:
 3. Bump `SEARCH_SCHEMA_VERSION`, as the stored schema changes.
 4. Add tests: feature-derived fields in
    `backend/bgc_viewer/tests/search/test_extraction.py`, module-derived ones in
-   `test_facets.py`, whose shared record has two regions so each test can check
-   the value is scoped to the right one.
+   `test_facets.py`, whose shared record has two regions, the first with two
+   overlapping protoclusters, so each test can check the value is scoped to the
+   right region and protocluster.
 
 ### Supporting a changed antiSMASH major version
 

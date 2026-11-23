@@ -1,11 +1,13 @@
-# Region Search API
+# Search API
 
-Full-text, exact, and structured search over antiSMASH regions, backed by an
-embedded Tantivy index built during preprocessing. One indexed document is one region,
-holding the products and categories of its protoclusters and the results of the
-antiSMASH analysis modules for it. The result granularity is selected by the URL
-path, which keeps each granularity an addressable resource and avoids
-conflating record-level browsing with region-level search.
+Full-text, exact, and structured search over antiSMASH regions and
+protoclusters, backed by an embedded Tantivy index built during preprocessing.
+The index holds one document per region, holding the products and categories
+of its protoclusters and the results of the antiSMASH analysis modules for it,
+and one per protocluster, holding the same fields for that protocluster alone.
+The result granularity is selected by the URL path, which keeps each
+granularity an addressable resource and avoids conflating record-level
+browsing with region-level search.
 
 For how the query language behaves, see the
 [search index guide](/development/search-index).
@@ -17,6 +19,7 @@ For how the query language behaves, see the
 ```text
 POST /api/search/region
 POST /api/search/record
+POST /api/search/protocluster
 ```
 
 **Request body:**
@@ -53,14 +56,14 @@ or, with a [structured filter](#structured-filters):
   rejected with `empty_query`.
 - `filter` — a structured filter, sent instead of `query`; sending both is
   rejected with `invalid_request`. A filter without conditions matches every
-  region, so an empty filter browses the whole index.
+  region (or protocluster), so an empty filter browses the whole index.
 - `sort` — optional. Orders hits by a field whose schema entry is `sortable`
   (one value per region: exact text, numbers, and yes/no fields) instead of
   by relevance. `order` is `asc` (default) or `desc`. At the record level,
   records follow their first matching region in that order.
 - `facets` — optional. Fields whose most common values are counted over every
-  matching region; each must be a `facet` field in the schema (exact text and
-  yes/no fields).
+  matching region, or every matching protocluster at the protocluster level;
+  each must be a `facet` field in the schema (exact text and yes/no fields).
 - `facet_size` — values per facet field (default: 20, max: 100).
 - `page` — 1-based page number (default: 1).
 - `per_page` — results per page (default: 20, max: 100).
@@ -69,15 +72,16 @@ The request body carries no level: the URL path is authoritative.
 
 **Response:**
 
-A successful response contains exactly `hits`, `has_more`, `total_regions`,
-and `facets`.
+A successful response contains exactly `hits`, `has_more`, `total`, and
+`facets`.
 
 - `has_more` — whether more hits exist beyond this page at the selected level.
-- `total_regions` — the number of matching regions. At the record level this
-  still counts regions, so it can exceed the number of records.
+- `total` — the number of matching protoclusters at the protocluster level,
+  and of matching regions otherwise. At the record level it still counts
+  regions, so it can exceed the number of records.
 - `facets` — each requested facet field mapped to its most common values, as
-  `{"value", "count"}` objects with the count of matching regions, most
-  common first. Empty when no facets were requested.
+  `{"value", "count"}` objects with the count of matching regions (or
+  protoclusters), most common first. Empty when no facets were requested.
 - `score` in a hit is the relevance score, or `null` when hits are sorted.
 
 `region` returns one hit per matching region, with the stored identity and
@@ -104,7 +108,7 @@ are left out when the source has none.
     }
   ],
   "has_more": false,
-  "total_regions": 1,
+  "total": 1,
   "facets": {}
 }
 ```
@@ -131,7 +135,44 @@ SQLite index lacks.
     }
   ],
   "has_more": false,
-  "total_regions": 3,
+  "total": 3,
+  "facets": {}
+}
+```
+
+`protocluster` returns one hit per protocluster that matches every condition
+by itself. A region matches when its protoclusters together meet the
+conditions, so `product:NRPS AND product:terpene` can match a region holding
+an NRPS and a terpene protocluster, but no protocluster. A protocluster's
+location-derived values (genes, domains, NRPS/PKS and RiPP predictions, TTA
+codons) are collected within its full location, core and neighbourhood, and
+its terpene and type II PKS predictions are its own. Results antiSMASH only
+reports per region are the parent region's; their schema descriptions say so.
+The hit has the fields of a region hit for the protocluster, plus
+`protocluster_number`; `region` is the parent region's number.
+
+```json
+{
+  "hits": [
+    {
+      "score": 3.9021,
+      "fields": {
+        "record": "NC_003888.3",
+        "region": 4,
+        "protocluster_number": 5,
+        "start": 493988,
+        "end": 544920,
+        "length": 50932,
+        "product": ["NRPS"],
+        "product_category": ["NRPS"],
+        "organism": "Streptomyces coelicolor A3(2)",
+        "output_file": "NC_003888.3.json",
+        "input_file": "NC_003888.3.gbk"
+      }
+    }
+  ],
+  "has_more": false,
+  "total": 1,
   "facets": {}
 }
 ```
@@ -221,15 +262,17 @@ would answer a broader question.
 
 ## Field values
 
-**Endpoint:** `GET /api/search/values?field=pfam&q=PF005&size=20`
+**Endpoint:** `GET /api/search/values?field=pfam&q=PF005&size=20&level=region`
 
 Suggested values of one field for a value picker, with the number of regions
-holding each value across the whole index.
+(or protoclusters) holding each value across the whole index.
 
 - `field` — required; a `facet` field in the schema.
 - `q` — optional text a value must contain, ignoring case. Values that start
   with it come first, then the most common.
 - `size` — number of values (default: 20, max: 100).
+- `level` — `region` (default), `record`, or `protocluster`; the counts are of
+  protoclusters at the protocluster level and of regions otherwise.
 
 **Response:**
 

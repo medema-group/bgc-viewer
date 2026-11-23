@@ -17,6 +17,13 @@ def _values(document, name):
     return document.to_dict().get(name, [])
 
 
+def _regions(documents):
+    """The region documents among ``documents``, leaving out protoclusters."""
+    return [
+        document for document in documents if _values(document, "kind") == ["region"]
+    ]
+
+
 def test_extracts_canonical_region_document(tmp_path):
     source = {
         "version": "8.0.2",
@@ -73,9 +80,10 @@ def test_extracts_canonical_region_document(tmp_path):
     source_file.parent.mkdir()
     source_file.write_text(json.dumps(source))
 
-    [document] = extract_documents([Path("nested/sample.json")], tmp_path)
+    [document] = _regions(extract_documents([Path("nested/sample.json")], tmp_path))
 
     assert document.to_dict() == {
+        "kind": ["region"],
         "text": [
             "record-1",
             "NRPS",
@@ -145,7 +153,7 @@ def test_extract_documents_from_compressed_json(tmp_path, suffix, compress):
     source_file.parent.mkdir()
     source_file.write_bytes(compress(json.dumps(source).encode("utf-8")))
 
-    [document] = extract_documents([relative_path], tmp_path)
+    [document] = _regions(extract_documents([relative_path], tmp_path))
 
     assert _values(document, "record") == ["record-1"]
     assert _values(document, "region") == [1]
@@ -182,7 +190,7 @@ def test_extracts_input_file_after_records(tmp_path):
     }
     (tmp_path / "sample.json").write_text(json.dumps(source))
 
-    [document] = extract_documents([Path("sample.json")], tmp_path)
+    [document] = _regions(extract_documents([Path("sample.json")], tmp_path))
 
     assert _values(document, "input_file") == ["late.gbk"]
 
@@ -219,7 +227,7 @@ def test_extracts_from_data_without_reading_a_file():
         output_file="memory/sample.json",
         input_file=source["input_file"],
     )
-    [document] = extract(source["records"], source_file)
+    [document] = _regions(extract(source["records"], source_file))
 
     assert document.to_dict()["record"] == ["record-1"]
     assert document.to_dict()["input_file"] == ["sample.gbk"]
@@ -256,7 +264,7 @@ def test_extracts_regardless_of_declared_version():
         output_file="memory/sample.json",
         input_file="",
     )
-    [document] = extract(source["records"], source_file)
+    [document] = _regions(extract(source["records"], source_file))
 
     assert document.to_dict()["region"] == [1]
     # An empty input_file is not indexed.
@@ -324,7 +332,9 @@ def test_selects_smallest_parent_region_and_warns_for_multiple_matches(
     warning = caught[0].message
     assert isinstance(warning, ExtractionWarning)
     # Every region is indexed, but the protocluster belongs to region 1 only.
-    by_region = {_values(document, "region")[0]: document for document in documents}
+    by_region = {
+        _values(document, "region")[0]: document for document in _regions(documents)
+    }
     assert sorted(by_region) == [1, 2, 9]
     assert _values(by_region[1], "product") == ["PKS"]
     assert _values(by_region[1], "num_protoclusters") == [1]
@@ -758,12 +768,11 @@ def test_parallel_extraction_matches_sequential(tmp_path):
     parallel = run(3)
 
     assert parallel == sequential
-    assert [doc["record"] for doc in parallel[0]] == [
-        ["rec0"],
-        ["rec1"],
-        ["rec2"],
-        ["rec3"],
-        ["rec4"],
+    # Each file yields its region, then the region's protocluster.
+    assert [(doc["record"], doc["kind"]) for doc in parallel[0]] == [
+        (record, kind)
+        for record in (["rec0"], ["rec1"], ["rec2"], ["rec3"], ["rec4"])
+        for kind in (["region"], ["protocluster"])
     ]
     assert parallel[1] == [("malformed_optional_feature", "file_3.json")]
 
@@ -779,6 +788,7 @@ def test_parallel_extraction_reports_the_first_failing_file(tmp_path):
         [Path("good.json"), Path("bad.json")], tmp_path, workers=2
     )
 
+    assert _values(next(documents), "record") == ["good"]
     assert _values(next(documents), "record") == ["good"]
     with pytest.raises(ExtractionError, match=r"bad\.json .*Invalid integer"):
         next(documents)
@@ -804,9 +814,12 @@ def test_file_progress_counts_files_whose_documents_were_yielded(tmp_path, worke
     assert events == [
         ("files", 0, 3),
         ("doc", "rec0"),
+        ("doc", "rec0"),
         ("files", 1, 3),
         ("doc", "rec1"),
+        ("doc", "rec1"),
         ("files", 2, 3),
+        ("doc", "rec2"),
         ("doc", "rec2"),
         ("files", 3, 3),
     ]

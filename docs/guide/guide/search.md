@@ -4,14 +4,19 @@ The main view searches the open index (see
 [Data Sources & Formats](./data-sources.md#bgc-viewer-api-backend-with-database))
 across every region in the dataset. The query builder comes first, then the
 results, and then the viewer, which shows the result you click: a region
-result opens its record at that region. When an index opens, the results list
-all its records. **Search help** beside the builder explains the fields and has
+result opens its record zoomed to that region, and a protocluster result
+zoomed to that protocluster, selected so its details show. When an index opens, the results list
+all its regions. **Search help** beside the builder explains the fields and has
 example queries.
 
-The search works on antiSMASH regions. Each region holds the products and
-categories of its protoclusters and the results of the antiSMASH analysis
-modules for it: functional domains, NRPS/PKS predictions, terpene and RiPP
-results, comparisons with known clusters, and regulation. The field list under
+The search works on antiSMASH regions and protoclusters. Each region holds the
+products and categories of its protoclusters and the results of the antiSMASH
+analysis modules for it: functional domains, NRPS/PKS predictions, terpene and
+RiPP results, comparisons with known clusters, and regulation. Each
+protocluster holds the same fields for itself alone, collected within its full
+location (core and neighbourhood). A few results antiSMASH only reports per
+region, such as KnownClusterBlast hits, predicted SMILES, and TFBS regulators;
+a protocluster takes those from its region. The field list under
 **Search help** describes every field and where its values come from.
 
 ## Query builder
@@ -48,20 +53,34 @@ Pressing **Search** without conditions (**Browse all**) lists every region.
 
 ## Results
 
-The **Show Regions / Records** toggle above the results sets what they list.
-**Regions** lists one row per matching region, with its length in kilobases.
-**Records** lists each record with at least one matching region once, with its
-organism, description, and region and feature counts. The counter below the
-table counts matching regions in both cases. The toggle also applies to the
-**Loaded data** tab, which lists the regions or records of loaded files.
+The **Show Protoclusters / Regions / Records** toggle above the results sets
+what they list; **Regions** is selected when an index opens.
+
+- **Protoclusters** lists one row per protocluster that meets every condition
+  by itself, with its parent region and its own product, category, and
+  length. *product is NRPS AND product is terpene* finds only protoclusters
+  that are both NRPS and terpene, which there usually are none of.
+- **Regions** lists one row per matching region, with its length in
+  kilobases. A region matches when its protoclusters together meet the
+  conditions, so the same question finds a region with an NRPS protocluster
+  and a terpene protocluster.
+- **Records** lists each record with at least one matching region once, with
+  its organism, description, and region and feature counts.
+
+The counter below the table counts matching protoclusters at the protocluster
+level and matching regions otherwise, records included. The toggle also applies to the
+**Loaded data** tab, which lists the regions or records of loaded files; it
+lists regions at the protocluster level too.
 
 Click a column heading to sort by it, again to reverse the order, and a third
 time to go back to the default order. Only columns with one value per region
-can be sorted.
+or protocluster can be sorted.
 
 The **Refine** panel beside the results lists the most common product
 categories, products, organisms, and known-cluster compounds among all
-matching regions. Click one to add it as a condition and search again.
+matches: regions, or protoclusters at that level. The value suggestions in the
+builder count the same way. Click a value to add it as a condition and search
+again.
 
 ## Query string
 

@@ -2,7 +2,12 @@ import json
 from pathlib import Path
 
 import pytest
-from bgc_viewer.search.document import SEARCH_FIELDS, SEARCH_SCHEMA_VERSION, Location
+from bgc_viewer.search.document import (
+    KIND_FIELD,
+    SEARCH_FIELDS,
+    SEARCH_SCHEMA_VERSION,
+    Location,
+)
 from bgc_viewer.search.extraction import build_document, extract_documents
 from bgc_viewer.search.index import (
     EmptyQueryError,
@@ -15,6 +20,7 @@ from bgc_viewer.search.index import (
     UnknownFieldError,
     build_index,
     open_index,
+    search_protoclusters,
     search_record,
     search_regions,
 )
@@ -122,7 +128,7 @@ def _assert_field_spec(field_spec: dict, expected: dict) -> None:
 
 def test_schema_has_the_declared_field_set(tmp_path):
     schema_dir = _empty_schema_dir(tmp_path)
-    assert set(schema_dir) == set(SCHEMA_FIELD_NAMES)
+    assert set(schema_dir) == {KIND_FIELD, *SCHEMA_FIELD_NAMES}
 
 
 @pytest.mark.parametrize(
@@ -330,7 +336,9 @@ def test_build_from_extracted_fixture():
     index = build_index(iter(documents))
     searcher = index.searcher()
     assert searcher.num_docs == len(documents)
-    assert _hits(searcher, index, 'product_category:"trans-AT PKS"') == 1
+    query = 'product_category:"trans-AT PKS"'
+    assert len(search_regions(index, query).hits) == 1
+    assert len(search_protoclusters(index, query).hits) == 1
 
 
 def _open(corpus, tmp_path, name="tantivy.index") -> Index:
@@ -421,7 +429,7 @@ def test_search_returns_scores_and_stored_summary(corpus, tmp_path):
             ),
         ),
         has_more=False,
-        total_regions=1,
+        total=1,
     )
     assert result == expected and result.hits[0].score > 0
 

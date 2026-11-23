@@ -20,7 +20,7 @@ from . import bgc_scanner
 from .search.build_state import building
 from .search.document import generate_example_queries
 from .search.extraction import extract_documents
-from .search.index import build_index, collect_first_values
+from .search.index import build_index, collect_first_values, count_documents
 
 # Files scanned concurrently. The scanner releases the GIL, so threads scale
 # with cores until the disk becomes the bottleneck.
@@ -398,7 +398,8 @@ def _build_pair(
             shutil.rmtree(search_index_dir, ignore_errors=True)
         raise
 
-    indexed = index.searcher().num_docs
+    indexed_regions = count_documents(index, "region")
+    indexed_protoclusters = count_documents(index, "protocluster")
 
     # Generate runnable example queries from the freshly built index and store
     # them in the attributes database so the schema endpoint can serve them.
@@ -422,7 +423,8 @@ def _build_pair(
         "files_processed": files_processed,
         "total_records": total_records,
         "database_path": str(db_path),
-        "indexed_regions": indexed,
+        "indexed_regions": indexed_regions,
+        "indexed_protoclusters": indexed_protoclusters,
         "search_index_path": str(search_index_dir),
         "search_examples": len(example_rows),
     }

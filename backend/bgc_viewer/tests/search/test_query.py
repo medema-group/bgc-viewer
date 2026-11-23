@@ -434,4 +434,4 @@ class TestSorting:
         everything = build_filter_query(index, parse_filter_group(_filter()))
         result = search_record(index, everything, sort=Sort("length", True))
         assert [hit.record for hit in result.hits] == ["recA", "recB"]
-        assert result.total_regions == 3
+        assert result.total == 3

@@ -12,7 +12,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-SEARCH_SCHEMA_VERSION = 2
+SEARCH_SCHEMA_VERSION = 3
 
 # User-facing field kind reported to the help popup: whether a field matches
 # exactly, as full text, as a path, as a number, or as a yes/no value. A
@@ -79,6 +79,15 @@ OPERATORS_BY_KIND: dict[FieldKind, tuple[str, ...]] = {
 # indexed only: its content is a copy of other fields.
 TEXT_FIELD = "text"
 
+# The index holds two kinds of document: one per antiSMASH region and one per
+# protocluster. Every search is restricted to one kind through this field, so
+# the region and record levels see region documents only, and the protocluster
+# level protocluster documents only. It is internal: not in the field registry,
+# not listed to searchers, and not copied into the catch-all text field.
+KIND_FIELD = "kind"
+DocumentKind = Literal["region", "protocluster"]
+DOCUMENT_KINDS: tuple[DocumentKind, ...] = ("region", "protocluster")
+
 
 @dataclass(frozen=True)
 class SearchField:
@@ -96,7 +105,9 @@ class SearchField:
     catch-all :data:`TEXT_FIELD`; sequences and SMILES are not, as they hold no
     words, and neither are paths, which a bare term already searches by
     component. ``stored`` is false only for that catch-all field. ``description``
-    is the user-facing help text.
+    is the user-facing help text. ``from_region`` marks a field antiSMASH
+    reports per region rather than per location or protocluster, so a
+    protocluster document carries its parent region's values.
     """
 
     name: str
@@ -109,6 +120,14 @@ class SearchField:
     in_hits: bool = False
     in_text: bool = True
     stored: bool = True
+    from_region: bool = False
+
+    @property
+    def public_description(self) -> str:
+        """The help text, noting when protoclusters inherit the region's values."""
+        if not self.from_region:
+            return self.description
+        return f"{self.description} {FROM_REGION_NOTE}"
 
     @property
     def kind(self) -> FieldKind:
@@ -157,6 +176,12 @@ class PublicFieldInfo:
     sortable: bool
 
 
+# Appended to the help text of every ``from_region`` field.
+FROM_REGION_NOTE = (
+    "antiSMASH reports this per region, so a protocluster carries the value of "
+    "its parent region."
+)
+
 GROUP_GENERAL = "General"
 GROUP_REGION = "Region"
 GROUP_SOURCE = "Source"
@@ -185,7 +210,9 @@ def _keyword(
     )
 
 
-def _sequence(name: str, label: str, group: str, description: str) -> SearchField:
+def _sequence(
+    name: str, label: str, group: str, description: str, **options
+) -> SearchField:
     """An exact text field holding sequences or SMILES rather than words."""
     return SearchField(
         name=name,
@@ -196,6 +223,7 @@ def _sequence(name: str, label: str, group: str, description: str) -> SearchFiel
         multi=True,
         boost=2.0,
         in_text=False,
+        **options,
     )
 
 
@@ -215,8 +243,11 @@ def _number(
 # The single field registry: every searchable field, in schema and display
 # order, declared in one place. The Tantivy schema and query config in
 # ``index.py`` and the public help metadata below are projected from it rather
-# than repeated. One document is one antiSMASH region; a field described as
-# "in the region" collects every value found within the region's location.
+# than repeated. A region document is one antiSMASH region; a field described
+# as "in the region" collects every value found within the region's location.
+# A protocluster document holds the same fields for one protocluster, collected
+# within the protocluster's full location (core plus neighbourhood), except
+# where a description says the value is the parent region's.
 # The extraction in ``extraction.py`` and ``facets.py`` is kept in step with it
 # by the tests. Names follow the BGC Atlas facet names where both have a field.
 SEARCH_FIELDS: tuple[SearchField, ...] = (
@@ -246,7 +277,10 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         "region",
         "Region number",
         GROUP_REGION,
-        "Region number of the region within its record.",
+        (
+            "Region number of the region within its record; for a "
+            "protocluster, the number of its parent region."
+        ),
         in_hits=True,
     ),
     _number(
@@ -294,10 +328,24 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         in_hits=True,
     ),
     _number(
+        "protocluster_number",
+        "Protocluster number",
+        GROUP_REGION,
+        (
+            "Number of the protocluster within its record. Set on protocluster "
+            "results only, so at the region and record levels it matches "
+            "nothing."
+        ),
+        in_hits=True,
+    ),
+    _number(
         "num_protoclusters",
         "# Protoclusters",
         GROUP_REGION,
-        "Number of protoclusters in the region.",
+        (
+            "Number of protoclusters in the region. A protocluster carries "
+            "the count of its parent region."
+        ),
     ),
     _keyword(
         "candidate_kind",
@@ -305,7 +353,8 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         GROUP_REGION,
         (
             "Kind of a candidate cluster in the region: single, "
-            "chemical_hybrid, interleaved, or neighbouring."
+            "chemical_hybrid, interleaved, or neighbouring. For a "
+            "protocluster, the kinds of the candidate clusters it is part of."
         ),
     ),
     _keyword(
@@ -321,7 +370,8 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         group=GROUP_REGION,
         description=(
             "Whether the region lies wholly within its record: false when "
-            "antiSMASH marks it as being on a contig edge."
+            "antiSMASH marks it as being on a contig edge. A protocluster "
+            "uses its own contig edge mark."
         ),
     ),
     # Source
@@ -540,12 +590,14 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         "Predicted SMILES",
         GROUP_NRPS_PKS,
         "SMILES of a predicted NRPS/PKS product of the region.",
+        from_region=True,
     ),
     _sequence(
         "monomer_consensus",
         "Monomer consensus",
         GROUP_NRPS_PKS,
         "Predicted NRPS/PKS polymer of the region, as a monomer sequence.",
+        from_region=True,
     ),
     _keyword(
         "pks_t2_class",
@@ -676,12 +728,14 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         "KnownClusterBlast hit (MIBiG)",
         GROUP_COMPARATIVE,
         "MIBiG accession of a KnownClusterBlast hit for the region.",
+        from_region=True,
     ),
     _keyword(
         "knowncluster_compounds",
         "KnownClusterBlast compound",
         GROUP_COMPARATIVE,
         "Compound of a KnownClusterBlast hit for the region.",
+        from_region=True,
     ),
     _keyword(
         "knowncluster_top",
@@ -689,6 +743,7 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         GROUP_COMPARATIVE,
         "MIBiG accession of the best KnownClusterBlast hit for the region.",
         multi=False,
+        from_region=True,
     ),
     _keyword(
         "knowncluster_top_compound",
@@ -696,30 +751,35 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         GROUP_COMPARATIVE,
         "Compound of the best KnownClusterBlast hit for the region.",
         multi=False,
+        from_region=True,
     ),
     _number(
         "knowncluster_top_similarity",
         "Top MIBiG similarity (%)",
         GROUP_COMPARATIVE,
         "Similarity of the best KnownClusterBlast hit for the region, in percent.",
+        from_region=True,
     ),
     _number(
         "num_knowncluster_hits",
         "# KnownClusterBlast hits",
         GROUP_COMPARATIVE,
         "Number of KnownClusterBlast hits for the region.",
+        from_region=True,
     ),
     _keyword(
         "clusterblast_hits",
         "ClusterBlast hit",
         GROUP_COMPARATIVE,
         "Accession of a ClusterBlast hit for the region.",
+        from_region=True,
     ),
     _keyword(
         "subcluster_hits",
         "SubClusterBlast hit",
         GROUP_COMPARATIVE,
         "Accession of a SubClusterBlast hit for the region.",
+        from_region=True,
     ),
     _keyword(
         "mibig_comparison_top",
@@ -727,6 +787,7 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         GROUP_COMPARATIVE,
         "MIBiG accession of the best ClusterCompare hit for the region.",
         multi=False,
+        from_region=True,
     ),
     _number(
         "mibig_comparison_top_score",
@@ -737,6 +798,7 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
             "more similar."
         ),
         tokenizer="float",
+        from_region=True,
     ),
     # Regulation
     _keyword(
@@ -744,6 +806,7 @@ SEARCH_FIELDS: tuple[SearchField, ...] = (
         "TFBS regulator",
         GROUP_REGULATION,
         "Regulator of a transcription factor binding site in the region.",
+        from_region=True,
     ),
 )
 
@@ -761,7 +824,7 @@ PUBLIC_FIELDS: tuple[PublicFieldInfo, ...] = tuple(
         group=search_field.group,
         multi=search_field.multi,
         default_search=search_field.default_search,
-        description=search_field.description,
+        description=search_field.public_description,
         operators=OPERATORS_BY_KIND[search_field.kind],
         facet=search_field.facet,
         sortable=search_field.sortable,

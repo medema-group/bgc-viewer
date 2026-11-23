@@ -62,6 +62,7 @@
           :record-id="currentRecordId"
           :record-data="currentRecordData"
           :initial-region-id="initialRegionId"
+          :initial-protocluster-number="initialProtoclusterNumber"
           @region-changed="handleRegionChanged"
           @annotation-clicked="handleAnnotationClicked"
           @error="handleViewerError"
@@ -120,6 +121,7 @@ import SearchPanel from './components/SearchPanel.vue'
 import { EXTERNAL_SOURCES } from './services/externalSources'
 import { BGCViewerAPIProvider } from '@/services/dataProviders'
 import {
+  protoclusterNumberFromHit,
   recordSelectionFromHit,
   regionIdFromHit
 } from '@/services/searchNavigation'
@@ -192,6 +194,8 @@ export default {
     const currentRecordId = ref('')
     const currentRecordData = ref(null)
     const initialRegionId = ref('')
+    // Set for a protocluster search hit, whose protocluster the viewer zooms to instead of the region
+    const initialProtoclusterNumber = ref(null)
 
     const clearViewer = () => {
       viewerProvider.value = null
@@ -199,10 +203,11 @@ export default {
       currentRecordId.value = ''
       currentRecordData.value = null
       initialRegionId.value = ''
+      initialProtoclusterNumber.value = null
       selectedLoadedKey.value = null
     }
 
-    const showRecord = (provider, recordData, regionId = '') => {
+    const showRecord = (provider, recordData, regionId = '', protoclusterNumber = null) => {
       viewerProvider.value = provider
       viewerKey.value = providerKey(provider)
       currentRecordData.value = {
@@ -213,13 +218,19 @@ export default {
       // Use entryId (which includes the filename) for uniqueness, not recordId
       currentRecordId.value = recordData.entryId
       initialRegionId.value = regionId
+      initialProtoclusterNumber.value = protoclusterNumber
     }
 
     const handleSearchSelected = (hit) => {
       const level = advancedSearch.state.searchedLevel
       advancedSearch.state.selectedHit = hit
       selectedLoadedKey.value = null
-      showRecord(apiProvider, recordSelectionFromHit(level, hit), regionIdFromHit(level, hit))
+      showRecord(
+        apiProvider,
+        recordSelectionFromHit(level, hit),
+        regionIdFromHit(level, hit),
+        protoclusterNumberFromHit(level, hit)
+      )
     }
 
     const handleLoadedSelected = (record) => {
@@ -382,6 +393,7 @@ export default {
       currentRecordId,
       currentRecordData,
       initialRegionId,
+      initialProtoclusterNumber,
       handleSearchSelected,
       handleLoadedSelected,
       handleLoadedRegionSelected,

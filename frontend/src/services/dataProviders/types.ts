@@ -111,7 +111,8 @@ export interface RegionsResponse {
 
 export type PfamColorMap = Record<string, string>
 
-export type SearchLevel = 'region' | 'record'
+/** The unit a search lists: regions, records holding a matching region, or single protoclusters. */
+export type SearchLevel = 'region' | 'record' | 'protocluster'
 
 export interface SearchFieldInfo {
   name: string
@@ -188,21 +189,31 @@ export interface FieldValuesResponse {
   values: FacetBucket[]
 }
 
+/** The stored summary of a region or protocluster hit. */
+export interface RegionHitFields {
+  record: string
+  /** The region's number, or a protocluster's parent region number. */
+  region: number
+  start: number | null
+  end: number | null
+  length: number | null
+  product: string[]
+  product_category: string[]
+  organism?: string
+  output_file: string
+  input_file?: string
+}
+
 export interface RegionSearchHit {
   /** Relevance score, or null when hits are sorted by a field. */
   score: number | null
-  fields: {
-    record: string
-    region: number
-    start: number | null
-    end: number | null
-    length: number | null
-    product: string[]
-    product_category: string[]
-    organism?: string
-    output_file: string
-    input_file?: string
-  }
+  fields: RegionHitFields
+}
+
+/** One protocluster that matches every condition on its own; its extent is its full location. */
+export interface ProtoclusterSearchHit {
+  score: number | null
+  fields: RegionHitFields & { protocluster_number: number }
 }
 
 export interface RecordSearchHit {
@@ -220,8 +231,8 @@ export interface RecordSearchHit {
 export interface SearchResponse<T> {
   hits: T[]
   has_more: boolean
-  /** Every matching region, at the record level too. */
-  total_regions: number
+  /** Every matching protocluster at the protocluster level; every matching region otherwise, at the record level too. */
+  total: number
   /** Most common values of each requested facet field over all matches. */
   facets: Record<string, FacetBucket[]>
 }

@@ -75,15 +75,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type {
+  ProtoclusterSearchHit,
   RecordSearchHit,
   RegionSearchHit,
   SearchLevel,
   SearchResponse,
   SearchSort
 } from '@/services/dataProviders/types'
+import type { SearchHit } from '@/services/searchNavigation'
 import { formatKilobases } from '@/utils/format'
-
-type SearchHit = RegionSearchHit | RecordSearchHit
 
 interface Column {
   key: string
@@ -117,6 +117,7 @@ const sortable = computed(() => new Set(props.sortableFields))
 
 const region = (hit: SearchHit) => (hit as RegionSearchHit).fields
 const record = (hit: SearchHit) => hit as RecordSearchHit
+const protocluster = (hit: SearchHit) => (hit as ProtoclusterSearchHit).fields
 
 const REGION_COLUMNS: Column[] = [
   { key: 'record', label: 'Record', sortField: 'record', value: hit => region(hit).record },
@@ -126,6 +127,24 @@ const REGION_COLUMNS: Column[] = [
   { key: 'category', label: 'Categories', value: hit => region(hit).product_category.join(', ') },
   { key: 'organism', label: 'Organism', sortField: 'organism', value: hit => region(hit).organism ?? '' },
   { key: 'file', label: 'File', value: hit => region(hit).output_file }
+]
+
+// A protocluster has one product and category; its length is its full location's.
+const PROTOCLUSTER_COLUMNS: Column[] = [
+  { key: 'record', label: 'Record', sortField: 'record', value: hit => protocluster(hit).record },
+  { key: 'region', label: 'Region', sortField: 'region', numeric: true, value: hit => `${protocluster(hit).region}` },
+  {
+    key: 'protocluster',
+    label: 'Protocluster',
+    sortField: 'protocluster_number',
+    numeric: true,
+    value: hit => `${protocluster(hit).protocluster_number}`
+  },
+  { key: 'length', label: 'Length (kb)', sortField: 'length', numeric: true, value: hit => formatKilobases(protocluster(hit).length) },
+  { key: 'product', label: 'Product', value: hit => protocluster(hit).product.join(', ') },
+  { key: 'category', label: 'Category', value: hit => protocluster(hit).product_category.join(', ') },
+  { key: 'organism', label: 'Organism', sortField: 'organism', value: hit => protocluster(hit).organism ?? '' },
+  { key: 'file', label: 'File', value: hit => protocluster(hit).output_file }
 ]
 
 const count = (value: number | null | undefined) => (value == null ? '' : value.toLocaleString())
@@ -141,18 +160,26 @@ const RECORD_COLUMNS: Column[] = [
   { key: 'input', label: 'Input file', value: hit => record(hit).input_file ?? '' }
 ]
 
-const columns = computed(() => (props.level === 'region' ? REGION_COLUMNS : RECORD_COLUMNS))
+const COLUMNS: Record<SearchLevel, Column[]> = {
+  region: REGION_COLUMNS,
+  record: RECORD_COLUMNS,
+  protocluster: PROTOCLUSTER_COLUMNS
+}
+
+const columns = computed(() => COLUMNS[props.level])
 
 const status = computed(() => {
   const shown = props.response.hits.length
-  const total = props.response.total_regions
-  const regions = `${total.toLocaleString()} matching region${total === 1 ? '' : 's'}`
-  if (shown === 0) return regions
+  const total = props.response.total
+  // The total counts protoclusters at that level and regions otherwise, records included.
+  const unit = props.level === 'protocluster' ? 'protocluster' : 'region'
+  const matching = `${total.toLocaleString()} matching ${unit}${total === 1 ? '' : 's'}`
+  if (shown === 0) return matching
   const first = (props.page - 1) * props.perPage + 1
   const last = first + shown - 1
-  return props.level === 'region'
-    ? `${first.toLocaleString()}–${last.toLocaleString()} of ${regions}`
-    : `Records ${first.toLocaleString()}–${last.toLocaleString()} · ${regions}`
+  return props.level === 'record'
+    ? `Records ${first.toLocaleString()}–${last.toLocaleString()} · ${matching}`
+    : `${first.toLocaleString()}–${last.toLocaleString()} of ${matching}`
 })
 
 // Ascending, then descending, then back to relevance.
@@ -173,11 +200,10 @@ function ariaSort(column: Column) {
 }
 
 function hitKey(hit: SearchHit) {
-  if (props.level === 'region') {
-    const fields = region(hit)
-    return `${fields.output_file}:${fields.record}:${fields.region}`
-  }
-  return `${record(hit).output_file}:${record(hit).record}`
+  if (props.level === 'record') return `${record(hit).output_file}:${record(hit).record}`
+  const fields = region(hit)
+  const key = `${fields.output_file}:${fields.record}:${fields.region}`
+  return props.level === 'protocluster' ? `${key}:${protocluster(hit).protocluster_number}` : key
 }
 
 function isSelected(hit: SearchHit) {

@@ -50,8 +50,6 @@ from bgc_viewer.search.index import (
     UnknownFieldError,
     build_index,
     open_index,
-    search_record,
-    search_regions,
 )
 from bgc_viewer.search.query import (
     FilterCondition,
@@ -162,32 +160,32 @@ class TestParseSearchRequest:
             parse_search_request({"query": "q", "per_page": 0})
 
 
-def _run(index_dir, search, body) -> SearchResponse:
-    return run_search(open_index(index_dir), parse_search_request(body), search)
+def _run(index_dir, level, body) -> SearchResponse:
+    return run_search(open_index(index_dir), parse_search_request(body), level)
 
 
 class TestRunSearch:
     def test_response_carries_hits_paging_and_total(self, index_dir):
         response = _run(
-            index_dir, search_regions, {"query": "pfam:shared", "per_page": 2}
+            index_dir, "region", {"query": "pfam:shared", "per_page": 2}
         )
         assert response.has_more is True
         assert len(response.hits) == 2
-        assert response.total_regions == 4
+        assert response.total == 4
         assert response.facets == {}
 
     def test_record_response_has_more_for_distinct_records(self, index_dir):
         response = _run(
-            index_dir, search_record, {"query": "pfam:shared", "per_page": 1}
+            index_dir, "record", {"query": "pfam:shared", "per_page": 1}
         )
         assert response.has_more is True
-        assert response.total_regions == 4
+        assert response.total == 4
 
     def test_record_response_zero_hits_reports_no_more(self, index_dir):
-        response = _run(index_dir, search_record, {"query": "pfam:none"})
+        response = _run(index_dir, "record", {"query": "pfam:none"})
         assert response.has_more is False
         assert response.hits == ()
-        assert response.total_regions == 0
+        assert response.total == 0
 
 
 class TestParseStructuredRequest:
@@ -254,6 +252,15 @@ class TestParseValuesRequest:
         req = parse_values_request({"field": "pfam", "q": "PF", "size": "1000"})
         assert (req.field, req.contains, req.size) == ("pfam", "PF", MAX_FACET_SIZE)
         assert parse_values_request({"field": "pfam"}).contains == ""
+        assert req.level == "region" and req.kind == "region"
+
+    @pytest.mark.parametrize(
+        ("level", "kind"),
+        [("region", "region"), ("record", "region"), ("protocluster", "protocluster")],
+    )
+    def test_level_selects_the_counted_kind(self, level, kind):
+        req = parse_values_request({"field": "pfam", "level": level})
+        assert (req.level, req.kind) == (level, kind)
 
     @pytest.mark.parametrize(
         "args",
@@ -262,6 +269,7 @@ class TestParseValuesRequest:
             {"field": ""},
             {"field": "pfam", "size": "x"},
             {"field": "pfam", "size": "0"},
+            {"field": "pfam", "level": "gene"},
         ],
     )
     def test_invalid_arguments_are_rejected(self, args):
@@ -345,18 +353,24 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {"hits", "has_more", "total_regions", "facets"}
+        assert set(data) == {"hits", "has_more", "total", "facets"}
         assert data["has_more"] is False
         assert set(data["hits"][0]) == {"score", "fields"}
         assert data["hits"][0]["fields"]["record"] in {"test_record_1", "test_record_2"}
 
-    def test_protocluster_level_is_gone(self, search_client, test_database):
+    def test_protocluster_endpoint_json_shape(self, search_client, test_database):
         db_path, _ = test_database
         _select_database(search_client, db_path)
         response = search_client.post(
             "/api/search/protocluster", json={"query": "pfam:PF00501"}
         )
-        assert response.status_code == 405
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert set(data) == {"hits", "has_more", "total", "facets"}
+        assert data["hits"]
+        for hit in data["hits"]:
+            assert set(hit) == {"score", "fields"}
+            assert isinstance(hit["fields"]["protocluster_number"], int)
 
     def test_record_endpoint_json_shape(self, search_client, test_database):
         db_path, _ = test_database
@@ -366,7 +380,7 @@ class TestSearchEndpoint:
         )
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert set(data) == {"hits", "has_more", "total_regions", "facets"}
+        assert set(data) == {"hits", "has_more", "total", "facets"}
         assert data["has_more"] is False
         assert set(data["hits"][0]) == {
             "score",
@@ -410,7 +424,7 @@ class TestSearchEndpoint:
             json={"query": "pfam:PF00501", "page": 1, "per_page": 1},
         )
         data = json.loads(response.data)
-        assert set(data) == {"hits", "has_more", "total_regions", "facets"}
+        assert set(data) == {"hits", "has_more", "total", "facets"}
         assert data["has_more"] is True
         assert len(data["hits"]) == 1
 
@@ -957,7 +971,7 @@ class TestStructuredSearchEndpoint:
             "test_record_2",
         ]
         assert data["hits"][0]["score"] is None
-        assert data["total_regions"] == 2
+        assert data["total"] == 2
         assert sorted(data["facets"]["product"], key=lambda b: b["value"]) == [
             {"value": "NRPS", "count": 1},
             {"value": "polyketide", "count": 1},
@@ -968,7 +982,7 @@ class TestStructuredSearchEndpoint:
         _select_database(search_client, db_path)
         status, data = self._post(search_client, "record", {"filter": {}})
         assert status == 200
-        assert data["total_regions"] == 2
+        assert data["total"] == 2
         assert len(data["hits"]) == 2
 
     def test_unhonourable_filter_is_400(self, search_client, test_database):

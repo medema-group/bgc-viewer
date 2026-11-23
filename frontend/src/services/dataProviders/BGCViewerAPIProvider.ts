@@ -13,6 +13,7 @@ import {
   SearchSchema,
   RegionSearchHit,
   RecordSearchHit,
+  ProtoclusterSearchHit,
   SearchResponse,
   SearchCriteria,
   StructuredSearchOptions,
@@ -132,15 +133,20 @@ export class BGCViewerAPIProvider extends DataProvider {
     options?: StructuredSearchOptions
   ): Promise<SearchResponse<RecordSearchHit>>
   async search(
+    level: 'protocluster',
+    criteria: SearchCriteria,
+    options?: StructuredSearchOptions
+  ): Promise<SearchResponse<ProtoclusterSearchHit>>
+  async search(
     level: SearchLevel,
     criteria: SearchCriteria,
     options?: StructuredSearchOptions
-  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit>>
+  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit | ProtoclusterSearchHit>>
   async search(
     level: SearchLevel,
     criteria: SearchCriteria,
     options: StructuredSearchOptions = {}
-  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit>> {
+  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit | ProtoclusterSearchHit>> {
     const response = await this.axiosInstance.post(`/api/search/${level}`, {
       ...criteria,
       page: options.page ?? 1,
@@ -151,10 +157,15 @@ export class BGCViewerAPIProvider extends DataProvider {
     return response.data
   }
 
-  /** Suggest values of a field containing `contains`, with region counts. */
-  async getFieldValues(field: string, contains: string = '', size: number = 20): Promise<FieldValuesResponse> {
+  /** Suggest values of a field containing `contains`, counting regions, or protoclusters at that level. */
+  async getFieldValues(
+    field: string,
+    contains: string = '',
+    size: number = 20,
+    level: SearchLevel = 'region'
+  ): Promise<FieldValuesResponse> {
     const response = await this.axiosInstance.get<FieldValuesResponse>('/api/search/values', {
-      params: { field, q: contains, size }
+      params: { field, q: contains, size, level }
     })
     return response.data
   }

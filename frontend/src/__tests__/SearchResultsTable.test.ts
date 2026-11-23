@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest'
 
 import RefinePanel from '@/components/RefinePanel.vue'
 import SearchResultsTable from '@/components/SearchResultsTable.vue'
-import type { RecordSearchHit, RegionSearchHit, SearchSort } from '@/services/dataProviders/types'
+import type {
+  ProtoclusterSearchHit,
+  RecordSearchHit,
+  RegionSearchHit,
+  SearchSort
+} from '@/services/dataProviders/types'
 
 const regionHit = (record: string, region: number): RegionSearchHit => ({
   score: 1,
@@ -17,6 +22,19 @@ const regionHit = (record: string, region: number): RegionSearchHit => ({
     product_category: ['NRPS', 'PKS'],
     organism: 'Streptomyces coelicolor',
     output_file: `${record}.json`
+  }
+})
+
+const protoclusterHit = (record: string, region: number, number: number): ProtoclusterSearchHit => ({
+  score: 1,
+  fields: {
+    ...regionHit(record, region).fields,
+    start: 4000,
+    end: 16500,
+    length: 12500,
+    product: ['NRPS'],
+    product_category: ['NRPS'],
+    protocluster_number: number
   }
 })
 
@@ -35,7 +53,7 @@ function mountTable(props: Partial<InstanceType<typeof SearchResultsTable>['$pro
   return mount(SearchResultsTable, {
     props: {
       level: 'region',
-      response: { hits: [regionHit('recA', 1), regionHit('recB', 2)], has_more: true, total_regions: 45, facets: {} },
+      response: { hits: [regionHit('recA', 1), regionHit('recB', 2)], has_more: true, total: 45, facets: {} },
       page: 2,
       perPage: 20,
       sort: null,
@@ -61,7 +79,7 @@ describe('SearchResultsTable', () => {
     const wrapper = mountTable({
       level: 'record',
       page: 1,
-      response: { hits: [recordHit], has_more: false, total_regions: 3, facets: {} }
+      response: { hits: [recordHit], has_more: false, total: 3, facets: {} }
     })
     expect(wrapper.get('tbody tr').findAll('td').map(td => td.text())).toEqual([
       'recA',
@@ -75,6 +93,48 @@ describe('SearchResultsTable', () => {
     expect(wrapper.get('.pager-status').text()).toBe('Records 1–1 · 3 matching regions')
   })
 
+  it('shows protocluster rows with their parent region and counts protoclusters', () => {
+    const wrapper = mountTable({
+      level: 'protocluster',
+      page: 1,
+      response: {
+        hits: [protoclusterHit('recA', 4, 5), protoclusterHit('recA', 4, 6)],
+        has_more: false,
+        total: 2,
+        facets: {}
+      },
+      sortableFields: ['protocluster_number']
+    })
+    expect(wrapper.findAll('thead th').map(th => th.text())).toEqual([
+      'Record',
+      'Region',
+      'Protocluster ↕',
+      'Length (kb)',
+      'Product',
+      'Category',
+      'Organism',
+      'File'
+    ])
+    expect(wrapper.get('tbody tr').findAll('td').map(td => td.text())).toEqual([
+      'recA', '4', '5', '12.5', 'NRPS', 'NRPS', 'Streptomyces coelicolor', 'recA.json'
+    ])
+    expect(wrapper.get('.pager-status').text()).toBe('1–2 of 2 matching protoclusters')
+  })
+
+  it('keeps protoclusters of one region apart when selecting', () => {
+    const wrapper = mountTable({
+      level: 'protocluster',
+      response: {
+        hits: [protoclusterHit('recA', 4, 5), protoclusterHit('recA', 4, 6)],
+        has_more: false,
+        total: 2,
+        facets: {}
+      },
+      selectedHit: protoclusterHit('recA', 4, 6)
+    })
+    expect(wrapper.findAll('tbody tr').map(row => row.classes().includes('selected'))).toEqual([false, true])
+  })
+
   it('leaves record details empty when the record index lacks them', () => {
     const wrapper = mountTable({
       level: 'record',
@@ -82,7 +142,7 @@ describe('SearchResultsTable', () => {
       response: {
         hits: [{ ...recordHit, description: null, organism: null, region_count: null, feature_count: null }],
         has_more: false,
-        total_regions: 1,
+        total: 1,
         facets: {}
       }
     })
@@ -114,7 +174,7 @@ describe('SearchResultsTable', () => {
   it('disables paging at the ends and marks the selected row', () => {
     const wrapper = mountTable({
       page: 1,
-      response: { hits: [regionHit('recA', 1)], has_more: false, total_regions: 1, facets: {} },
+      response: { hits: [regionHit('recA', 1)], has_more: false, total: 1, facets: {} },
       selectedHit: regionHit('recA', 1)
     })
     expect(wrapper.get('[aria-label="Previous page"]').attributes('disabled')).toBeDefined()
@@ -123,7 +183,7 @@ describe('SearchResultsTable', () => {
   })
 
   it('says when nothing matches', () => {
-    const wrapper = mountTable({ response: { hits: [], has_more: false, total_regions: 0, facets: {} } })
+    const wrapper = mountTable({ response: { hits: [], has_more: false, total: 0, facets: {} } })
     expect(wrapper.get('td.empty').text()).toBe('No regions match this search.')
   })
 })
