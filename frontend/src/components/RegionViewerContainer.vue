@@ -50,7 +50,7 @@ export default {
       type: Object,
       default: null
     },
-    // Initial region ID to select (optional)
+    // Initial region ID to zoom to (optional); without one the whole record is shown
     initialRegionId: {
       type: String,
       default: ''
@@ -215,11 +215,7 @@ export default {
         // Always load the whole record; selecting a region only zooms the viewer to it
         await loadFeatures(recordInfo.value.entryId)
 
-        if (regions.value.length > 0) {
-          selectedRegionId.value = props.initialRegionId && regions.value.some(r => r.id === props.initialRegionId)
-            ? props.initialRegionId
-            : regions.value[0].id
-        }
+        selectedRegionId.value = regionToSelect(props.initialRegionId)
         
         // Final check before marking as loaded
         if (requestId !== currentLoadingRequestId.value) {
@@ -249,6 +245,10 @@ export default {
         emit('error', error.value)
       }
     }
+
+    // The requested region if the record has it; otherwise none, so the viewer shows the whole record
+    const regionToSelect = (regionId) =>
+      regionId && regions.value.some(r => r.id === regionId) ? regionId : ''
 
     const handleRegionChanged = (regionId) => {
       // The viewer zooms to the selected region itself; all features are already loaded
@@ -301,10 +301,10 @@ export default {
       }
     })
 
-    // Watch for initialRegionId changes
+    // Watch for initialRegionId changes on the open record; no region shows the whole record again
     watch(() => props.initialRegionId, (newRegionId) => {
-      if (newRegionId && regions.value.length > 0) {
-        selectedRegionId.value = newRegionId
+      if (recordInfo.value) {
+        selectedRegionId.value = regionToSelect(newRegionId)
       }
     })
 

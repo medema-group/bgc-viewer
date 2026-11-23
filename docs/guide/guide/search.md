@@ -3,9 +3,10 @@
 The main view searches the open index (see
 [Data Sources & Formats](./data-sources.md#bgc-viewer-api-backend-with-database))
 across every region in the dataset. The query builder comes first, then the
-results, and then the viewer, which shows the result you click: a region
-result opens its record zoomed to that region, and a protocluster result
-zoomed to that protocluster, selected so its details show. When an index opens, the results list
+results, and then the viewer, which shows the result you click: a record
+result opens the whole record, a region result opens its record zoomed to
+that region, and a protocluster result zoomed to that protocluster, selected
+so its details show. When an index opens, the results list
 all its regions. **Search help** beside the builder explains the fields and has
 example queries.
 
