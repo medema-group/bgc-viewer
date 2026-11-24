@@ -206,8 +206,16 @@ export const defaultOperator = (field: SearchFieldInfo): FilterOperator => {
 export const defaultCondition = (field: SearchFieldInfo): FilterCondition =>
   createCondition(field.name, defaultOperator(field), field.kind === 'boolean' ? 'true' : '')
 
-/** Carry a value across an operator change in the shape the new operator takes. */
-export const normalizeValue = (value: FilterValue | undefined, operator: FilterOperator): FilterValue => {
+/**
+ * Carry a value across an operator change in the shape the new operator takes.
+ * A yes/no field always has a value to show and search for: back from a valueless
+ * operator, it starts at yes again, as a new condition does.
+ */
+export const normalizeValue = (
+  value: FilterValue | undefined,
+  operator: FilterOperator,
+  kind?: SearchFieldInfo['kind']
+): FilterValue => {
   const first = Array.isArray(value) ? value[0] ?? '' : value ?? ''
   if (operator === 'between') {
     return Array.isArray(value) ? [value[0] ?? '', value[1] ?? ''] : [first, '']
@@ -217,6 +225,7 @@ export const normalizeValue = (value: FilterValue | undefined, operator: FilterO
     return values.filter(v => v !== null && `${v}`.trim() !== '')
   }
   if (operator === 'exists' || operator === 'not_exists') return ''
+  if (kind === 'boolean' && `${first ?? ''}`.trim() === '') return 'true'
   return first
 }
 

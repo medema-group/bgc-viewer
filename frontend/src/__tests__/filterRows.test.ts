@@ -162,6 +162,13 @@ describe('normalizeValue', () => {
     expect(normalizeValue(['a', 'b'], 'not_in')).toEqual(['a', 'b'])
     expect(normalizeValue('x', 'exists')).toBe('')
   })
+
+  it('gives a yes/no field its yes back after a valueless operator', () => {
+    expect(normalizeValue('', 'equals', 'boolean')).toBe('true')
+    expect(normalizeValue('false', 'equals', 'boolean')).toBe('false')
+    expect(normalizeValue('true', 'exists', 'boolean')).toBe('')
+    expect(normalizeValue('', 'equals', 'exact')).toBe('')
+  })
 })
 
 describe('isBlankCondition', () => {

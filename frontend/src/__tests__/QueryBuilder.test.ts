@@ -31,7 +31,7 @@ const fields: SearchFieldInfo[] = [
   RAW_QUERY_FIELD_INFO,
   field('product', 'exact', 'Region', ['in', 'not_in', 'equals', 'contains', 'exists'], true),
   field('length', 'numeric', 'Region', ['gte', 'between']),
-  field('is_complete', 'boolean', 'Region', ['equals', 'not_equals'])
+  field('is_complete', 'boolean', 'Region', ['equals', 'not_equals', 'exists', 'not_exists'])
 ]
 
 const loadValues = vi.fn().mockResolvedValue([{ value: 'NRPS', count: 4 }, { value: 'T1PKS', count: 2 }])
@@ -68,6 +68,14 @@ describe('ConditionRow', () => {
     expect(lastUpdate(wrapper)).toMatchObject({ operator: 'between', value: ['100', ''] })
   })
 
+  it('gives a yes/no condition its yes back when it leaves "has a value"', async () => {
+    const wrapper = mountRow(createCondition('is_complete', 'exists', ''))
+
+    await wrapper.get('[aria-label="Operator"]').setValue('equals')
+
+    expect(lastUpdate(wrapper)).toMatchObject({ operator: 'equals', value: 'true' })
+  })
+
   it('keeps an operator the field does not offer visible', () => {
     const wrapper = mountRow(createCondition('length', 'contains', '1'))
     const options = wrapper.get('[aria-label="Operator"]').findAll('option').map(o => o.text())
@@ -87,6 +95,17 @@ describe('ConditionRow', () => {
     const wrapper = mountRow(createCondition('length', 'between', ['', '']))
     await wrapper.get('[aria-label="Minimum"]').setValue('5')
     expect(lastUpdate(wrapper).value).toEqual(['5', ''])
+  })
+
+  it('accepts fractional numbers, such as masses, as valid input', () => {
+    const range = mountRow(createCondition('length', 'between', ['', '']))
+    const scalar = mountRow(createCondition('length', 'gte', ''))
+    const inputs = [range.get('[aria-label="Minimum"]'), range.get('[aria-label="Maximum"]'), scalar.get('[aria-label="Value"]')]
+
+    for (const input of inputs) {
+      (input.element as HTMLInputElement).value = '1234.56'
+      expect((input.element as HTMLInputElement).validity.valid).toBe(true)
+    }
   })
 
   it('edits yes/no values and query strings', async () => {
@@ -128,6 +147,36 @@ describe('ValueCombobox', () => {
     await wrapper.findAll('[role="option"]')[1].trigger('click')
     expect(wrapper.emitted('update:modelValue')).toEqual([[['T1PKS']]])
     expect(wrapper.find('.combobox-panel').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('ignores an answer for earlier text that arrives while the new text waits', async () => {
+    const answers: ((values: { value: string; count: number }[]) => void)[] = []
+    const slowValues = vi.fn(() => new Promise<{ value: string; count: number }[]>(resolve => answers.push(resolve)))
+    const wrapper = mount(ValueCombobox, {
+      props: { field: 'product', fieldLabel: 'Product', modelValue: [], loadValues: slowValues },
+      attachTo: document.body
+    })
+    const options = () => wrapper.findAll('[role="option"]').map(o => o.text())
+    // Real time, past the 200 ms debounce, as in the test above
+    const debounce = () => new Promise(resolve => setTimeout(resolve, 250))
+
+    await wrapper.get('[role="combobox"]').trigger('click')
+    await debounce()
+    expect(slowValues).toHaveBeenCalledTimes(1)
+
+    // Typed while the first request runs; it answers before the new one is sent
+    await wrapper.get('[aria-label="Search Product values"]').setValue('ter')
+    answers[0]([{ value: 'NRPS', count: 4 }])
+    await flushPromises()
+    expect(options()).toEqual([])
+    expect(wrapper.get('.panel-note').text()).toBe('Loading…')
+
+    await debounce()
+    expect(slowValues).toHaveBeenLastCalledWith('product', 'ter')
+    answers[1]([{ value: 'terpene', count: 3 }])
+    await flushPromises()
+    expect(options()).toEqual(['terpene3'])
     wrapper.unmount()
   })
 

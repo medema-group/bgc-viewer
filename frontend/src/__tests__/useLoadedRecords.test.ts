@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import LoadedRecordsList from '@/components/LoadedRecordsList.vue'
 import { UPLOAD_SOURCE, useLoadedRecords, type LoadedFile } from '@/composables/useLoadedRecords'
@@ -7,7 +7,7 @@ import { UPLOAD_SOURCE, useLoadedRecords, type LoadedFile } from '@/composables/
 // jsdom's File lacks text(), which browsers have.
 const fileWithText = (content: string, name: string): File => {
   const file = new File([content], name, { type: 'application/json' })
-  Object.defineProperty(file, 'text', { value: () => Promise.resolve(content) })
+  Object.defineProperty(file, 'text', { value: () => Promise.resolve(content), configurable: true, writable: true })
   return file
 }
 
@@ -32,6 +32,35 @@ const antismashFile = (name: string, recordIds: string[]): LoadedFile => {
 }
 
 describe('useLoadedRecords', () => {
+  it('keeps the provider of a file sent again, without parsing it again', async () => {
+    const loaded = useLoadedRecords()
+    const first = antismashFile('first.json', ['recA'])
+    const read = vi.spyOn(first.file, 'text')
+
+    const [before] = await loaded.setFiles(UPLOAD_SOURCE, [first])
+    // An upload added: the loader sends the whole list, the earlier file included
+    await loaded.setFiles(UPLOAD_SOURCE, [first, antismashFile('second.json', ['recB'])])
+    // And removed again
+    await loaded.setFiles(UPLOAD_SOURCE, [first])
+
+    expect(loaded.records.value.map(record => record.recordId)).toEqual(['recA'])
+    expect(loaded.records.value[0].provider).toBe(before.provider)
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads a file that failed to parse again when it is sent again', async () => {
+    const loaded = useLoadedRecords()
+    const file = antismashFile('broken.json', ['recA'])
+    const content = await file.file.text()
+    const read = vi.spyOn(file.file, 'text').mockResolvedValueOnce('{ not json')
+
+    expect(await loaded.setFiles(UPLOAD_SOURCE, [file])).toEqual([])
+    expect(loaded.error.value).toContain('Could not read the loaded files')
+
+    read.mockResolvedValueOnce(content)
+    expect((await loaded.setFiles(UPLOAD_SOURCE, [file])).map(record => record.recordId)).toEqual(['recA'])
+  })
+
   it('lists the records of each source, uploads first', async () => {
     const loaded = useLoadedRecords()
 
@@ -69,6 +98,70 @@ describe('useLoadedRecords', () => {
     await loaded.setFiles(UPLOAD_SOURCE, [])
     loaded.removeSource('mibig')
     expect(loaded.records.value).toEqual([])
+  })
+
+  describe('a load overtaken while it parses', () => {
+    /** A file whose reading waits until `finish` is called with the content to read. */
+    function slowFile(name: string) {
+      const file = antismashFile(name, ['recA'])
+      const content = file.file.text()
+      let finish!: (text?: string) => void
+      vi.spyOn(file.file, 'text').mockReturnValueOnce(new Promise<string>(resolve => {
+        finish = async (text?: string) => resolve(text ?? await content)
+      }))
+      return { file, finish: (text?: string) => finish(text) }
+    }
+
+    it('does not bring back uploads removed meanwhile', async () => {
+      const loaded = useLoadedRecords()
+      const slow = slowFile('slow.json')
+
+      const pending = loaded.setFiles(UPLOAD_SOURCE, [slow.file])
+      // Every upload removed: the loader sends an empty list
+      await loaded.setFiles(UPLOAD_SOURCE, [])
+      slow.finish()
+
+      expect(await pending).toEqual([])
+      expect(loaded.records.value).toEqual([])
+    })
+
+    it('does not bring back a source removed meanwhile', async () => {
+      const loaded = useLoadedRecords()
+      const slow = slowFile('BGC0000001.1.json')
+
+      const pending = loaded.setFiles('mibig', [slow.file])
+      loaded.removeSource('mibig')
+      slow.finish()
+
+      expect(await pending).toEqual([])
+      expect(loaded.records.value).toEqual([])
+    })
+
+    it('neither replaces a newer selection nor reports its own error', async () => {
+      const loaded = useLoadedRecords()
+      const slow = slowFile('slow.json')
+
+      const pending = loaded.setFiles(UPLOAD_SOURCE, [slow.file])
+      await loaded.setFiles(UPLOAD_SOURCE, [antismashFile('newer.json', ['recB'])])
+      slow.finish('{ not json')
+      await pending
+
+      expect(loaded.records.value.map(record => record.recordId)).toEqual(['recB'])
+      expect(loaded.error.value).toBeNull()
+      expect(loaded.loading.value).toBe(false)
+    })
+
+    it('leaves other sources alone', async () => {
+      const loaded = useLoadedRecords()
+      const slow = slowFile('mine.json')
+
+      const pending = loaded.setFiles(UPLOAD_SOURCE, [slow.file])
+      await loaded.setFiles('mibig', [antismashFile('BGC0000001.1.json', ['BGC0000001'])])
+      slow.finish()
+      await pending
+
+      expect(loaded.records.value.map(record => record.recordId)).toEqual(['recA', 'BGC0000001'])
+    })
   })
 
   it('reports files it cannot read', async () => {

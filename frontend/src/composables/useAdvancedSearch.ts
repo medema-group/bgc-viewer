@@ -19,6 +19,7 @@ import {
   createCondition,
   defaultCondition,
   groupRow,
+  pruneRows,
   rowsHaveRules,
   rowsToGroup,
   runsOf,
@@ -142,8 +143,10 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
 
   /** Run what the builder rows ask, from the first page. */
   async function search() {
-    // A builder without conditions browses every region.
-    await fetchPage({ filter: rowsToGroup(state.rows) }, state.level, 1)
+    // A builder without conditions browses every region. Blank rows go before the
+    // AND/OR grouping, as in the summary: left in, "a OR <blank> AND b" would group
+    // as "a OR (b)" once the backend drops the blank, not as the "a AND b" shown.
+    await fetchPage({ filter: rowsToGroup(pruneRows(state.rows)) }, state.level, 1)
   }
 
   async function goToPage(page: number) {

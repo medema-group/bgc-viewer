@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { PAGE_SIZE, useAdvancedSearch } from '@/composables/useAdvancedSearch'
 import type { BGCViewerAPIProvider } from '@/services/dataProviders/BGCViewerAPIProvider'
 import type { SearchFieldInfo, SearchSchema } from '@/services/dataProviders/types'
-import { RAW_QUERY_FIELD, conditionRow, createCondition } from '@/services/filterRows'
+import { RAW_QUERY_FIELD, conditionRow, createCondition, groupRow } from '@/services/filterRows'
 
 const field = (name: string, kind: SearchFieldInfo['kind'], extra: Partial<SearchFieldInfo> = {}): SearchFieldInfo => ({
   name,
@@ -72,6 +72,27 @@ describe('useAdvancedSearch', () => {
     expect(criteria.filter.conditions[0]).toMatchObject({ field: 'product', operator: 'in', value: ['NRPS'] })
     expect(options).toEqual({ page: 1, perPage: PAGE_SIZE, sort: null, facets: ['product', 'organism'] })
     expect(search.state.response).toEqual(emptyResponse)
+  })
+
+  it('drops blank rows before grouping, so the search asks what the summary shows', async () => {
+    const { provider, search } = setup()
+    await search.loadSchema()
+    const condition = (value: string) => createCondition('product', 'in', value ? [value] : [])
+    // a OR <blank> AND b: the summary reads "a AND b"
+    search.state.rows = [
+      conditionRow(condition('a')),
+      conditionRow(condition(''), 'OR'),
+      conditionRow(condition('b'), 'AND'),
+      // An empty bracket goes too
+      groupRow([conditionRow(condition(''))], 'OR')
+    ]
+
+    await search.search()
+
+    const { filter } = lastSearch(provider)![1]
+    expect(filter.operator).toBe('AND')
+    expect(filter.groups).toEqual([])
+    expect(filter.conditions.map((c: { value: string[] }) => c.value)).toEqual([['a'], ['b']])
   })
 
   it('puts a query string into the builder as its one condition', async () => {

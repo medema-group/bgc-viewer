@@ -47,6 +47,7 @@
     <span v-else-if="input === 'range'" class="range-inputs">
       <input
         type="number"
+        step="any"
         class="number-input"
         placeholder="Min"
         aria-label="Minimum"
@@ -56,6 +57,7 @@
       <span class="range-and">and</span>
       <input
         type="number"
+        step="any"
         class="number-input"
         placeholder="Max"
         aria-label="Maximum"
@@ -67,6 +69,7 @@
     <input
       v-else-if="input === 'number'"
       type="number"
+      step="any"
       class="number-input"
       placeholder="Value"
       aria-label="Value"
@@ -202,7 +205,7 @@ function changeField(name: string) {
 }
 
 function changeOperator(operator: FilterOperator) {
-  update({ operator, value: normalizeValue(props.condition.value, operator) })
+  update({ operator, value: normalizeValue(props.condition.value, operator, field.value?.kind) })
 }
 
 function changeValues(values: string[]) {

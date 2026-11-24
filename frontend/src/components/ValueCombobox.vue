@@ -89,11 +89,18 @@ const triggerLabel = computed(() => {
   return `${props.modelValue.length} selected`
 })
 
-function fetchValues() {
+/** Forget the pending and running requests, so a late answer to them is ignored. */
+function invalidate() {
   clearTimeout(timer)
+  return ++request
+}
+
+function fetchValues() {
+  // Counted when scheduled, not when sent: an answer for the text before this
+  // keystroke must not show while the debounce for the new text still waits
+  const current = invalidate()
   loading.value = true
   timer = setTimeout(async () => {
-    const current = ++request
     try {
       const values = await props.loadValues(props.field, text.value)
       if (current === request) {
@@ -112,7 +119,12 @@ function fetchValues() {
 }
 
 watch(text, () => { if (open.value) fetchValues() })
-watch(() => props.field, () => { items.value = []; open.value = false })
+watch(() => props.field, () => {
+  invalidate()
+  items.value = []
+  loading.value = false
+  open.value = false
+})
 
 async function toggleOpen() {
   open.value = !open.value
@@ -151,7 +163,7 @@ function handleOutside(event: MouseEvent) {
 onMounted(() => document.addEventListener('mousedown', handleOutside))
 onUnmounted(() => {
   document.removeEventListener('mousedown', handleOutside)
-  clearTimeout(timer)
+  invalidate()
 })
 </script>
 

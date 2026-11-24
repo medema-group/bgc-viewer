@@ -92,6 +92,29 @@ export function useLoadedRecords() {
   const bySource = ref<Record<string, LoadedRecord[]>>({})
   const loading = ref(0)
   const error = ref<string | null>(null)
+  // The loaders send their whole file list on every change, so a file seen before
+  // keeps its provider: it is not parsed again, and a viewer showing one of its
+  // records, which tells loaded records apart by provider, stays open.
+  const providers = new WeakMap<File, Promise<DataProvider | null>>()
+  // Bumped by every change to a source, so a load that a newer one or a removal
+  // overtook while it was parsing leaves the source as that change left it
+  const generations = new Map<string, number>()
+  const nextGeneration = (source: string) => {
+    const generation = (generations.get(source) ?? 0) + 1
+    generations.set(source, generation)
+    return generation
+  }
+
+  function cachedProviderFor(file: LoadedFile): Promise<DataProvider | null> {
+    let provider = providers.get(file.file)
+    if (!provider) {
+      provider = providerFor(file)
+      providers.set(file.file, provider)
+      // A file that failed to parse is tried again the next time it is sent
+      provider.catch(() => providers.delete(file.file))
+    }
+    return provider
+  }
 
   /** Every loaded record, uploads first, then the external sources in load order. */
   const records = computed(() => {
@@ -102,23 +125,29 @@ export function useLoadedRecords() {
   /** The regions of every loaded record, in record order. */
   const regions = computed(() => records.value.flatMap(regionsOf))
 
-  /** Replace the files of one source and return its records. */
+  /**
+   * Replace the files of one source and return its records; none when a newer
+   * change to the source came first, as its result is then dropped.
+   */
   async function setFiles(source: string, files: LoadedFile[]): Promise<LoadedRecord[]> {
+    const generation = nextGeneration(source)
+    const current = () => generations.get(source) === generation
     loading.value += 1
     error.value = null
     try {
       const loaded: LoadedRecord[] = []
       for (const file of files) {
-        const provider = await providerFor(file)
+        const provider = await cachedProviderFor(file)
         if (provider) loaded.push(...await recordsOf(source, provider))
       }
+      if (!current()) return []
       const next = { ...bySource.value }
       if (loaded.length) next[source] = loaded
       else delete next[source]
       bySource.value = next
       return loaded
     } catch (err: any) {
-      error.value = `Could not read the loaded files: ${err?.message ?? err}`
+      if (current()) error.value = `Could not read the loaded files: ${err?.message ?? err}`
       return []
     } finally {
       loading.value -= 1
@@ -126,6 +155,7 @@ export function useLoadedRecords() {
   }
 
   function removeSource(source: string) {
+    nextGeneration(source)
     const { [source]: _removed, ...rest } = bySource.value
     bySource.value = rest
   }

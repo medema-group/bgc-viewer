@@ -85,8 +85,8 @@ describe('SearchPanel', () => {
     const { provider, wrapper } = await mountPanel()
 
     expect(provider.search.mock.calls[0][0]).toBe('region')
-    // Only the blank starter condition, which the backend drops
-    expect(provider.search.mock.calls[0][1].filter.conditions).toMatchObject([{ field: 'text', value: '' }])
+    // The blank starter condition is left out, so nothing narrows the search
+    expect(provider.search.mock.calls[0][1].filter).toMatchObject({ conditions: [], groups: [] })
     expect(wrapper.findAll('.condition-row')).toHaveLength(1)
     expect(wrapper.get<HTMLSelectElement>('[aria-label="Field"]').element.value).toBe('text')
     expect(wrapper.get('.submit-button').text()).toBe('Browse all')
