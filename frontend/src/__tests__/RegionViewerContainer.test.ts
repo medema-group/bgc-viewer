@@ -54,4 +54,10 @@ describe('RegionViewerContainer region selection', () => {
 
     expect(selectedRegion(wrapper)).toBe('')
   })
+  it('loads the TFBS hits of the whole record in one request', async () => {
+    const wrapper = await mountContainer()
+
+    const { getTFBSHits } = wrapper.props('dataProvider') as ReturnType<typeof provider>
+    expect(getTFBSHits.mock.calls).toEqual([['rec.json:rec']])
+  })
 })

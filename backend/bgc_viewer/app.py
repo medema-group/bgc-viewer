@@ -4,6 +4,7 @@ from flask_session import Session
 import json
 import os
 import re
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -836,10 +837,10 @@ def get_tfbs_hits(record_id):
     Data structure: records[i].modules["antismash.modules.tfbs_finder"]["hits_by_region"][region]
 
     Query parameters:
-        region: Region number to query (default: "1")
+        region: Region number to query; without it, the hits of every region
+            of the record, in region order
     """
-    # Get region parameter from query string (defaults to "1")
-    region = request.args.get("region", "1")
+    region = request.args.get("region")
 
     # Get data from session cache
     antismash_data, data_root = get_current_entry_data()
@@ -859,14 +860,14 @@ def get_tfbs_hits(record_id):
     tfbs_finder = modules.get("antismash.modules.tfbs_finder", {})
     hits_by_region = tfbs_finder.get("hits_by_region", {})
 
-    # Check if region key exists
-    if region not in hits_by_region:
-        return jsonify(
-            {"record_id": record_id, "region": region, "count": 0, "hits": []}
-        )
-
-    # Get binding sites for this region
-    binding_sites = hits_by_region[region]
+    if region is None:
+        binding_sites = [
+            hit
+            for number in sorted(hits_by_region, key=_region_sort_key)
+            for hit in hits_by_region[number]
+        ]
+    else:
+        binding_sites = hits_by_region.get(region, [])
 
     return jsonify(
         {
@@ -876,6 +877,11 @@ def get_tfbs_hits(record_id):
             "hits": binding_sites,
         }
     )
+
+
+def _region_sort_key(number: str) -> tuple[int, str]:
+    """Order region keys numerically, with any non-numeric key last."""
+    return (int(number), "") if number.isdigit() else (sys.maxsize, number)
 
 
 @app.route("/api/records/<record_id>/tta-codons")

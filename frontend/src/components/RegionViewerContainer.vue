@@ -101,14 +101,12 @@ export default {
       }
     }
 
-    // TFBS hits are stored per region, so load them for every region of the record
-    const loadTFBSHits = async (recordId, recordRegions) => {
+    // TFBS hits are stored per region; without a region, those of the whole record come back
+    const loadTFBSHits = async (recordId) => {
       if (!provider.value) return
       try {
-        const tfbsData = await Promise.all(recordRegions.map(region =>
-          provider.value.getTFBSHits(recordId, String(region.region_number))
-        ))
-        tfbsHits.value = tfbsData.flatMap(data => data.hits || [])
+        const tfbsData = await provider.value.getTFBSHits(recordId)
+        tfbsHits.value = tfbsData.hits || []
         console.log('Loaded', tfbsHits.value.length, 'TFBS binding sites for record', recordId)
       } catch (err) {
         console.warn('Failed to load TFBS hits:', err.message)
@@ -204,7 +202,7 @@ export default {
         }
         
         // Load TFBS hits for all regions
-        await loadTFBSHits(recordInfo.value.entryId, regions.value)
+        await loadTFBSHits(recordInfo.value.entryId)
 
         // Check again after async operation
         if (requestId !== currentLoadingRequestId.value) {

@@ -221,13 +221,14 @@ export class BGCViewerAPIProvider extends DataProvider {
   }
 
   /**
-   * Get TFBS finder binding site hits for a specific region
+   * Get TFBS finder binding site hits for a region, or for every region of the record
+   * when no region is given
    */
-  async getTFBSHits(recordId: string, region: string = '1'): Promise<TFBSHitsResponse> {
+  async getTFBSHits(recordId: string, region?: string): Promise<TFBSHitsResponse> {
     const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<TFBSHitsResponse>(
       `/api/records/${actualRecordId}/tfbs-hits`,
-      { params: { region } }
+      { params: region === undefined ? {} : { region } }
     )
     return response.data
   }

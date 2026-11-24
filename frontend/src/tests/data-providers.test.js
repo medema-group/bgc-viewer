@@ -105,6 +105,32 @@ describe('JSONFileProvider', () => {
       expect(cdsFeature.id).toBe('gene1')
     })
   })
+  describe('getTFBSHits', () => {
+    const tfbsProvider = () => new JSONFileProvider({
+      records: [{
+        id: 'rec',
+        features: [],
+        modules: {
+          'antismash.modules.tfbs_finder': {
+            hits_by_region: { 10: [{ name: 'C' }], 2: [{ name: 'A' }, { name: 'B' }] }
+          }
+        }
+      }]
+    })
+
+    it('returns the hits of every region, in region order, without a region', async () => {
+      const result = await tfbsProvider().getTFBSHits('rec')
+      expect(result.region).toBeNull()
+      expect(result.hits.map(hit => hit.name)).toEqual(['A', 'B', 'C'])
+      expect(result.count).toBe(3)
+    })
+
+    it('returns the hits of one region', async () => {
+      const provider = tfbsProvider()
+      expect((await provider.getTFBSHits('rec', '10')).hits).toEqual([{ name: 'C' }])
+      expect((await provider.getTFBSHits('rec', '5')).hits).toEqual([])
+    })
+  })
 })
 
 describe('BGCViewerAPIProvider', () => {
@@ -128,6 +154,20 @@ describe('BGCViewerAPIProvider', () => {
     it('should accept custom baseURL', () => {
       const customProvider = new BGCViewerAPIProvider('http://custom-api.com')
       expect(customProvider).toBeInstanceOf(BGCViewerAPIProvider)
+    })
+  })
+
+  describe('getTFBSHits', () => {
+    it('asks for the whole record without a region, and for one region with it', async () => {
+      axiosInstance.get.mockResolvedValue({ data: { hits: [] } })
+
+      await provider.getTFBSHits('rec.json:rec')
+      await provider.getTFBSHits('rec.json:rec', '3')
+
+      expect(axiosInstance.get.mock.calls).toEqual([
+        ['/api/records/rec/tfbs-hits', { params: {} }],
+        ['/api/records/rec/tfbs-hits', { params: { region: '3' } }]
+      ])
     })
   })
 

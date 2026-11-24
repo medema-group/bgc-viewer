@@ -67,7 +67,8 @@ export interface TFBSHit {
 
 export interface TFBSHitsResponse {
   record_id: string
-  region: string
+  /** The region asked for, or null for the hits of the whole record */
+  region: string | null
   count: number
   hits: TFBSHit[]
 }
@@ -291,7 +292,8 @@ export abstract class DataProvider {
   getMiBIGEntries(recordId: string, locusTag: string, region?: string): Promise<MiBIGEntriesResponse>
 
   /**
-   * Get TFBS finder binding site hits for a specific region
+   * Get TFBS finder binding site hits for a region, or for every region of the record
+   * when no region is given
    */
   getTFBSHits(recordId: string, region?: string): Promise<TFBSHitsResponse>
 

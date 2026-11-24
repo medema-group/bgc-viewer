@@ -15,6 +15,10 @@ import {
 import { fetchPfamColorMap } from './colorMapUtils'
 import { parseLocation } from '@/utils/location'
 
+/** Orders region keys numerically, with any non-numeric key last. */
+const byRegionNumber = (a: string, b: string): number =>
+  (Number(a) || Infinity) - (Number(b) || Infinity) || a.localeCompare(b)
+
 export interface JSONFileProviderOptions {
   records?: any[]
   pfamColorMap?: PfamColorMap
@@ -385,9 +389,10 @@ export class JSONFileProvider extends DataProvider {
   }
 
   /**
-   * Get TFBS finder binding site hits for a specific region
+   * Get TFBS finder binding site hits for a region, or for every region of the record
+   * when no region is given
    */
-  async getTFBSHits(recordId: string, region: string = '1'): Promise<TFBSHitsResponse> {
+  async getTFBSHits(recordId: string, region?: string): Promise<TFBSHitsResponse> {
     const record = this.findRecord(recordId)
     if (!record) {
       throw new Error(`Record not found: ${recordId}`)
@@ -396,22 +401,15 @@ export class JSONFileProvider extends DataProvider {
     // Navigate to TFBS hits: modules -> antismash.modules.tfbs_finder -> hits_by_region -> region
     const modules = record.modules || {}
     const tfbsFinder = modules['antismash.modules.tfbs_finder'] || {}
-    const hitsByRegion = tfbsFinder.hits_by_region || {}
-    
-    if (!hitsByRegion[region]) {
-      return {
-        record_id: recordId,
-        region: region,
-        count: 0,
-        hits: []
-      }
-    }
-    
-    const bindingSites = hitsByRegion[region] || []
-    
+    const hitsByRegion: Record<string, any[]> = tfbsFinder.hits_by_region || {}
+
+    const bindingSites = region === undefined
+      ? Object.keys(hitsByRegion).sort(byRegionNumber).flatMap(number => hitsByRegion[number])
+      : hitsByRegion[region] || []
+
     return {
       record_id: recordId,
-      region: region,
+      region: region ?? null,
       count: bindingSites.length,
       hits: bindingSites
     }

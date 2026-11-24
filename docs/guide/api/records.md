@@ -139,7 +139,7 @@ Get transcription factor binding site predictions for a record.
 - `record_id` - The genomic record ID
 
 **Query Parameters:**
-- `region` - Region number (default: "1")
+- `region` - Region number (optional). Without it, the hits of every region of the record are returned, in region order, and `region` in the response is `null`.
 
 **Response:**
 ```json

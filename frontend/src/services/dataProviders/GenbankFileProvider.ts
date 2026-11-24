@@ -332,7 +332,7 @@ export class GenbankFileProvider extends DataProvider {
   async getTFBSHits(recordId: string, region?: string): Promise<TFBSHitsResponse> {
     return {
       record_id: recordId,
-      region: region || '1',
+      region: region ?? null,
       count: 0,
       hits: []
     }
