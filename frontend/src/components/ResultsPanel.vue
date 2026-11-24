@@ -141,7 +141,11 @@ const loadedCount = computed(() =>
 const hasLoaded = computed(
   () => props.loadedRecords.length > 0 || props.loadedLoading || Boolean(props.loadedError)
 )
-const hasSearch = computed(() => Boolean(state.response) || state.loading)
+// With an index open, its results are on their way even before the first search returns
+const hasSearch = computed(() =>
+  Boolean(state.response || state.schema || state.schemaError || state.error)
+  || state.loading || state.schemaLoading
+)
 
 // The asked tab, unless it has nothing to show and the other one has.
 const active = computed<ResultsTab>(() => {

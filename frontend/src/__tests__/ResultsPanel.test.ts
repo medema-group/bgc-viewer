@@ -140,6 +140,21 @@ describe('ResultsPanel', () => {
     ])
   })
 
+  it('keeps the search tab while an open index has not returned results', async () => {
+    const { wrapper, provider } = await mountPanel('search', [loadedRecord], false)
+    provider.search.mockReturnValue(new Promise(() => {}))
+    void wrapper.props('search').openIndex()
+
+    await flushPromises()
+    expect(tabs({ wrapper, provider })).toEqual([['Search results', 'true'], ['Loaded data 1', 'false']])
+
+    // A failed search shows its error above the results, so the tab stays
+    provider.search.mockRejectedValue(new Error('outdated index'))
+    await wrapper.props('search').search()
+    await flushPromises()
+    expect(tabs({ wrapper, provider })).toEqual([['Search results', 'true'], ['Loaded data 1', 'false']])
+  })
+
   it('offers protoclusters, regions, and records, with regions selected', async () => {
     const { wrapper } = await mountPanel('search', [loadedRecord])
     const buttons = wrapper.findAll('.level-toggle button')
