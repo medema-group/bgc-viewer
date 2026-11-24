@@ -1,26 +1,27 @@
-"""Query protocluster search indexes with ``python -m bgc_viewer.search.cli``."""
+"""Query search indexes with ``python -m bgc_viewer.search.cli``."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from .api import LEVEL_SEARCHES, SEARCH_LEVELS
 from .index import (
     RecordHit,
-    RegionHit,
     Results,
     SearchError,
     SearchHit,
+    Sort,
+    facet_counts,
+    field_values,
     open_index,
-    search_protoclusters,
-    search_record,
-    search_region,
+    prepare_query,
 )
-
-_CLI_LEVELS = ("protocluster", "region", "record")
+from .query import build_filter_query, parse_filter_group
 
 
 HitFormatter = Callable[[int, Any], str]
@@ -31,11 +32,15 @@ examples (run these from the backend/ directory):
   # Build the backend indexes first
   uv run python preprocess_cli.py /path/to/data --output /tmp/bgv/attributes.db
 
-  # Exact, multi-valued, and analyzed (full-text) field queries
+  # Exact, multi-valued, and full-text (any text of the region) queries
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index product:terpene
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \\
       'pfam:PF00550 AND pfam:PF00668'
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam_name:"thioesterase"'
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'text:thioesterase'
+
+  # antiSMASH module results and numeric ranges
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \\
+      'substrates:Leu AND knowncluster_top_similarity:[50 TO 100]'
 
   # Path fields match by directory, stem, or extension
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'output_file:NC_003888'
@@ -46,17 +51,24 @@ examples (run these from the backend/ directory):
 
   # Boolean negation, numeric ranges, and pagination
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \\
-      'organism:Amycolatopsis NOT product:terpene'
+      'Amycolatopsis NOT product:terpene'
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' \\
       --offset 2 --limit 2
 
-  # Result granularity: protocluster (default), region, or record
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' \\
-      --level protocluster
-  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'product:terpene' \\
-      --level region
+  # Result granularity: region (default), record, or protocluster
   uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index 'pfam:PF00550' \\
       --level record
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index \\
+      'product:NRPS AND substrates:Leu' --level protocluster
+
+  # Structured filter (the query builder's JSON), sorted, with facet counts
+  uv run python -m bgc_viewer.search.cli search /tmp/bgv/tantivy.index --filter \\
+      '{"conditions": [{"field": "product_category", "operator": "in", "value": ["NRPS"]},
+                       {"field": "length", "operator": "gt", "value": 40000}]}' \\
+      --sort length:desc --facet product --facet organism
+
+  # Suggested values of a field, with region counts
+  uv run python -m bgc_viewer.search.cli values /tmp/bgv/tantivy.index pfam PF005
 """
 
 
@@ -66,33 +78,27 @@ def _source_label(output_file: str, input_file: str | None) -> str:
     return output_file
 
 
-def _format_protocluster_hit(position: int, hit: SearchHit) -> str:
+def _score_label(score: float | None) -> str:
+    return "sorted" if score is None else f"score={score:.4f}"
+
+
+def _format_region_hit(position: int, hit: SearchHit) -> str:
     fields = hit.fields
     source = _source_label(fields.get("output_file", ""), fields.get("input_file"))
     location = f"[{fields.get('start', '')}:{fields.get('end', '')}]"
+    protocluster = fields.get("protocluster_number")
+    unit = f"region={fields.get('region', '')}"
+    if protocluster is not None:
+        unit += f"  protocluster={protocluster}"
     return "\n".join(
         (
-            f"[{position}] score={hit.score:.4f}  {source}",
+            f"[{position}] {_score_label(hit.score)}  {source}",
+            f"      record={fields.get('record', '')}  {unit}  {location}",
             (
-                f"      record={fields.get('record', '')}  "
-                f"region={fields.get('region', '')}  "
-                f"protocluster={fields.get('protocluster', '')}  {location}"
-            ),
-            (
-                f"      product={fields.get('product', '')}  "
-                f"category={fields.get('category', '')}"
+                f"      product={', '.join(fields.get('product', []))}  "
+                f"category={', '.join(fields.get('product_category', []))}"
             ),
             f"      organism={fields.get('organism', '')}",
-        )
-    )
-
-
-def _format_region_hit(position: int, hit: RegionHit) -> str:
-    source = _source_label(hit.output_file, hit.input_file)
-    return "\n".join(
-        (
-            f"[{position}] score={hit.score:.4f}  {source}",
-            f"      record={hit.record}  region={hit.region}",
         )
     )
 
@@ -101,14 +107,18 @@ def _format_record_hit(position: int, hit: RecordHit) -> str:
     source = _source_label(hit.output_file, hit.input_file)
     return "\n".join(
         (
-            f"[{position}] score={hit.score:.4f}  {source}",
+            f"[{position}] {_score_label(hit.score)}  {source}",
             f"      record={hit.record}",
         )
     )
 
 
 def _print_results(
-    result: Results[Any], format_hit: HitFormatter, query: str, offset: int
+    result: Results[Any],
+    format_hit: HitFormatter,
+    query: str,
+    offset: int,
+    unit: str,
 ) -> None:
     print(f"query: {query}")
     shown = len(result.hits)
@@ -118,28 +128,45 @@ def _print_results(
     first = offset + 1
     last = offset + shown
     more = " (more available)" if result.has_more else ""
-    print(f"showing {first}-{last}{more}")
+    print(f"showing {first}-{last}{more} of {result.total} matching {unit}s")
     for position, hit in enumerate(result.hits, start=first):
         print(format_hit(position, hit))
 
 
+def _parse_sort(value: str | None) -> Sort | None:
+    if not value:
+        return None
+    name, _, order = value.partition(":")
+    return Sort(field=name, descending=order == "desc")
+
+
 def _search_command(args: argparse.Namespace) -> int:
-    query = " ".join(args.query)
+    if args.filter and args.query:
+        print("error: pass either QUERY or --filter, not both", file=sys.stderr)
+        return 2
+    label = args.filter or " ".join(args.query)
     result: Results[Any]
     format_hit: HitFormatter
     try:
         target = open_index(Path(args.index_directory))
-        if args.level == "region":
-            result = search_region(target, query, offset=args.offset, limit=args.limit)
-            format_hit = _format_region_hit
-        elif args.level == "record":
-            result = search_record(target, query, offset=args.offset, limit=args.limit)
-            format_hit = _format_record_hit
-        else:
-            result = search_protoclusters(
-                target, query, offset=args.offset, limit=args.limit
+        if args.filter:
+            query = build_filter_query(
+                target, parse_filter_group(json.loads(args.filter))
             )
-            format_hit = _format_protocluster_hit
+        else:
+            query = prepare_query(target, label)
+        search, kind = LEVEL_SEARCHES[args.level]
+        format_hit = (
+            _format_record_hit if args.level == "record" else _format_region_hit
+        )
+        result = search(
+            target,
+            query,
+            offset=args.offset,
+            limit=args.limit,
+            sort=_parse_sort(args.sort),
+        )
+        facets = facet_counts(target, query, args.facet or (), kind=kind)
     except SearchError as error:
         print(f"error: [{error.code}] {error}", file=sys.stderr)
         return 2
@@ -147,14 +174,37 @@ def _search_command(args: argparse.Namespace) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
-    _print_results(result, format_hit, query, args.offset)
+    _print_results(result, format_hit, label, args.offset, kind)
+    for name, buckets in facets.items():
+        counts = ", ".join(f"{bucket.value} ({bucket.count})" for bucket in buckets)
+        print(f"facet {name}: {counts or 'no values'}")
+    return 0
+
+
+def _values_command(args: argparse.Namespace) -> int:
+    try:
+        target = open_index(Path(args.index_directory))
+        values = field_values(
+            target,
+            args.field,
+            args.contains,
+            args.size,
+            kind=LEVEL_SEARCHES[args.level][1],
+        )
+    except SearchError as error:
+        print(f"error: [{error.code}] {error}", file=sys.stderr)
+        return 2
+    for bucket in values:
+        print(f"{bucket.count:>8}  {bucket.value}")
+    if not values:
+        print("no values")
     return 0
 
 
 def _build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m bgc_viewer.search.cli",
-        description=("Query a Tantivy protocluster search index from Python."),
+        description=("Query a Tantivy region search index from Python."),
         epilog=_CLI_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -170,12 +220,28 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     query_parser.add_argument(
         "query",
-        nargs="+",
+        nargs="*",
         metavar="QUERY",
         help=(
             "Tantivy query string. Pass it as one quoted argument or as "
             "separate tokens, which are joined with spaces."
         ),
+    )
+    query_parser.add_argument(
+        "--filter",
+        metavar="JSON",
+        help="Structured filter (a FilterGroup as JSON) instead of a QUERY.",
+    )
+    query_parser.add_argument(
+        "--sort",
+        metavar="FIELD[:desc]",
+        help="Order hits by a single-valued field instead of by relevance.",
+    )
+    query_parser.add_argument(
+        "--facet",
+        action="append",
+        metavar="FIELD",
+        help="Count the values of FIELD over all matches (repeatable).",
     )
     query_parser.add_argument(
         "--offset",
@@ -191,13 +257,35 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     query_parser.add_argument(
         "--level",
-        choices=_CLI_LEVELS,
-        default="protocluster",
+        choices=SEARCH_LEVELS,
+        default="region",
         help=(
-            "Result granularity: protocluster (default) reports each matching "
-            "protocluster, region collapses matches to unique regions, and "
-            "record collapses them to unique records."
+            "Result granularity: region (default) reports each matching "
+            "region, record collapses matches to unique records, and "
+            "protocluster reports each protocluster that matches on its own."
         ),
+    )
+
+    values_parser = subparsers.add_parser(
+        "values", help="Suggest values of a field, with region or protocluster counts."
+    )
+    values_parser.add_argument("index_directory", metavar="INDEX_DIRECTORY")
+    values_parser.add_argument("field", metavar="FIELD")
+    values_parser.add_argument(
+        "contains",
+        nargs="?",
+        default="",
+        metavar="TEXT",
+        help="Text the values must contain, ignoring case.",
+    )
+    values_parser.add_argument(
+        "--size", type=int, default=20, help="Number of values (default: 20)."
+    )
+    values_parser.add_argument(
+        "--level",
+        choices=SEARCH_LEVELS,
+        default="region",
+        help="Count regions (default and record) or protoclusters.",
     )
     return parser
 
@@ -205,6 +293,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
 def _run_cli(args: argparse.Namespace) -> int:
     if args.command == "search":
         return _search_command(args)
+    if args.command == "values":
+        return _values_command(args)
     raise AssertionError(f"unhandled command: {args.command}")
 
 

@@ -13,6 +13,9 @@ export interface RecordInfo {
   recordInfo: {
     description?: string
   }
+  /** Counts the file providers report in record searches. */
+  regionCount?: number
+  featureCount?: number
 }
 
 export interface Region {
@@ -28,11 +31,6 @@ export interface Feature {
   location: string
   qualifiers?: Record<string, any>
   [key: string]: any
-}
-
-export interface RegionBoundaries {
-  start: number
-  end: number
 }
 
 export interface MiBIGEntry {
@@ -69,7 +67,8 @@ export interface TFBSHit {
 
 export interface TFBSHitsResponse {
   record_id: string
-  region: string
+  /** The region asked for, or null for the hits of the whole record */
+  region: string | null
   count: number
   hits: TFBSHit[]
 }
@@ -105,7 +104,6 @@ export interface ResistanceFeaturesResponse {
 
 export interface FeaturesResponse {
   features: Feature[]
-  region_boundaries?: RegionBoundaries
 }
 
 export interface RegionsResponse {
@@ -114,55 +112,130 @@ export interface RegionsResponse {
 
 export type PfamColorMap = Record<string, string>
 
-export type SearchLevel = 'protocluster' | 'region' | 'record'
+/** The unit a search lists: regions, records holding a matching region, or single protoclusters. */
+export type SearchLevel = 'region' | 'record' | 'protocluster'
 
 export interface SearchFieldInfo {
   name: string
-  kind: 'exact' | 'full_text' | 'numeric' | 'path'
+  kind: 'exact' | 'full_text' | 'numeric' | 'path' | 'boolean'
+  label: string
+  group: string
+  multi: boolean
   default_search: boolean
   description: string
+  /** Structured-filter operators the field supports. */
+  operators: FilterOperator[]
+  /** Whether the field's values can be counted and suggested. */
+  facet: boolean
+  /** Whether hits can be sorted by the field. */
+  sortable: boolean
 }
 
 export interface SearchSchema {
   fields: SearchFieldInfo[]
   examples: string[]
   query_syntax_url: string
+  /** Pseudo-field of a filter condition that runs a query string. */
+  raw_query_field: string
 }
 
-export interface ProtoclusterSearchHit {
-  score: number
-  fields: {
-    record: string
-    region: number
-    protocluster: number
-    start: number | null
-    end: number | null
-    product: string
-    category: string
-    organism: string
-    output_file: string
-    input_file: string
-  }
+export type FilterOperator =
+  | 'in' | 'not_in' | 'equals' | 'not_equals'
+  | 'contains' | 'not_contains' | 'starts_with' | 'ends_with'
+  | 'gt' | 'gte' | 'lt' | 'lte' | 'between'
+  | 'exists' | 'not_exists'
+  | 'matches'
+
+export type FilterValue = string | number | null | (string | number | null)[]
+
+/** One field/operator/value comparison of a structured filter (BGC Atlas model). */
+export interface FilterCondition {
+  id?: string
+  field: string
+  operator: FilterOperator
+  value?: FilterValue
+}
+
+/** Conditions and nested groups joined by one operator. */
+export interface FilterGroup {
+  id?: string
+  operator: 'AND' | 'OR'
+  conditions: FilterCondition[]
+  groups: FilterGroup[]
+}
+
+export interface FacetBucket {
+  value: string
+  count: number
+}
+
+/** What a search asks: a query string, or a structured filter. */
+export type SearchCriteria = { query: string } | { filter: FilterGroup }
+
+export interface SearchSort {
+  field: string
+  order: 'asc' | 'desc'
+}
+
+export interface StructuredSearchOptions {
+  page?: number
+  perPage?: number
+  sort?: SearchSort | null
+  facets?: string[]
+  facetSize?: number
+}
+
+export interface FieldValuesResponse {
+  field: string
+  values: FacetBucket[]
+}
+
+/** The stored summary of a region or protocluster hit. */
+export interface RegionHitFields {
+  record: string
+  /** The region's number, or a protocluster's parent region number. */
+  region: number
+  start: number | null
+  end: number | null
+  length: number | null
+  product: string[]
+  product_category: string[]
+  organism?: string
+  output_file: string
+  input_file?: string
 }
 
 export interface RegionSearchHit {
-  score: number
-  record: string
-  region: number
-  output_file: string
-  input_file: string | null
+  /** Relevance score, or null when hits are sorted by a field. */
+  score: number | null
+  fields: RegionHitFields
+}
+
+/** One protocluster that matches every condition on its own; its extent is its full location. */
+export interface ProtoclusterSearchHit {
+  score: number | null
+  fields: RegionHitFields & { protocluster_number: number }
 }
 
 export interface RecordSearchHit {
-  score: number
+  score: number | null
   record: string
   output_file: string
   input_file: string | null
+  /** Record list details from the SQLite record index; null if the record is not found there. */
+  description: string | null
+  organism: string | null
+  region_count: number | null
+  feature_count: number | null
 }
 
 export interface SearchResponse<T> {
   hits: T[]
   has_more: boolean
+  /** Every matching protocluster at the protocluster level; every matching region otherwise, at the record level too. */
+  total: number
+  /** Most common values of each requested facet field over all matches. */
+  facets: Record<string, FacetBucket[]>
 }
 
 /**
@@ -209,11 +282,6 @@ export abstract class DataProvider {
   abstract getRecordFeatures(recordId: string): Promise<FeaturesResponse>
 
   /**
-   * Get features for a specific region within a record
-   */
-  abstract getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse>
-
-  /**
    * Get PFAM domain color mapping
    */
   abstract getPfamColorMap(): Promise<PfamColorMap>
@@ -224,7 +292,8 @@ export abstract class DataProvider {
   getMiBIGEntries(recordId: string, locusTag: string, region?: string): Promise<MiBIGEntriesResponse>
 
   /**
-   * Get TFBS finder binding site hits for a specific region
+   * Get TFBS finder binding site hits for a region, or for every region of the record
+   * when no region is given
    */
   getTFBSHits(recordId: string, region?: string): Promise<TFBSHitsResponse>
 

@@ -15,6 +15,10 @@ import {
 import { fetchPfamColorMap } from './colorMapUtils'
 import { parseLocation } from '@/utils/location'
 
+/** Orders region keys numerically, with any non-numeric key last. */
+const byRegionNumber = (a: string, b: string): number =>
+  (Number(a) || Infinity) - (Number(b) || Infinity) || a.localeCompare(b)
+
 export interface JSONFileProviderOptions {
   records?: any[]
   pfamColorMap?: PfamColorMap
@@ -296,56 +300,6 @@ export class JSONFileProvider extends DataProvider {
   }
 
   /**
-   * Get features for a specific region within a record
-   */
-  async getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse> {
-    const record = this.findRecord(recordId)
-    if (!record) {
-      throw new Error(`Record not found: ${recordId}`)
-    }
-
-    const features: Feature[] = record.features || []
-    
-    // Extract region number from regionId (format: "region_1", "region_2", etc.)
-    const regionNumber = regionId.replace('region_', '')
-    
-    // Find the region feature by matching region_number qualifier
-    const regionFeature = features.find(f => {
-      if (f.type !== 'region') return false
-      const featureRegionNumber = f.qualifiers?.region_number?.[0]
-      // Compare as strings since qualifiers can be strings or numbers
-      return String(featureRegionNumber) === regionNumber
-    })
-    
-    if (!regionFeature) {
-      throw new Error(`Region not found: ${regionId}`)
-    }
-
-    const regionLocation = parseLocation(regionFeature.location)
-    
-    if (!regionLocation) {
-      throw new Error(`Invalid region location: ${regionFeature.location}`)
-    }
-
-    // Filter features that fall within the region boundaries
-    const regionFeatures = features.filter(feature => {
-      const location = parseLocation(feature.location)
-      if (!location) return false
-      
-      // Check if feature overlaps with region
-      return !(location.end < regionLocation.start || location.start > regionLocation.end)
-    })
-
-    return {
-      features: regionFeatures,
-      region_boundaries: {
-        start: regionLocation.start,
-        end: regionLocation.end
-      }
-    }
-  }
-
-  /**
    * Get PFAM domain color mapping
    */
   async getPfamColorMap(): Promise<PfamColorMap> {
@@ -435,9 +389,10 @@ export class JSONFileProvider extends DataProvider {
   }
 
   /**
-   * Get TFBS finder binding site hits for a specific region
+   * Get TFBS finder binding site hits for a region, or for every region of the record
+   * when no region is given
    */
-  async getTFBSHits(recordId: string, region: string = '1'): Promise<TFBSHitsResponse> {
+  async getTFBSHits(recordId: string, region?: string): Promise<TFBSHitsResponse> {
     const record = this.findRecord(recordId)
     if (!record) {
       throw new Error(`Record not found: ${recordId}`)
@@ -446,22 +401,15 @@ export class JSONFileProvider extends DataProvider {
     // Navigate to TFBS hits: modules -> antismash.modules.tfbs_finder -> hits_by_region -> region
     const modules = record.modules || {}
     const tfbsFinder = modules['antismash.modules.tfbs_finder'] || {}
-    const hitsByRegion = tfbsFinder.hits_by_region || {}
-    
-    if (!hitsByRegion[region]) {
-      return {
-        record_id: recordId,
-        region: region,
-        count: 0,
-        hits: []
-      }
-    }
-    
-    const bindingSites = hitsByRegion[region] || []
-    
+    const hitsByRegion: Record<string, any[]> = tfbsFinder.hits_by_region || {}
+
+    const bindingSites = region === undefined
+      ? Object.keys(hitsByRegion).sort(byRegionNumber).flatMap(number => hitsByRegion[number])
+      : hitsByRegion[region] || []
+
     return {
       record_id: recordId,
-      region: region,
+      region: region ?? null,
       count: bindingSites.length,
       hits: bindingSites
     }

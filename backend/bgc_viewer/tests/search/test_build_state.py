@@ -31,7 +31,7 @@ from bgc_viewer.search.build_state import (
 )
 from bgc_viewer.search.api import error_response
 
-LEVELS = ("protocluster", "region", "record")
+LEVELS = ("region", "record")
 
 
 def _never_live() -> bool:
@@ -236,7 +236,7 @@ class TestSearchEndpointsDuringRebuild:
         db_path, _ = test_database
         _select_database(search_client, db_path)
         mark_building(db_path.parent)
-        _search(search_client, "protocluster")
+        _search(search_client, "region")
         assert is_building(db_path.parent)
 
     def test_request_body_is_still_validated_before_the_guard(
@@ -245,7 +245,7 @@ class TestSearchEndpointsDuringRebuild:
         db_path, _ = test_database
         _select_database(search_client, db_path)
         monkeypatch.setitem(app_module.PREPROCESSING_STATUS, "is_running", True)
-        response = search_client.post("/api/search/protocluster", json={"query": 123})
+        response = search_client.post("/api/search/region", json={"query": 123})
         assert response.status_code == 400
         assert json.loads(response.data)["error"]["code"] == "invalid_request"
 
@@ -254,7 +254,7 @@ class TestSearchEndpointsDuringRebuild:
     ):
         db_path, _ = test_database
         _select_database(search_client, db_path)
-        response = _search(search_client, "protocluster")
+        response = _search(search_client, "region")
         assert response.status_code == 200
         assert len(json.loads(response.data)["hits"]) == 2
 
@@ -264,6 +264,6 @@ class TestSearchEndpointsDuringRebuild:
         empty_db = temp_dir / "attributes.db"
         empty_db.write_text("")
         _select_database(search_client, empty_db)
-        response = _search(search_client, "protocluster")
+        response = _search(search_client, "region")
         assert response.status_code == 404
         assert json.loads(response.data)["error"]["code"] == "missing_index"

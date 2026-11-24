@@ -4,6 +4,7 @@ from flask_session import Session
 import json
 import os
 import re
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -20,18 +21,19 @@ from .data_loader import load_specific_record
 from .file_utils import match_location
 from .database import get_database_entries, get_database_info
 from .search.api import (
-    SearchResponse,
+    ValuesResponse,
+    add_record_details,
     build_schema_response,
     error_response,
     parse_search_request,
+    parse_values_request,
+    run_search,
 )
 from .search.build_state import guard_build_state
 from .search.index import (
     SearchError,
+    field_values,
     open_index,
-    search_protoclusters,
-    search_record,
-    search_region,
 )
 
 # Load environment variables from .env file
@@ -645,77 +647,6 @@ def get_record_regions(record_id):
     )
 
 
-@app.route("/api/records/<record_id>/regions/<region_id>/features")
-def get_region_features(record_id, region_id):
-    """API endpoint to get all features within a specific region."""
-    # Get data from session cache
-    antismash_data, data_root = get_current_entry_data()
-
-    if not antismash_data:
-        return jsonify({"error": "No data loaded. Please load an entry first."}), 404
-
-    record = next(
-        (r for r in antismash_data.get("records", []) if r.get("id") == record_id), None
-    )
-    if not record:
-        return jsonify({"error": "Record not found"}), 404
-
-    # Find the region to get its boundaries
-    region_feature = None
-    for feature in record.get("features", []):
-        if (
-            feature.get("type") == "region"
-            and f"region_{feature.get('qualifiers', {}).get('region_number', [''])[0]}"
-            == region_id
-        ):
-            region_feature = feature
-            break
-
-    if not region_feature:
-        return jsonify({"error": "Region not found"}), 404
-
-    # Parse region boundaries
-    region_location = region_feature.get("location", "")
-    region_start, region_end = match_location(region_location) or (None, None)
-    if region_start is None or region_end is None:
-        return jsonify({"error": "Invalid region location format"}), 400
-
-    # Get optional query parameters
-    feature_type = request.args.get("type")
-
-    # Filter features that fall within the region boundaries
-    region_features = []
-    for feature in record.get("features", []):
-        # Skip the region feature itself
-        if feature.get("type") == "region":
-            continue
-
-        # Parse feature location
-        feature_location = feature.get("location", "")
-        feature_start, feature_end = match_location(feature_location) or (None, None)
-        if feature_start is None or feature_end is None:
-            continue
-
-        # Check if feature overlaps with region (allow partial overlaps)
-        if not (feature_end < region_start or feature_start > region_end):
-            # Apply type filter if specified
-            if feature_type and feature.get("type") != feature_type:
-                continue
-            region_features.append(feature)
-
-    return jsonify(
-        {
-            "record_id": record_id,
-            "region_id": region_id,
-            "region_location": region_location,
-            "region_boundaries": {"start": region_start, "end": region_end},
-            "feature_type": feature_type or "all",
-            "count": len(region_features),
-            "features": region_features,
-        }
-    )
-
-
 @app.route("/api/records/<record_id>/features")
 def get_record_features(record_id):
     """API endpoint to get all features for a specific record."""
@@ -906,10 +837,10 @@ def get_tfbs_hits(record_id):
     Data structure: records[i].modules["antismash.modules.tfbs_finder"]["hits_by_region"][region]
 
     Query parameters:
-        region: Region number to query (default: "1")
+        region: Region number to query; without it, the hits of every region
+            of the record, in region order
     """
-    # Get region parameter from query string (defaults to "1")
-    region = request.args.get("region", "1")
+    region = request.args.get("region")
 
     # Get data from session cache
     antismash_data, data_root = get_current_entry_data()
@@ -929,14 +860,14 @@ def get_tfbs_hits(record_id):
     tfbs_finder = modules.get("antismash.modules.tfbs_finder", {})
     hits_by_region = tfbs_finder.get("hits_by_region", {})
 
-    # Check if region key exists
-    if region not in hits_by_region:
-        return jsonify(
-            {"record_id": record_id, "region": region, "count": 0, "hits": []}
-        )
-
-    # Get binding sites for this region
-    binding_sites = hits_by_region[region]
+    if region is None:
+        binding_sites = [
+            hit
+            for number in sorted(hits_by_region, key=_region_sort_key)
+            for hit in hits_by_region[number]
+        ]
+    else:
+        binding_sites = hits_by_region.get(region, [])
 
     return jsonify(
         {
@@ -946,6 +877,11 @@ def get_tfbs_hits(record_id):
             "hits": binding_sites,
         }
     )
+
+
+def _region_sort_key(number: str) -> tuple[int, str]:
+    """Order region keys numerically, with any non-numeric key last."""
+    return (int(number), "") if number.isdigit() else (sys.maxsize, number)
 
 
 @app.route("/api/records/<record_id>/tta-codons")
@@ -1207,36 +1143,49 @@ def search_errors(view):
     return wrapper
 
 
-@app.route("/api/search/protocluster", methods=["POST"])
-@search_errors
-def search_protocluster_endpoint():
-    """Search the embedded index, returning one self-contained hit per protocluster."""
-    req = parse_search_request(request.get_json(silent=True))
-    index = _open_search_index()
-    results = search_protoclusters(
-        index, req.query, offset=req.offset, limit=req.per_page
-    )
-    return jsonify(SearchResponse.from_results(results)), 200
-
-
 @app.route("/api/search/region", methods=["POST"])
 @search_errors
 def search_region_endpoint():
-    """Search the embedded index, collapsing matches to unique scored regions."""
+    """Search the embedded index, returning one self-contained hit per region."""
     req = parse_search_request(request.get_json(silent=True))
     index = _open_search_index()
-    results = search_region(index, req.query, offset=req.offset, limit=req.per_page)
-    return jsonify(SearchResponse.from_results(results)), 200
+    return jsonify(run_search(index, req, "region")), 200
 
 
 @app.route("/api/search/record", methods=["POST"])
 @search_errors
 def search_record_endpoint():
-    """Search the embedded index, collapsing matches to unique scored records."""
+    """Search the embedded index, collapsing matches to unique scored records.
+
+    Each record hit carries the record list details from the SQLite index.
+    """
     req = parse_search_request(request.get_json(silent=True))
     index = _open_search_index()
-    results = search_record(index, req.query, offset=req.offset, limit=req.per_page)
-    return jsonify(SearchResponse.from_results(results)), 200
+    response = run_search(index, req, "record")
+    return jsonify(add_record_details(response, _current_search_database())), 200
+
+
+@app.route("/api/search/protocluster", methods=["POST"])
+@search_errors
+def search_protocluster_endpoint():
+    """Search the embedded index, returning one hit per protocluster.
+
+    A protocluster matches only when every condition holds for that one
+    protocluster, unlike a region, whose values combine all its protoclusters.
+    """
+    req = parse_search_request(request.get_json(silent=True))
+    index = _open_search_index()
+    return jsonify(run_search(index, req, "protocluster")), 200
+
+
+@app.route("/api/search/values")
+@search_errors
+def search_values_endpoint():
+    """Suggest values of one field, with counts at a level, for a value picker."""
+    req = parse_values_request(request.args)
+    index = _open_search_index()
+    values = field_values(index, req.field, req.contains, req.size, kind=req.kind)
+    return jsonify(ValuesResponse(field=req.field, values=tuple(values))), 200
 
 
 @app.route("/api/search/schema")

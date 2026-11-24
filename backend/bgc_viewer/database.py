@@ -172,3 +172,42 @@ def get_database_entries(db_path, page=1, per_page=50):
 
     except Exception as e:
         return {"error": f"Failed to query database: {str(e)}"}
+
+
+def get_record_details(db_path, keys):
+    """Look up the record list details of the given ``(file path, record id)`` keys.
+
+    Returns a mapping from each key found to its ``description``,
+    ``organism``, ``region_count``, and ``feature_count``, the values the
+    record list shows. Keys absent from the database are left out, and so is
+    everything when the database predates these columns.
+    """
+    keys = list(dict.fromkeys(keys))
+    if not keys:
+        return {}
+    placeholders = ", ".join("(?, ?)" for _ in keys)
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT f.path, r.record_id, r.description, r.organism,
+                   r.region_count, r.feature_count
+            FROM records r
+            JOIN files f ON r.file_id = f.id
+            WHERE (f.path, r.record_id) IN (VALUES {placeholders})
+            """,
+            [value for key in keys for value in key],
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    finally:
+        conn.close()
+    return {
+        (path, record_id): {
+            "description": description or "",
+            "organism": organism or "",
+            "region_count": region_count or 0,
+            "feature_count": feature_count or 0,
+        }
+        for path, record_id, description, organism, region_count, feature_count in rows
+    }

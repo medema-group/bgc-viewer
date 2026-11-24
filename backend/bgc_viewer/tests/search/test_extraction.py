@@ -17,7 +17,14 @@ def _values(document, name):
     return document.to_dict().get(name, [])
 
 
-def test_extracts_canonical_protocluster_document(tmp_path):
+def _regions(documents):
+    """The region documents among ``documents``, leaving out protoclusters."""
+    return [
+        document for document in documents if _values(document, "kind") == ["region"]
+    ]
+
+
+def test_extracts_canonical_region_document(tmp_path):
     source = {
         "version": "8.0.2",
         "input_file": "sample.gbk",
@@ -62,7 +69,7 @@ def test_extracts_canonical_protocluster_document(tmp_path):
                     },
                     {
                         "type": "gene",
-                        "location": "[700:800](+)",
+                        "location": "[900:950](+)",
                         "qualifiers": {"gene": ["touches-boundary"]},
                     },
                 ],
@@ -73,23 +80,41 @@ def test_extracts_canonical_protocluster_document(tmp_path):
     source_file.parent.mkdir()
     source_file.write_text(json.dumps(source))
 
-    [document] = extract_documents([Path("nested/sample.json")], tmp_path)
+    [document] = _regions(extract_documents([Path("nested/sample.json")], tmp_path))
 
     assert document.to_dict() == {
+        "kind": ["region"],
+        "text": [
+            "record-1",
+            "NRPS",
+            "Example organism",
+            "geneA",
+            "LOC_1",
+            "PF00512",
+            "His Kinase",
+        ],
         "record": ["record-1"],
         "region": [2],
-        "protocluster": [3],
-        "start": [200],
-        "end": [700],
+        "start": [100],
+        "end": [900],
+        "length": [800],
         "product": ["NRPS"],
-        "category": ["NRPS"],
+        "product_category": ["NRPS"],
+        "num_protoclusters": [1],
+        "is_complete": [True],
         "organism": ["Example organism"],
-        "pfam": ["PF00512"],
-        "pfam_name": ["His Kinase"],
-        "gene": ["geneA"],
-        "locus": ["LOC_1"],
         "output_file": ["nested/sample.json"],
         "input_file": ["sample.gbk"],
+        "gene": ["geneA"],
+        "locus": ["LOC_1"],
+        "num_cds_features": [0],
+        "n_core_biosynthetic": [0],
+        "n_additional_biosynthetic": [0],
+        "n_transport": [0],
+        "n_regulatory": [0],
+        "n_resistance": [0],
+        "pfam": ["PF00512"],
+        "pfam_desc": ["His Kinase"],
     }
 
 
@@ -128,10 +153,10 @@ def test_extract_documents_from_compressed_json(tmp_path, suffix, compress):
     source_file.parent.mkdir()
     source_file.write_bytes(compress(json.dumps(source).encode("utf-8")))
 
-    [document] = extract_documents([relative_path], tmp_path)
+    [document] = _regions(extract_documents([relative_path], tmp_path))
 
     assert _values(document, "record") == ["record-1"]
-    assert _values(document, "protocluster") == [1]
+    assert _values(document, "region") == [1]
     assert _values(document, "product") == ["NRPS"]
     assert _values(document, "input_file") == ["sample.gbk"]
     assert _values(document, "output_file") == [relative_path.as_posix()]
@@ -165,7 +190,7 @@ def test_extracts_input_file_after_records(tmp_path):
     }
     (tmp_path / "sample.json").write_text(json.dumps(source))
 
-    [document] = extract_documents([Path("sample.json")], tmp_path)
+    [document] = _regions(extract_documents([Path("sample.json")], tmp_path))
 
     assert _values(document, "input_file") == ["late.gbk"]
 
@@ -202,7 +227,7 @@ def test_extracts_from_data_without_reading_a_file():
         output_file="memory/sample.json",
         input_file=source["input_file"],
     )
-    [document] = extract(source["records"], source_file)
+    [document] = _regions(extract(source["records"], source_file))
 
     assert document.to_dict()["record"] == ["record-1"]
     assert document.to_dict()["input_file"] == ["sample.gbk"]
@@ -239,9 +264,9 @@ def test_extracts_regardless_of_declared_version():
         output_file="memory/sample.json",
         input_file="",
     )
-    [document] = extract(source["records"], source_file)
+    [document] = _regions(extract(source["records"], source_file))
 
-    assert document.to_dict()["protocluster"] == [1]
+    assert document.to_dict()["region"] == [1]
     # An empty input_file is not indexed.
     assert "input_file" not in document.to_dict()
 
@@ -302,11 +327,19 @@ def test_selects_smallest_parent_region_and_warns_for_multiple_matches(
     (tmp_path / "sample.json").write_text(json.dumps(source))
 
     with pytest.warns(ExtractionWarning) as caught:
-        document = next(extract_documents([Path("sample.json")], tmp_path))
+        documents = list(extract_documents([Path("sample.json")], tmp_path))
 
     warning = caught[0].message
     assert isinstance(warning, ExtractionWarning)
-    assert _values(document, "region") == [1]
+    # Every region is indexed, but the protocluster belongs to region 1 only.
+    by_region = {
+        _values(document, "region")[0]: document for document in _regions(documents)
+    }
+    assert sorted(by_region) == [1, 2, 9]
+    assert _values(by_region[1], "product") == ["PKS"]
+    assert _values(by_region[1], "num_protoclusters") == [1]
+    assert _values(by_region[2], "num_protoclusters") == [0]
+    assert _values(by_region[9], "num_protoclusters") == [0]
     assert warning.code == "multiple_parent_regions"
     assert warning.source_path == "sample.json"
     assert warning.record_id == "record-1"
@@ -400,7 +433,7 @@ def test_stops_at_configured_warning_threshold_per_file_and_code(tmp_path):
         )
 
 
-def test_warns_and_yields_nothing_when_file_has_no_protoclusters(tmp_path):
+def test_warns_and_yields_nothing_when_file_has_no_regions(tmp_path):
     source = {
         "version": "8.0.2",
         "records": [{"id": "record-1", "features": []}],
@@ -413,7 +446,7 @@ def test_warns_and_yields_nothing_when_file_has_no_protoclusters(tmp_path):
     warning = caught[0].message
     assert isinstance(warning, ExtractionWarning)
     assert documents == []
-    assert warning.code == "no_protoclusters"
+    assert warning.code == "no_regions"
     assert warning.source_path == "sample.json"
 
 
@@ -452,7 +485,7 @@ def test_rejects_duplicate_biological_identity_across_source_files(tmp_path):
         list(extract_documents([Path("first.json"), Path("second.json")], tmp_path))
 
     message = str(caught.value)
-    assert "same.gbk:record-1:1:1" in message
+    assert "same.gbk:record-1:1" in message
     assert "first.json (antiSMASH 8.0.1)" in message
     assert "second.json (antiSMASH 9.0.0)" in message
 
@@ -547,8 +580,8 @@ def test_warns_when_pfam_annotation_has_no_usable_accession(tmp_path):
     warning = caught[0].message
     assert isinstance(warning, ExtractionWarning)
     assert _values(document, "pfam") == ["PF00512"]
-    assert _values(document, "pfam_name") == ["His Kinase"]
-    assert "Orphan description" not in _values(document, "pfam_name")
+    assert _values(document, "pfam_desc") == ["His Kinase"]
+    assert "Orphan description" not in _values(document, "pfam_desc")
     assert warning.code == "missing_pfam_accession"
     assert warning.source_path == "sample.json"
     assert warning.record_id == "record-1"
@@ -659,11 +692,11 @@ def test_cds_features_do_not_contribute_search_fields(tmp_path):
     assert _values(document, "gene") == ["real_gene"]
     assert _values(document, "locus") == ["REAL_1"]
     assert _values(document, "pfam") == ["PF00512"]
-    assert _values(document, "pfam_name") == ["Real Pfam"]
+    assert _values(document, "pfam_desc") == ["Real Pfam"]
     assert "cds_gene" not in _values(document, "gene")
     assert "CDS_IGNORABLE" not in _values(document, "locus")
     assert "PF99999" not in _values(document, "pfam")
-    assert "CDS decoy" not in _values(document, "pfam_name")
+    assert "CDS decoy" not in _values(document, "pfam_desc")
 
 
 def _protocluster_source(record_id, *, region_number="1", extra_features=()):
@@ -735,12 +768,11 @@ def test_parallel_extraction_matches_sequential(tmp_path):
     parallel = run(3)
 
     assert parallel == sequential
-    assert [doc["record"] for doc in parallel[0]] == [
-        ["rec0"],
-        ["rec1"],
-        ["rec2"],
-        ["rec3"],
-        ["rec4"],
+    # Each file yields its region, then the region's protocluster.
+    assert [(doc["record"], doc["kind"]) for doc in parallel[0]] == [
+        (record, kind)
+        for record in (["rec0"], ["rec1"], ["rec2"], ["rec3"], ["rec4"])
+        for kind in (["region"], ["protocluster"])
     ]
     assert parallel[1] == [("malformed_optional_feature", "file_3.json")]
 
@@ -756,6 +788,7 @@ def test_parallel_extraction_reports_the_first_failing_file(tmp_path):
         [Path("good.json"), Path("bad.json")], tmp_path, workers=2
     )
 
+    assert _values(next(documents), "record") == ["good"]
     assert _values(next(documents), "record") == ["good"]
     with pytest.raises(ExtractionError, match=r"bad\.json .*Invalid integer"):
         next(documents)
@@ -781,9 +814,12 @@ def test_file_progress_counts_files_whose_documents_were_yielded(tmp_path, worke
     assert events == [
         ("files", 0, 3),
         ("doc", "rec0"),
+        ("doc", "rec0"),
         ("files", 1, 3),
         ("doc", "rec1"),
+        ("doc", "rec1"),
         ("files", 2, 3),
+        ("doc", "rec2"),
         ("doc", "rec2"),
         ("files", 3, 3),
     ]

@@ -5,7 +5,7 @@ import type {
   SearchLevel
 } from './dataProviders/types'
 
-export type SearchHit = ProtoclusterSearchHit | RegionSearchHit | RecordSearchHit
+export type SearchHit = RegionSearchHit | RecordSearchHit | ProtoclusterSearchHit
 
 export interface SearchHitRecord {
   entryId: string
@@ -13,26 +13,24 @@ export interface SearchHitRecord {
   filename: string
 }
 
+/** The region a hit opens: its own, or a protocluster's parent region; none for a record. */
 export function regionIdFromHit(level: SearchLevel, hit: SearchHit): string {
   if (level === 'record') return ''
 
-  const region = level === 'protocluster'
-    ? (hit as ProtoclusterSearchHit).fields.region
-    : (hit as RegionSearchHit).region
-
-  return `region_${region}`
+  return `region_${(hit as RegionSearchHit).fields.region}`
 }
 
+/** The protocluster a protocluster hit zooms to; null at the other levels. */
 export function protoclusterNumberFromHit(level: SearchLevel, hit: SearchHit): number | null {
-  return level === 'protocluster'
-    ? (hit as ProtoclusterSearchHit).fields.protocluster
-    : null
+  if (level !== 'protocluster') return null
+
+  return (hit as ProtoclusterSearchHit).fields.protocluster_number
 }
 
 export function recordSelectionFromHit(level: SearchLevel, hit: SearchHit): SearchHitRecord {
-  const identity = level === 'protocluster'
-    ? (hit as ProtoclusterSearchHit).fields
-    : (hit as RegionSearchHit | RecordSearchHit)
+  const identity = level === 'record'
+    ? (hit as RecordSearchHit)
+    : (hit as RegionSearchHit).fields
 
   return {
     entryId: `${identity.output_file}:${identity.record}`,

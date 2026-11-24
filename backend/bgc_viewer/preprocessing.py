@@ -20,7 +20,7 @@ from . import bgc_scanner
 from .search.build_state import building
 from .search.document import generate_example_queries
 from .search.extraction import extract_documents
-from .search.index import build_index, collect_first_values
+from .search.index import build_index, collect_first_values, count_documents
 
 # Files scanned concurrently. The scanner releases the GIL, so threads scale
 # with cores until the disk becomes the bottleneck.
@@ -277,11 +277,16 @@ def _build_pair(
 
     # The search index is a fixed sibling of the database; its meta.json must
     # never be treated as a source file when scanning the input directory.
+    # Neither may that of any other Tantivy index in the input directory, such
+    # as a renamed or copied old one, which Tantivy marks with .managed.json.
     search_index_dir = db_path.parent / "tantivy.index"
     resolved_index_dir = search_index_dir.resolve()
 
     def is_index_artifact(path: Path) -> bool:
-        return path.resolve().is_relative_to(resolved_index_dir)
+        return (
+            path.resolve().is_relative_to(resolved_index_dir)
+            or (path.parent / ".managed.json").exists()
+        )
 
     # Populate metadata table with the data root (input directory)
     data_root = str(input_path.absolute())
@@ -337,7 +342,7 @@ def _build_pair(
     sqlite_seconds = perf_counter() - sqlite_started
     tantivy_started = perf_counter()
 
-    # Build the protocluster search index as a fixed sibling of the database.
+    # Build the region search index as a fixed sibling of the database.
     # The source files are the same explicit set used for the SQLite build,
     # resolved to paths relative to the input directory.
     search_files = []
@@ -393,7 +398,8 @@ def _build_pair(
             shutil.rmtree(search_index_dir, ignore_errors=True)
         raise
 
-    indexed = index.searcher().num_docs
+    indexed_regions = count_documents(index, "region")
+    indexed_protoclusters = count_documents(index, "protocluster")
 
     # Generate runnable example queries from the freshly built index and store
     # them in the attributes database so the schema endpoint can serve them.
@@ -417,7 +423,8 @@ def _build_pair(
         "files_processed": files_processed,
         "total_records": total_records,
         "database_path": str(db_path),
-        "indexed_protoclusters": indexed,
+        "indexed_regions": indexed_regions,
+        "indexed_protoclusters": indexed_protoclusters,
         "search_index_path": str(search_index_dir),
         "search_examples": len(example_rows),
     }

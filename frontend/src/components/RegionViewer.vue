@@ -1,68 +1,5 @@
 <template>
   <div class="region-viewer-wrapper">
-    <!-- Region Selector (shown when record is loaded) -->
-    <div v-if="recordInfo" class="controls">
-      <select v-if="regions.length > 0" v-model="selectedRegion" @change="onRegionChange" class="region-select">
-        <option value="">Show all features</option>
-        <option v-for="region in regions" :key="region.id" :value="region.id">
-          Region {{ region.region_number }} - {{ region.product.join(', ') }}
-        </option>
-      </select>
-
-      <!-- Show message when no regions are available -->
-      <div v-if="regions.length === 0 && !loading" class="no-regions-message">
-        No regions found - showing all features for this record
-      </div>
-      
-      <div v-if="availableTracks.length > 0" class="feature-controls">
-        <div class="multi-select-container">
-          <div class="multi-select-dropdown" :class="{ open: dropdownOpen }" @click="toggleDropdown">
-            <div class="selected-display">
-              <span v-if="selectedTracks.length === availableTracks.length">
-                All tracks ({{ selectedTracks.length }})
-              </span>
-              <span v-else-if="selectedTracks.length === 0">
-                No tracks selected
-              </span>
-              <span v-else>
-                {{ selectedTracks.length }} tracks selected
-              </span>
-              <span class="dropdown-arrow">▼</span>
-            </div>
-            <div v-if="dropdownOpen" class="dropdown-options" @click.stop>
-              <div class="select-all-option">
-                <label>
-                  <input 
-                    type="checkbox" 
-                    :checked="selectedTracks.length === availableTracks.length"
-                    :indeterminate="selectedTracks.length > 0 && selectedTracks.length < availableTracks.length"
-                    @change="toggleSelectAll"
-                  >
-                  Select All
-                </label>
-              </div>
-              <div class="option-separator"></div>
-              <div 
-                v-for="track in availableTracks" 
-                :key="track.id" 
-                class="dropdown-option"
-              >
-                <label>
-                  <input 
-                    type="checkbox" 
-                    :value="track.id"
-                    v-model="selectedTracks"
-                    @change="updateViewer"
-                  >
-                  {{ track.label }} ({{ track.annotationCount }})
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Current Record Info -->
     <div v-if="recordInfo" class="current-record-info">
       <span>Current Record: {{ recordInfo.recordId }} - {{ recordInfo?.recordInfo?.description }} </span>
@@ -132,19 +69,13 @@ export default {
     regions: {
       type: Array,
       default: () => []
-      // Expected shape: [{ id, region_number, product }]
+      // Expected shape: [{ id, region_number, product, start, end }]
     },
     // Features to display
     features: {
       type: Array,
       default: () => []
       // Expected shape: [{ type, location, qualifiers }]
-    },
-    // Region boundaries (optional, for region-specific view)
-    regionBoundaries: {
-      type: Object,
-      default: null
-      // Expected shape: { start, end }
     },
     // PFAM color mapping
     pfamColorMap: {
@@ -157,7 +88,8 @@ export default {
       type: String,
       default: ''
     },
-    initialProtoclusterNumber: {
+    // Number of a protocluster to zoom to and select instead of the region, as for a protocluster search hit
+    selectedProtoclusterNumber: {
       type: Number,
       default: null
     },
@@ -194,46 +126,33 @@ export default {
   setup(props, { emit, expose }) {
     const viewerContainer = ref(null)
     const selectedRegion = ref('')
+    // Protocluster the view is focused on; picking a region from the menu drops it
+    const focusedProtocluster = ref(null)
     const loading = ref(false)
     const error = ref('')
     
     // Track management
     const availableTracks = ref([])
     const selectedTracks = ref([])
-    const dropdownOpen = ref(false)
     const currentDomain = ref(null)
-    
-    // Compute current region number from selected region
-    const currentRegionNumber = computed(() => {
-      if (!selectedRegion.value || !props.regions.length) {
-        return '1' // Default to region 1 if no region selected
-      }
-      const region = props.regions.find(r => r.id === selectedRegion.value)
-      return region ? String(region.region_number) : '1'
-    })
     
     let regionViewer = null
     let allTrackData = {} // Store all generated tracks
     const selectedAnnotation = ref(null) // Track the selected annotation for highlighting
     const ANNOTATION_THRESHOLD = 500 // Max annotations to render before showing placeholder
-
-    const focusInitialProtocluster = () => {
-      if (props.initialProtoclusterNumber === null || !regionViewer) return
-
-      const annotationId = `protocluster-${props.initialProtoclusterNumber}`
-      const track = Object.values(allTrackData).find(candidate =>
-        candidate.annotations.some(annotation => annotation.id === annotationId)
-      )
-      const annotation = track?.annotations.find(candidate => candidate.id === annotationId)
-      if (!annotation) return
-
-      handleAnnotationClick(annotation, track)
-      regionViewer.zoomTo(annotation.start, annotation.end)
-    }
+    const REGION_ZOOM_DURATION = 1500 // Duration (ms) of the zoom out, pan and zoom in to a selected region
     
     // Derive selected element from selected annotation
     const selectedElement = computed(() => {
       return selectedAnnotation.value?.data || null
+    })
+
+    // Region number of the selected element: the region it lies in, else the selected region
+    const currentRegionNumber = computed(() => {
+      const location = selectedElement.value?.location && parseLocation(selectedElement.value.location)
+      const region = (location && props.regions.find(r => r.start < location.end && location.start < r.end))
+        || props.regions.find(r => r.id === selectedRegion.value)
+      return region ? String(region.region_number) : '1' // Default to region 1
     })
 
     // Watch for prop changes and rebuild the viewer
@@ -268,10 +187,18 @@ export default {
       selectedRegion.value = newVal
     }, { immediate: true })
 
+    watch(() => props.selectedProtoclusterNumber, (newVal) => {
+      focusedProtocluster.value = newVal
+    }, { immediate: true })
+
+    // Covers regions picked from the menu as well as region and protocluster search results.
+    // One watcher for both, so a hit that changes region and protocluster at once zooms once.
+    watch([selectedRegion, focusedProtocluster], () => {
+      clearSelection()
+      zoomToSelection()
+    })
+
     onMounted(() => {
-      // Add event listeners
-      document.addEventListener('click', handleClickOutside)
-      
       // Initial build if we already have features
       if (props.features && props.features.length > 0) {
         rebuildViewer()
@@ -279,8 +206,6 @@ export default {
     })
 
     onUnmounted(() => {
-      document.removeEventListener('click', handleClickOutside)
-      
       // Clean up TrackViewer instance to prevent stale references after HMR
       if (regionViewer) {
         regionViewer.destroy()
@@ -350,7 +275,6 @@ export default {
         }
         
         updateViewer()
-        focusInitialProtocluster()
         console.log('Viewer initialized and updated')
         
       } catch (err) {
@@ -360,9 +284,110 @@ export default {
       }
     }
     
-    const onRegionChange = () => {
-      // Emit event to parent to handle region change
-      emit('region-changed', selectedRegion.value)
+    const selectRegion = (regionId) => {
+      const unchanged = regionId === selectedRegion.value && focusedProtocluster.value === null
+      // A region picked from the menu replaces a focused protocluster
+      focusedProtocluster.value = null
+      if (unchanged) {
+        // Zoom back to the region, e.g. after panning away from it
+        clearSelection()
+        zoomToSelection()
+      } else if (regionId !== selectedRegion.value) {
+        // The selection watcher zooms to the region
+        selectedRegion.value = regionId
+        emit('region-changed', regionId)
+      }
+    }
+
+    const toggleTrack = (trackId) => {
+      selectedTracks.value = selectedTracks.value.includes(trackId)
+        ? selectedTracks.value.filter(id => id !== trackId)
+        : [...selectedTracks.value, trackId]
+      updateViewer()
+    }
+
+    const toggleAllTracks = () => {
+      selectedTracks.value = selectedTracks.value.length === availableTracks.value.length
+        ? []
+        : availableTracks.value.map(t => t.id)
+      updateViewer()
+    }
+
+    // Region and track options for the track viewer's menu
+    const getMenuItems = () => {
+      const items = [{
+        label: 'Zoom to',
+        children: [
+          { label: 'Whole record', action: () => selectRegion('') },
+          ...(props.regions.length > 0 ? [{ type: 'separator' }] : []),
+          ...props.regions.map(region => ({
+            label: `Region ${region.region_number} - ${region.product.join(', ')}`,
+            action: () => selectRegion(region.id)
+          }))
+        ]
+      }]
+      if (availableTracks.value.length > 0) {
+        items.push({
+          label: 'Tracks',
+          children: [
+            {
+              label: 'All tracks',
+              keepOpen: true,
+              checked: () => selectedTracks.value.length === availableTracks.value.length
+                || (selectedTracks.value.length > 0 && 'mixed'),
+              action: toggleAllTracks
+            },
+            { type: 'separator' },
+            ...availableTracks.value.map(track => ({
+              label: `${track.label} (${track.annotationCount})`,
+              keepOpen: true,
+              checked: () => selectedTracks.value.includes(track.id),
+              action: () => toggleTrack(track.id)
+            }))
+          ]
+        })
+      }
+      return items
+    }
+
+    // The full-location annotation of protocluster `number`, also when the viewport filters it out
+    const findProtoclusterAnnotation = (number) => {
+      const id = `protocluster-${number}`
+      for (const track of Object.values(allTrackData)) {
+        if (!track.id.startsWith('protocluster-track-')) continue
+        const annotation = (track._originalAnnotations || track.annotations).find(ann => ann.id === id)
+        if (annotation) return annotation
+      }
+      return null
+    }
+
+    // Zoom to start..end with a little room on either side
+    const zoomToSpan = (start, end, duration) => {
+      const padding = (end - start) * 0.02
+      regionViewer.zoomTo(start - padding, end + padding, duration)
+    }
+
+    // Zoom to and select the focused protocluster, else zoom to the selected region,
+    // or out to the whole record if none is selected
+    const zoomToSelection = (duration = REGION_ZOOM_DURATION) => {
+      if (!regionViewer) return
+      const protocluster = focusedProtocluster.value !== null
+        ? findProtoclusterAnnotation(focusedProtocluster.value)
+        : null
+      if (protocluster) {
+        // Selected as a click on it would, so its details show and its genes are highlighted
+        selectedAnnotation.value = protocluster
+        updateAnnotationHighlighting()
+        updateViewer()
+        zoomToSpan(protocluster.start, protocluster.end, duration)
+        return
+      }
+      const region = props.regions.find(r => r.id === selectedRegion.value)
+      if (region && region.start != null && region.end != null) {
+        zoomToSpan(region.start, region.end, duration)
+      } else {
+        regionViewer.resetZoom(duration)
+      }
     }
     
     const initializeViewer = () => {
@@ -372,39 +397,32 @@ export default {
       
       if (!viewerContainer.value) return
       
-      let minPos, maxPos, padding
+      let minPos, maxPos
       
-      if (props.regionBoundaries) {
-        // Use region boundaries if provided
-        minPos = props.regionBoundaries.start
-        maxPos = props.regionBoundaries.end
-        padding = (maxPos - minPos) * 0.02
-        console.log('Using region boundaries:', minPos, '-', maxPos)
+      // The domain always spans the whole record; a selected region is zoomed to below
+      console.log('Calculating boundaries from', props.features.length, 'features')
+      const positions = props.features
+        .filter(f => f.location)
+        .map(f => {
+          const location = parseLocation(f.location)
+          return location ? [location.start, location.end] : null
+        })
+        .filter(Boolean)
+        .flat()
+      
+      console.log('Extracted positions:', positions.slice(0, 10), positions.length > 10 ? `... (${positions.length} total)` : '')
+      
+      if (positions.length === 0) {
+        console.warn('No valid positions found, using default domain')
+        minPos = 0
+        maxPos = 1000
       } else {
-        // Fallback to calculating from features
-        console.log('Calculating boundaries from', props.features.length, 'features')
-        const positions = props.features
-          .filter(f => f.location)
-          .map(f => {
-            const location = parseLocation(f.location)
-            return location ? [location.start, location.end] : null
-          })
-          .filter(Boolean)
-          .flat()
-        
-        console.log('Extracted positions:', positions.slice(0, 10), positions.length > 10 ? `... (${positions.length} total)` : '')
-        
-        if (positions.length === 0) {
-          console.warn('No valid positions found, using default domain')
-          minPos = 0
-          maxPos = 1000
-        } else {
-          minPos = Math.min(...positions)
-          maxPos = Math.max(...positions)
-        }
-        padding = (maxPos - minPos) * 0.02  // Reduced padding from 0.1 to 0.02 for more zoomed-in view
-        console.log('Calculated domain:', minPos - padding, 'to', maxPos + padding)
+        // Reduce instead of Math.min(...positions): whole records can exceed the argument limit
+        minPos = positions.reduce((a, b) => Math.min(a, b))
+        maxPos = positions.reduce((a, b) => Math.max(a, b))
       }
+      const padding = (maxPos - minPos) * 0.02
+      console.log('Calculated domain:', minPos - padding, 'to', maxPos + padding)
       
       console.log('Creating TrackViewer...')
       regionViewer = new TrackViewer({
@@ -413,8 +431,10 @@ export default {
         height: 400,
         domain: [minPos - padding, maxPos + padding],
         trackHeight: 40,
-        zoomExtent: [0.1, 1000],
+        // Zooming out stops at the whole record; zooming in goes down to about 100 bp
+        zoomExtent: [1, Math.max(1000, (maxPos - minPos) / 100)],
         showTrackLabels: false,
+        menuItems: getMenuItems,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
           handleAnnotationClick(annotation, track)
@@ -426,9 +446,7 @@ export default {
         },
         onBackgroundClick: () => {
           // Clear selection when clicking background
-          selectedAnnotation.value = null
-          updateAnnotationHighlighting()
-          updateViewer()
+          clearSelection()
         },
         onDomainChange: (domain) => {
           currentDomain.value = domain
@@ -438,6 +456,9 @@ export default {
         }
       })
       console.log('TrackViewer created successfully')
+
+      // Start zoomed to the focused protocluster or selected region, without animation
+      zoomToSelection(0)
     }
     
     const makeSureTrackExists = (trackId, trackLabel, trackHeight) => {
@@ -537,7 +558,7 @@ export default {
               classes: classes,
               label: `CC ${cluster_index}: ${stringToLabel(cluster_kind)}`,
               labelPosition: 'center',
-              showLabel: 'always',
+              showLabel: 'auto',
               start: location.start,
               end: location.end,
               data: feature
@@ -640,7 +661,7 @@ export default {
                 heightFraction: 0.35,
                 classes: [...classes, 'proto-core'],
                 label: getFeatureLabel(feature),
-                showLabel: 'always',
+                showLabel: 'auto',
                 start: core_location.start,
                 end: core_location.end,
                 stroke: 'black',
@@ -807,6 +828,8 @@ export default {
             stroke: '#999999',
             opacity: 0.6,
             heightFraction: 0.8,
+            // Keep the default double-click zoom in: zooming to the placeholder would zoom out
+            zoomOnDoubleClick: false,
             data: { 
               _elementType: 'Placeholder', 
               count: visibleAnnotations.length,
@@ -888,31 +911,6 @@ export default {
       })
     }
     
-    const toggleDropdown = () => {
-      dropdownOpen.value = !dropdownOpen.value
-    }
-    
-    const toggleSelectAll = (event) => {
-      if (event.target.checked) {
-        selectedTracks.value = [...availableTracks.value.map(t => t.id)]
-      } else {
-        selectedTracks.value = []
-      }
-      updateViewer()
-    }
-    
-    // Close dropdown when clicking outside
-    const handleClickOutside = (event) => {
-      // Use composedPath() to check across shadow DOM boundaries
-      const path = event.composedPath()
-      const clickedInside = path.some(el => 
-        el.classList && el.classList.contains('multi-select-dropdown')
-      )
-      if (!clickedInside) {
-        dropdownOpen.value = false
-      }
-    }
-    
     // Handle annotation click for highlighting
     const handleAnnotationClick = (annotation, track) => {
       // Set selected annotation (don't toggle)
@@ -940,20 +938,17 @@ export default {
         regionViewer.drawTracks()
       }
     }
-
-    watch(() => props.initialProtoclusterNumber, (newNumber) => {
-      if (newNumber === null) {
-        selectedAnnotation.value = null
-        updateAnnotationHighlighting()
-        regionViewer?.drawTracks()
-        return
-      }
-      focusInitialProtocluster()
-    })
     
     // Clear selected element
     const clearSelectedElement = () => {
       selectedAnnotation.value = null
+    }
+
+    // Deselect the selected feature and undo its highlighting
+    const clearSelection = () => {
+      selectedAnnotation.value = null
+      updateAnnotationHighlighting()
+      updateViewer()
     }
     
     // Determine if an annotation should be highlighted
@@ -1056,15 +1051,8 @@ export default {
       selectedRegion,
       loading,
       error,
-      availableTracks,
-      selectedTracks,
-      dropdownOpen,
       selectedElement,
       currentRegionNumber,
-      onRegionChange,
-      updateViewer,
-      toggleDropdown,
-      toggleSelectAll,
       clearSelectedElement
     }
   }
@@ -1091,139 +1079,6 @@ export default {
   margin-top: 4px;
   font-size: 12px;
   color: #666;
-}
-
-.controls {
-  margin-bottom: 12px;
-  background: white;
-  padding: 10px;
-  border-radius: 6px;
-  border: 1px solid #e0e0e0;
-}
-
-.region-select {
-  margin: 0;
-  padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 13px;
-  margin-right: 8px;
-  min-width: 200px;
-}
-
-.no-regions-message {
-  display: inline-block;
-  padding: 6px 10px;
-  background-color: #e8f4fd;
-  border: 1px solid #bee5eb;
-  border-radius: 4px;
-  color: #0c5460;
-  font-size: 13px;
-  margin-right: 8px;
-  font-style: italic;
-}
-
-.feature-controls {
-  display: inline-flex;
-  gap: 10px;
-  margin-left: 8px;
-}
-
-.multi-select-container {
-  position: relative;
-  display: inline-block;
-}
-
-.multi-select-container label {
-  display: block;
-  margin-bottom: 5px;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.multi-select-dropdown {
-  position: relative;
-  min-width: 200px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background: white;
-  cursor: pointer;
-}
-
-.multi-select-dropdown.open {
-  border-color: #1976d2;
-}
-
-.selected-display {
-  padding: 6px 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-}
-
-.dropdown-arrow {
-  transition: transform 0.2s ease;
-  color: #666;
-}
-
-.multi-select-dropdown.open .dropdown-arrow {
-  transform: rotate(180deg);
-}
-
-.dropdown-options {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background: white;
-  border: 1px solid #ccc;
-  border-top: none;
-  border-radius: 0 0 4px 4px;
-  max-height: 200px;
-  overflow-y: auto;
-  z-index: 1000;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.select-all-option {
-  padding: 8px 12px;
-  border-bottom: 1px solid #eee;
-  background-color: #f8f9fa;
-}
-
-.select-all-option label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.option-separator {
-  height: 1px;
-  background-color: #e0e0e0;
-}
-
-.dropdown-option {
-  padding: 6px 12px;
-}
-
-.dropdown-option:hover {
-  background-color: #f5f5f5;
-}
-
-.dropdown-option label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  margin: 0;
-}
-
-.dropdown-option input[type="checkbox"] {
-  margin: 0;
 }
 
 .viewer-container {
@@ -1269,7 +1124,6 @@ export default {
 :global(.track-placeholder) {
   fill: #cccccc;
   stroke: #999999;
-  opacity: 0.6;
 }
 
 /* Feature styling classes for the RegionViewer */

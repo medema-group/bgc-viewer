@@ -46,56 +46,6 @@ regions.forEach(region => {
 
 ---
 
-## Get Region Features
-
-Get all features within a specific region.
-
-**Endpoint:** `GET /api/records/{record_id}/regions/{region_id}/features`
-
-**Parameters:**
-- `record_id` - The genomic record ID
-- `region_id` - The region ID (e.g., `region_1`)
-
-**Query Parameters:**
-- `type` - Filter by feature type (optional)
-
-**Response:**
-```json
-{
-  "record_id": "NC_003888.3",
-  "region_id": "region_1",
-  "region_location": "[123456:234567](+)",
-  "region_boundaries": {
-    "start": 123456,
-    "end": 234567
-  },
-  "feature_type": "CDS",
-  "count": 42,
-  "features": [
-    {
-      "type": "CDS",
-      "location": "[123500:124500](+)",
-      "qualifiers": {
-        "locus_tag": ["SCO1234"],
-        "gene": ["pksA"],
-        "product": ["polyketide synthase"]
-      }
-    }
-  ]
-}
-```
-
-**Example:**
-```javascript
-// Get all CDS features in region 1
-const response = await fetch('/api/records/NC_003888.3/regions/region_1/features?type=CDS');
-const { features } = await response.json();
-
-console.log(`Found ${features.length} CDS features`);
-```
-
----
-
 ## Get Record Features
 
 Get all features for a record (not limited to a specific region).
@@ -189,7 +139,7 @@ Get transcription factor binding site predictions for a record.
 - `record_id` - The genomic record ID
 
 **Query Parameters:**
-- `region` - Region number (default: "1")
+- `region` - Region number (optional). Without it, the hits of every region of the record are returned, in region order, and `region` in the response is `null`.
 
 **Response:**
 ```json

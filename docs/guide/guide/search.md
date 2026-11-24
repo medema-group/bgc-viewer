@@ -1,0 +1,93 @@
+# Searching
+
+The main view searches the open index (see
+[Data Sources & Formats](./data-sources.md#bgc-viewer-api-backend-with-database))
+across every region in the dataset. The query builder comes first, then the
+results, and then the viewer, which shows the result you click: a record
+result opens the whole record, a region result opens its record zoomed to
+that region, and a protocluster result zoomed to that protocluster, selected
+so its details show. When an index opens, the results list
+all its regions. **Search help** beside the builder explains the fields and has
+example queries.
+
+The search works on antiSMASH regions and protoclusters. Each region holds the
+products and categories of its protoclusters and the results of the antiSMASH
+analysis modules for it: functional domains, NRPS/PKS predictions, terpene and
+RiPP results, comparisons with known clusters, and regulation. Each
+protocluster holds the same fields for itself alone, collected within its full
+location (core and neighbourhood). A few results antiSMASH only reports per
+region, such as KnownClusterBlast hits, predicted SMILES, and TFBS regulators;
+a protocluster takes those from its region. The field list under
+**Search help** describes every field and where its values come from.
+
+## Query builder
+
+The query builder asks a question one row at a time. Each row compares one
+field to a value: pick the field group, the field, the operator, and the
+value.
+
+| Operator | Matches regions where |
+| --- | --- |
+| is, is not | some value is (or no value is) exactly the given one |
+| is any of, is none of | some value is (or no value is) in the list |
+| contains, does not contain, starts with, ends with | some value contains the text, ignoring case |
+| greater than, at least, less than, at most, between | some number compares so; leave one side of *between* empty for an open range |
+| has a value, has no value | the field has some value, or none at all |
+
+*is* and *is any of* match whole values, including case, so pick their values
+from the suggestions. The suggestions show how many regions hold each value
+and narrow as you type; press <kbd>Enter</kbd> to use the typed text as it is.
+
+Rows after the first start with **AND** or **OR**, and AND binds before OR, as
+in most query languages: *a AND b OR c* means *(a AND b) OR c*. Use
+**+ Add group** for other brackets. The summary under the rows spells out the
+question as the search will run it.
+
+Two conditions reach beyond a single field:
+
+- **Any text contains** (under *General*) finds each word inside any text value
+  of a region, ignoring case.
+- **Query string** (under *General*) puts a query in the query language below
+  among the rows.
+
+Pressing **Search** without conditions (**Browse all**) lists every region.
+
+## Results
+
+The **Show Protoclusters / Regions / Records** toggle above the results sets
+what they list; **Regions** is selected when an index opens.
+
+- **Protoclusters** lists one row per protocluster that meets every condition
+  by itself, with its parent region and its own product, category, and
+  length. *product is NRPS AND product is terpene* finds only protoclusters
+  that are both NRPS and terpene, which there usually are none of.
+- **Regions** lists one row per matching region, with its length in
+  kilobases. A region matches when its protoclusters together meet the
+  conditions, so the same question finds a region with an NRPS protocluster
+  and a terpene protocluster.
+- **Records** lists each record with at least one matching region once, with
+  its organism, description, and region and feature counts.
+
+The counter below the table counts matching protoclusters at the protocluster
+level and matching regions otherwise, records included. The toggle also applies to the
+**Loaded data** tab, which lists the regions or records of loaded files; it
+lists regions at the protocluster level too.
+
+Click a column heading to sort by it, again to reverse the order, and a third
+time to go back to the default order. Only columns with one value per region
+or protocluster can be sorted.
+
+The **Refine** panel beside the results lists the most common product
+categories, products, organisms, and known-cluster compounds among all
+matches: regions, or protoclusters at that level. The value suggestions in the
+builder count the same way. Click a value to add it as a condition and search
+again.
+
+## Query string
+
+A **Query string** condition takes a query in the Tantivy query language, such
+as `pfam:PF00550 AND substrates:Leu` or `product_category:RiPP NOT organism:"Streptomyces coelicolor A3(2)"`.
+A bare word searches every text field; `field:value` searches one field, using
+the field names listed under **Search help**. Search help also has example
+queries built from your dataset: **Use** puts one into the builder as its only
+condition. For how fields match, see the [search index guide](../development/search-index.md#query-language).

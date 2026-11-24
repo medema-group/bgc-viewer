@@ -9,14 +9,13 @@
       :record-info="recordInfo"
       :regions="regions"
       :features="features"
-      :region-boundaries="regionBoundaries"
       :pfam-color-map="pfamColorMap"
       :selected-region-id="selectedRegionId"
+      :selected-protocluster-number="initialProtoclusterNumber"
       :data-provider="dataProvider"
       :tfbs-hits="tfbsHits"
       :tta-codons="ttaCodons"
       :resistance-features="resistanceFeatures"
-      :initial-protocluster-number="initialProtoclusterNumber"
       @region-changed="handleRegionChanged"
       @annotation-clicked="handleAnnotationClicked"
       @error="handleError"
@@ -46,16 +45,17 @@ export default {
       type: String,
       default: ''
     },
-    // Full record data from RecordListSelector (includes entryId, recordId, filename for API provider)
+    // Full record data of the selected record (includes entryId, recordId, filename for API provider)
     recordData: {
       type: Object,
       default: null
     },
-    // Initial region ID to select (optional)
+    // Initial region ID to zoom to (optional); without one the whole record is shown
     initialRegionId: {
       type: String,
       default: ''
     },
+    // Number of a protocluster to zoom to instead of the region (optional)
     initialProtoclusterNumber: {
       type: Number,
       default: null
@@ -71,7 +71,6 @@ export default {
     const recordInfo = ref(null)
     const regions = ref([])
     const features = ref([])
-    const regionBoundaries = ref(null)
     const pfamColorMap = ref({})
     const tfbsHits = ref([])
     const ttaCodons = ref([])
@@ -86,7 +85,6 @@ export default {
       recordInfo.value = null
       regions.value = []
       features.value = []
-      regionBoundaries.value = null
       tfbsHits.value = []
       ttaCodons.value = []
       resistanceFeatures.value = []
@@ -103,14 +101,13 @@ export default {
       }
     }
 
-    const loadTFBSHits = async (recordId, regionId) => {
+    // TFBS hits are stored per region; without a region, those of the whole record come back
+    const loadTFBSHits = async (recordId) => {
       if (!provider.value) return
       try {
-        // Extract region number from regionId (e.g., "region_1" -> "1")
-        const regionNumber = regionId.replace('region_', '')
-        const tfbsData = await provider.value.getTFBSHits(recordId, regionNumber)
+        const tfbsData = await provider.value.getTFBSHits(recordId)
         tfbsHits.value = tfbsData.hits || []
-        console.log('Loaded', tfbsHits.value.length, 'TFBS binding sites for region', regionNumber)
+        console.log('Loaded', tfbsHits.value.length, 'TFBS binding sites for record', recordId)
       } catch (err) {
         console.warn('Failed to load TFBS hits:', err.message)
         tfbsHits.value = [] // Clear on error
@@ -185,7 +182,6 @@ export default {
         }
         
         regions.value = regionsData.regions || []
-        regionBoundaries.value = regionsData.boundaries || null
         
         // Load TTA codons (not region-specific)
         await loadTTACodons(recordInfo.value.entryId)
@@ -205,17 +201,19 @@ export default {
           return
         }
         
-        // Load features based on whether there are regions
-        if (regions.value && regions.value.length > 0) {
-          const initialId = props.initialRegionId && regions.value.some(r => r.id === props.initialRegionId)
-            ? props.initialRegionId
-            : regions.value[0].id
-          selectedRegionId.value = initialId
-          await loadRegionFeatures(recordInfo.value.entryId, selectedRegionId.value)
-        } else {
-          // No regions - load all features for the record
-          await loadAllFeatures(recordInfo.value.entryId)
+        // Load TFBS hits for all regions
+        await loadTFBSHits(recordInfo.value.entryId)
+
+        // Check again after async operation
+        if (requestId !== currentLoadingRequestId.value) {
+          console.log('Ignoring stale load request for', recordId)
+          return
         }
+
+        // Always load the whole record; selecting a region only zooms the viewer to it
+        await loadFeatures(recordInfo.value.entryId)
+
+        selectedRegionId.value = regionToSelect(props.initialRegionId)
         
         // Final check before marking as loaded
         if (requestId !== currentLoadingRequestId.value) {
@@ -235,29 +233,10 @@ export default {
       }
     }
 
-    const loadRegionFeatures = async (recordId, regionId) => {
-      try {
-        const featuresData = await provider.value.getRegionFeatures(recordId, regionId)
-        features.value = featuresData.features || []
-        regionBoundaries.value = featuresData.region_boundaries || null
-        
-        // Load TFBS hits for this region
-        await loadTFBSHits(recordId, regionId)
-      } catch (err) {
-        console.error('Error loading region features:', err)
-        error.value = `Failed to load region features: ${err.message}`
-        emit('error', error.value)
-      }
-    }
-
-    const loadAllFeatures = async (recordId) => {
+    const loadFeatures = async (recordId) => {
       try {
         const featuresData = await provider.value.getRecordFeatures(recordId)
         features.value = featuresData.features || []
-        regionBoundaries.value = null // No region boundaries when showing all features
-        
-        // Clear TFBS hits when showing all features (not region-specific)
-        tfbsHits.value = []
       } catch (err) {
         console.error('Error loading features:', err)
         error.value = `Failed to load features: ${err.message}`
@@ -265,17 +244,13 @@ export default {
       }
     }
 
-    const handleRegionChanged = async (regionId) => {
+    // The requested region if the record has it; otherwise none, so the viewer shows the whole record
+    const regionToSelect = (regionId) =>
+      regionId && regions.value.some(r => r.id === regionId) ? regionId : ''
+
+    const handleRegionChanged = (regionId) => {
+      // The viewer zooms to the selected region itself; all features are already loaded
       selectedRegionId.value = regionId
-      
-      if (!regionId) {
-        // Load all features
-        await loadAllFeatures(recordInfo.value.entryId)
-      } else {
-        // Load region-specific features
-        await loadRegionFeatures(recordInfo.value.entryId, regionId)
-      }
-      
       emit('region-changed', regionId)
     }
 
@@ -324,13 +299,10 @@ export default {
       }
     })
 
-    // Watch for initialRegionId changes
+    // Watch for initialRegionId changes on the open record; no region shows the whole record again
     watch(() => props.initialRegionId, (newRegionId) => {
-      if (newRegionId && regions.value.length > 0) {
-        selectedRegionId.value = newRegionId
-        if (recordInfo.value) {
-          loadRegionFeatures(recordInfo.value.entryId, newRegionId)
-        }
+      if (recordInfo.value) {
+        selectedRegionId.value = regionToSelect(newRegionId)
       }
     })
 
@@ -338,7 +310,6 @@ export default {
       recordInfo,
       regions,
       features,
-      regionBoundaries,
       pfamColorMap,
       tfbsHits,
       ttaCodons,

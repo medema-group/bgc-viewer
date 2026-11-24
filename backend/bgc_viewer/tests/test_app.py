@@ -134,3 +134,23 @@ def test_scan_folder_hides_tantivy_metadata(client, tmp_path):
         item["relative_path"] for item in response.get_json()["json_files"]
     }
     assert relative_paths == {"meta.json", "record.json"}
+
+
+def test_tfbs_hits_for_one_region_or_the_whole_record(client, monkeypatch):
+    """Without a region, the hits of every region come back in region order."""
+    import bgc_viewer.app as app_module
+
+    hits_by_region = {"10": [{"name": "C"}], "2": [{"name": "A"}, {"name": "B"}]}
+    record = {"id": "rec", "modules": {"antismash.modules.tfbs_finder": {"hits_by_region": hits_by_region}}}
+    monkeypatch.setattr(app_module, "get_current_entry_data", lambda: ({"records": [record]}, "/data"))
+
+    whole = json.loads(client.get("/api/records/rec/tfbs-hits").data)
+    assert whole["region"] is None
+    assert [hit["name"] for hit in whole["hits"]] == ["A", "B", "C"]
+    assert whole["count"] == 3
+
+    one = json.loads(client.get("/api/records/rec/tfbs-hits?region=10").data)
+    assert (one["region"], one["count"], one["hits"]) == ("10", 1, [{"name": "C"}])
+
+    none = json.loads(client.get("/api/records/rec/tfbs-hits?region=5").data)
+    assert (none["count"], none["hits"]) == (0, [])

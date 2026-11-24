@@ -3,6 +3,9 @@ import type { Selection, EnterElement } from 'd3-selection';
 import type { ScaleLinear } from 'd3-scale';
 import type { ZoomBehavior, ZoomTransform, D3ZoomEvent } from 'd3-zoom';
 import { initTrackViewerContextMenu } from './TrackViewerContextMenu';
+import type { MenuItem, ContextMenuController } from './TrackViewerContextMenu';
+
+export type { MenuItem };
 
 export type TrackData = {
   id: string;
@@ -19,7 +22,7 @@ export type AnnotationData = {
   classes: string[];
   label: string;
   labelPosition?: 'above' | 'center';
-  showLabel?: 'hover' | 'always' | 'never';
+  showLabel?: 'hover' | 'always' | 'never' | 'auto'; // 'auto': always if it doesn't overlap other labels, else hover
   start: number;
   end: number;
   fy?: number; // Fractional y position of the annotation, default is 0.5
@@ -31,6 +34,7 @@ export type AnnotationData = {
   opacity?: number;
   corner_radius?: number;
   tooltip?: string; // Optional custom tooltip content
+  zoomOnDoubleClick?: boolean; // Zoom to the annotation when double clicked, default true for boxes and arrows
   data?: any; // Optional reference to original data object
 }
 
@@ -73,6 +77,8 @@ export interface TrackViewerConfig {
   onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
   onBackgroundClick?: () => void;
   onDomainChange?: (domain: [number, number]) => void;
+  // Extra items shown at the top of the options menu, read each time the menu opens
+  menuItems?: () => MenuItem[];
 }
 
 
@@ -95,11 +101,15 @@ export class TrackViewer {
   private resizeHandler?: () => void; // Store resize handler for cleanup
   private resizeObserver?: ResizeObserver; // Store ResizeObserver for cleanup
   private static readonly LABEL_PADDING = 24; // Padding for labels that extend above tracks
-  private contextMenuController?: any;
+  private static readonly ZOOM_TO_ANNOTATION_FILL = 0.75; // Fraction of the view an annotation zoomed to takes up, the rest is split as margin on both sides
+  private contextMenuController?: ContextMenuController;
   private showTrackLabels: boolean;
   private showAllAnnotationLabels: boolean = false;
   private labelGroups!: Selection<SVGGElement, TrackData, SVGGElement, unknown>;
   private isDragging: boolean = false;
+  private lastAnnotationClick: { id: string; time: number } | null = null;
+  private lastAnnotationDoubleClickTime: number = -Infinity;
+  private static readonly DOUBLE_CLICK_INTERVAL = 500; // Max ms between the clicks of a double click
 
   constructor(config: TrackViewerConfig) {
     // Check if width was explicitly provided
@@ -137,7 +147,8 @@ export class TrackViewer {
       onAnnotationClick: config.onAnnotationClick || (() => {}),
       onAnnotationHover: config.onAnnotationHover || (() => {}),
       onBackgroundClick: config.onBackgroundClick || (() => {}),
-      onDomainChange: config.onDomainChange || (() => {})
+      onDomainChange: config.onDomainChange || (() => {}),
+      menuItems: config.menuItems || (() => [])
     };
 
     // Store the original left margin as minimum
@@ -260,6 +271,9 @@ export class TrackViewer {
       .scaleExtent(this.config.zoomExtent)
       .translateExtent([[0, 0], [chartWidth, chartHeight]])
       .extent([[0, 0], [chartWidth, chartHeight]])
+      // Without some tolerance, the slightest mouse movement turns a click into a pan,
+      // and d3 then suppresses the click event
+      .clickDistance(4)
       .filter((event: any) => {
         // Track when dragging starts (mousedown without wheel)
         if (event.type === 'mousedown' && event.button === 0) {
@@ -268,6 +282,10 @@ export class TrackViewer {
         // Reset dragging flag on mouseup
         if (event.type === 'mouseup') {
           this.isDragging = false;
+        }
+        // Skip d3's double-click zoom when an annotation was just double clicked
+        if (event.type === 'dblclick' && Date.now() - this.lastAnnotationDoubleClickTime < TrackViewer.DOUBLE_CLICK_INTERVAL) {
+          return false;
         }
         // Allow default zoom behavior
         return !event.ctrlKey && !event.button;
@@ -315,12 +333,18 @@ export class TrackViewer {
   private createContextMenu(): void {
     this.contextMenuController = initTrackViewerContextMenu({
       containerElement: this.containerElement,
-      onSaveSVG: () => this.saveAsSVG(),
-      onSavePNG: () => this.saveAsPNG(),
-      getShowTrackLabels: () => this.showTrackLabels,
-      getShowAllAnnotationLabels: () => this.showAllAnnotationLabels,
-      onToggleTrackLabels: () => this.toggleTrackLabels(),
-      onToggleAllAnnotationLabels: () => this.toggleAllAnnotationLabels()
+      getMenuItems: () => {
+        const extraItems = this.config.menuItems();
+        return [
+          ...extraItems,
+          ...(extraItems.length > 0 ? [{ type: 'separator' as const }] : []),
+          { label: 'Save as SVG', action: () => this.saveAsSVG() },
+          { label: 'Save as PNG', action: () => this.saveAsPNG() },
+          { type: 'separator' },
+          { label: 'Show track labels', action: () => this.toggleTrackLabels(), checked: () => this.showTrackLabels },
+          { label: 'Show all annotation labels', action: () => this.toggleAllAnnotationLabels(), checked: () => this.showAllAnnotationLabels }
+        ];
+      }
     });
   }
 
@@ -539,52 +563,62 @@ export class TrackViewer {
     } else {
       // Use minimal margin when labels are hidden
       this.config.margin.left = this.originalLeftMargin;
-      
-      // Update chart transform
-      this.chart.attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
-      
-      // Update x scale range
-      this.x.range([0, this.config.width - this.config.margin.left - this.config.margin.right]);
-      
-      // Update clipping path width
-      const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
-      this.svg.select('clipPath rect').attr('width', chartWidth);
-      
-      // Update chart background width
-      this.clippedChart.select('.chart-background').attr('width', chartWidth);
-      
-      // Redraw to apply new scale
-      this.drawTracks();
+      this.updateChartWidth();
     }
-    
-    // Update checkbox in context menu UI
-    this.contextMenuController?.updateCheckbox('Show track labels', this.showTrackLabels);
+  }
+
+  // Apply a changed width or left margin to the chart area, while keeping the visible domain
+  private updateChartWidth(): void {
+    const domain = this.getCurrentDomain();
+    const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
+    const chartHeight = this.config.height - this.config.margin.top - this.config.margin.bottom;
+
+    this.chart.attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
+    this.x.range([0, chartWidth]);
+    this.svg.select('clipPath rect').attr('width', chartWidth);
+    this.clippedChart.select('.chart-background').attr('width', chartWidth);
+    this.zoom
+      .translateExtent([[0, 0], [chartWidth, chartHeight]])
+      .extent([[0, 0], [chartWidth, chartHeight]]);
+
+    // The zoom transform is in pixels, so it has to be adjusted to the new range to keep
+    // showing the same domain. This triggers a zoom event, which redraws the tracks.
+    const k = this.currentTransform.k;
+    const transform = d3.zoomIdentity
+      .translate(-this.x(domain[0]) * k, this.currentTransform.y)
+      .scale(k);
+    this.svg.call(this.zoom.transform, transform);
   }
 
   private toggleAllAnnotationLabels(): void {
     this.showAllAnnotationLabels = !this.showAllAnnotationLabels;
     
     // Update all annotation labels in the labels layer
-    const showAll = this.showAllAnnotationLabels;
-    this.clippedChart.selectAll<SVGGElement, unknown>('.annotation-labels-layer .annotation-label-group').each(function() {
-      const labelGroup = d3.select(this);
-      const label = labelGroup.select('.annotation-label');
-      const showLabel = label.attr('data-show-label');
-      
-      if (showLabel === 'never') {
-        // Never show these labels
-        labelGroup.style('display', 'none');
-      } else if (showLabel === 'always') {
-        // Always show these labels
-        labelGroup.style('display', '');
-      } else {
-        // 'hover' - controlled by toggle
-        labelGroup.style('display', showAll ? '' : 'none');
-      }
-    });
-    
-    // Update checkbox in context menu UI
-    this.contextMenuController?.updateCheckbox('Show all annotation labels', this.showAllAnnotationLabels);
+    this.clippedChart.selectAll<SVGGElement, unknown>('.annotation-labels-layer .annotation-label-group')
+      .each((_, i, nodes) => this.applyLabelVisibility(d3.select(nodes[i])));
+  }
+
+  // Show or hide a label group according to its showLabel mode and the
+  // showAllAnnotationLabels toggle (hover is handled by the annotation's event handlers)
+  private applyLabelVisibility(labelGroup: Selection<SVGGElement, unknown, null, undefined>): void {
+    const label = labelGroup.select('.annotation-label');
+    const showLabel = label.attr('data-show-label');
+
+    let visible: boolean;
+    if (showLabel === 'always') {
+      visible = true;
+    } else if (showLabel === 'never') {
+      visible = false;
+    } else if (this.showAllAnnotationLabels) {
+      visible = true;
+    } else if (showLabel === 'auto') {
+      // Set by updateAutoLabelFits()
+      visible = label.attr('data-fits') === 'true';
+    } else {
+      // 'hover'
+      visible = false;
+    }
+    labelGroup.style('display', visible ? '' : 'none');
   }
  
 
@@ -783,6 +817,17 @@ export class TrackViewer {
         break;
     }
 
+    // Put an opaque copy of the shape underneath, so that primitives (e.g. a horizontal line)
+    // don't show through when the annotation is semi-transparent
+    if (annotation.type !== 'pin') {
+      element.clone(false)
+        .attr('class', 'annotation-backdrop')
+        .style('fill', 'white')
+        .style('stroke', 'white')
+        .style('pointer-events', 'none')
+        .lower();
+    }
+
     // Apply common styling and event handlers
     // Set data-label on the container (the group with .annotation class) for export
     container.attr('data-label', annotation.label);
@@ -809,11 +854,12 @@ export class TrackViewer {
         if (this.isDragging) return;
         
         element.classed('hovered', true);
-        // Show hover labels if needed - find label in the labels layer
-        this.clippedChart.selectAll(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
+        // Show hidden labels (with a background) on hover - find label in the labels layer
+        this.clippedChart.selectAll<SVGGElement, unknown>(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
+          .filter(function() { return this.style.display === 'none'; })
           .style('display', 'block')
           .select('.annotation-label-background')
-          .style('display', ''); // Show background on hover
+          .style('display', '');
         // Only show tooltip if tooltip content is provided
         if (annotation.tooltip !== undefined) {
           this.showTooltip(event, annotation, trackData);
@@ -823,34 +869,51 @@ export class TrackViewer {
       .on('mouseout', () => {
         element.classed('hovered', false);
         // Hide hover labels if needed, but respect the showAllAnnotationLabels toggle
-        const showAll = this.showAllAnnotationLabels;
         this.clippedChart.selectAll<SVGGElement, unknown>(`.annotation-label-group[data-annotation-id="${annotation.id}"]`)
-          .each(function() {
-            const labelGroup = d3.select(this);
-            const labelElement = labelGroup.select('.annotation-label');
-            const showLabel = labelElement.attr('data-show-label');
-            // If showAllAnnotationLabels is on, keep hover labels visible
-            if (showLabel === 'hover' && showAll) {
-              labelGroup.style('display', ''); // Keep visible
-            } else if (showLabel === 'hover') {
-              labelGroup.style('display', 'none');
-            } else {
-              labelGroup.style('display', '');
-            }
+          .each((_, i, nodes) => {
+            const labelGroup = d3.select(nodes[i]);
+            this.applyLabelVisibility(labelGroup);
             // Always hide background on mouseout
             labelGroup.select('.annotation-label-background').style('display', 'none');
           });
         // Always try to hide tooltip on mouseout
         this.hideTooltip();
-      })
-      .on('click', () => {
-        this.config.onAnnotationClick(annotation, trackData);
       });
+
+    // Handle clicks on the container rather than on the shape: the shape is recreated on every
+    // redraw, so if a (small) pan happens between mousedown and mouseup, the click is
+    // dispatched to the container instead
+    container.on('click', () => {
+      this.config.onAnnotationClick(annotation, trackData);
+      this.handlePossibleDoubleClick(annotation);
+    });
 
     // Collect label data for rendering in a separate layer
     if (labelsData && annotation.label && annotation.showLabel !== 'never') {
       labelsData.push({ annotation, trackData, x, y, width, height, trackY });
     }
+  }
+
+  // Double clicking a box or arrow zooms to it (its clicks have selected it already). Double
+  // clicks are detected from the clicks rather than with dblclick events: a click usually leads
+  // to a redraw, which replaces the clicked shape, and then browsers don't see the next click
+  // on the new shape as part of a double click.
+  private handlePossibleDoubleClick(annotation: AnnotationData): void {
+    const now = Date.now();
+    const isDoubleClick = this.lastAnnotationClick?.id === annotation.id
+      && now - this.lastAnnotationClick.time < TrackViewer.DOUBLE_CLICK_INTERVAL;
+    // A third click starts a new double click, rather than completing another one
+    this.lastAnnotationClick = isDoubleClick ? null : { id: annotation.id, time: now };
+    if (!isDoubleClick) return;
+
+    // Other annotations are points, so they keep d3's default double-click zoom
+    const zoomOnDoubleClick = annotation.zoomOnDoubleClick ?? (annotation.type === 'box' || annotation.type === 'arrow');
+    if (!zoomOnDoubleClick) return;
+
+    this.lastAnnotationDoubleClickTime = now;
+    const length = annotation.end - annotation.start;
+    const margin = length * (1 - TrackViewer.ZOOM_TO_ANNOTATION_FILL) / 2 / TrackViewer.ZOOM_TO_ANNOTATION_FILL;
+    this.zoomTo(annotation.start - margin, annotation.end + margin);
   }
 
   private renderPrimitive(
@@ -1127,6 +1190,10 @@ export class TrackViewer {
       return;
     }
 
+    // Make sure the group is displayed while rendering, so that the text can be measured.
+    // The final visibility is set by applyLabelVisibility() in renderAllLabels().
+    container.style('display', '');
+
     // Calculate label position (default to 'above')
     const labelPosition = annotation.labelPosition || 'above';
     let labelX: number;
@@ -1169,8 +1236,9 @@ export class TrackViewer {
       .style('fill', 'currentColor') // Use currentColor to inherit from CSS color property
       .text(annotation.label);
 
-    // Only add background for hover labels - it will be shown/hidden based on hover state
-    if (showLabel === 'hover') {
+    // Only add background for (possibly) hover labels - it will be shown/hidden based on hover state.
+    // Centered labels don't need one, since the annotation's shape is behind them.
+    if ((showLabel === 'hover' || showLabel === 'auto') && labelPosition !== 'center') {
       // Get text dimensions to create background
       const textNode = labelElement.node() as SVGTextElement;
       if (textNode && typeof textNode.getBBox === 'function') {
@@ -1189,6 +1257,7 @@ export class TrackViewer {
             .attr('ry', 2)
             .attr('class', 'annotation-label-background')
             .style('fill', 'white')
+            .style('stroke', 'none') // Don't inherit stroke from annotation classes on the group
             .style('opacity', '0.8');
           
           // Initially hide the background - it will only show on actual hover
@@ -1198,15 +1267,51 @@ export class TrackViewer {
         }
       }
     }
+  }
 
-    // Handle show/hide behavior based on showLabel attribute and current toggle state
-    if (showLabel === 'always') {
-      container.style('display', '');
-    } else if (showLabel === 'never') {
-      container.style('display', 'none');
-    } else {
-      // For hover labels, respect the showAllAnnotationLabels toggle
-      container.style('display', this.showAllAnnotationLabels ? '' : 'none');
+  // Mark each 'auto' label with whether it fits, i.e. doesn't overlap any other
+  // 'always' or 'auto' label. Expects all label groups to be displayed.
+  private updateAutoLabelFits<D extends { trackY: number }>(
+    labelGroups: Selection<SVGGElement, D, SVGGElement, unknown>
+  ): void {
+    const minGap = 4; // Minimum horizontal space between labels (px)
+
+    // Measure all labels first, before changing anything, to avoid repeated layout
+    const boxes: Array<{ label: SVGTextElement; auto: boolean; x1: number; x2: number; y1: number; y2: number }> = [];
+    labelGroups.each(function(d) {
+      const label = this.querySelector<SVGTextElement>('.annotation-label');
+      const showLabel = label?.getAttribute('data-show-label');
+      if (!label || (showLabel !== 'always' && showLabel !== 'auto')) return;
+      try {
+        const bbox = label.getBBox();
+        boxes.push({
+          label,
+          auto: showLabel === 'auto',
+          x1: bbox.x,
+          x2: bbox.x + bbox.width + minGap,
+          y1: d.trackY + bbox.y,
+          y2: d.trackY + bbox.y + bbox.height
+        });
+      } catch (error) {
+        // getBBox not available (e.g. in tests): treat the label as fitting
+        if (showLabel === 'auto') label.setAttribute('data-fits', 'true');
+      }
+    });
+
+    // Sweep from left to right, comparing each label only to the ones that start before it ends
+    boxes.sort((a, b) => a.x1 - b.x1);
+    const overlapping = new Set<SVGTextElement>();
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length && boxes[j].x1 < boxes[i].x2; j++) {
+        if (boxes[j].y1 < boxes[i].y2 && boxes[i].y1 < boxes[j].y2) {
+          overlapping.add(boxes[i].label);
+          overlapping.add(boxes[j].label);
+        }
+      }
+    }
+
+    for (const box of boxes) {
+      if (box.auto) box.label.setAttribute('data-fits', String(!overlapping.has(box.label)));
     }
   }
 
@@ -1243,6 +1348,9 @@ export class TrackViewer {
       group.selectAll('*').remove();
       self.renderAnnotationLabel(group, d.annotation, d.x, d.y, d.width, d.height);
     });
+
+    this.updateAutoLabelFits(labelGroups);
+    labelGroups.each((_, i, nodes) => this.applyLabelVisibility(d3.select(nodes[i])));
   }
 
   private showTooltip(event: MouseEvent, annotation: AnnotationData, trackData: TrackData): void {
@@ -1313,20 +1421,7 @@ export class TrackViewer {
     // Only update if margin has changed significantly
     if (Math.abs(this.config.margin.left - newLeftMargin) > 5) {
       this.config.margin.left = newLeftMargin;
-      
-      // Update chart transform
-      this.chart.attr('transform', `translate(${this.config.margin.left},${this.config.margin.top})`);
-      
-      // Update x scale range
-      this.x.range([0, this.config.width - this.config.margin.left - this.config.margin.right]);
-      
-      // Update clipping path width
-      const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
-      this.svg.select('clipPath rect').attr('width', chartWidth);
-      
-      // Update chart background width
-      this.clippedChart.select('.chart-background')
-        .attr('width', chartWidth);
+      this.updateChartWidth();
     }
   }
 
@@ -1337,9 +1432,9 @@ export class TrackViewer {
       annotations: data.annotations,
       primitives: data.primitives || []
     };
-    this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
+    this.updateMarginAndLayout();
     this.drawTracks();
   }
 
@@ -1354,9 +1449,9 @@ export class TrackViewer {
       }
       this.data.primitives.push(...primitives);
     }
-    this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
+    this.updateMarginAndLayout();
     this.drawTracks();
   }
 
@@ -1364,9 +1459,9 @@ export class TrackViewer {
     this.data.tracks = this.data.tracks.filter(track => track.id !== trackId);
     this.data.annotations = this.data.annotations.filter(annotation => annotation.trackId !== trackId);
     this.data.primitives = (this.data.primitives || []).filter(primitive => primitive.trackId !== trackId);
-    this.updateMarginAndLayout();
     this.updateHeight();
     this.createTrackGroups();
+    this.updateMarginAndLayout();
     this.drawTracks();
   }
 
@@ -1401,26 +1496,38 @@ export class TrackViewer {
     this.drawTracks();
   }
 
-  public zoomTo(start: number, end: number): void {
+  public zoomTo(start: number, end: number, duration: number = 750): void {
     const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
-    const scale = chartWidth / (this.x(end) - this.x(start));
-    const translate = -this.x(start) * scale;
+    // Stay within the zoom extent (zooming to a tiny range would exceed it), centered on the range
+    const [minScale, maxScale] = this.zoom.scaleExtent();
+    const scale = Math.max(minScale, Math.min(maxScale, chartWidth / (this.x(end) - this.x(start))));
+    const translate = chartWidth / 2 - (this.x(start) + this.x(end)) / 2 * scale;
 
     const transform = d3.zoomIdentity
       .translate(translate, 0)
       .scale(scale);
 
-    this.svg
-      .transition()
-      .duration(750)
-      .call(this.zoom.transform, transform);
+    this.applyTransform(transform, duration);
   }
 
-  public resetZoom(): void {
-    this.svg
-      .transition()
-      .duration(750)
-      .call(this.zoom.transform, d3.zoomIdentity);
+  public resetZoom(duration: number = 750): void {
+    this.applyTransform(d3.zoomIdentity, duration);
+  }
+
+  // Without a duration, the transform is applied immediately instead of in a transition
+  private applyTransform(transform: ZoomTransform, duration: number): void {
+    if (duration > 0) {
+      // d3 zooms out, pans and zooms in along a smooth path. The default cubic easing peaks
+      // at 3x the average speed mid-transition, which makes the panning in the middle rush;
+      // sine easing peaks at ~1.6x, spreading the pan more evenly over the transition.
+      this.svg
+        .transition()
+        .duration(duration)
+        .ease(d3.easeSinInOut)
+        .call(this.zoom.transform, transform);
+    } else {
+      this.svg.call(this.zoom.transform, transform);
+    }
   }
 
   public destroy(): void {
@@ -1466,26 +1573,8 @@ export class TrackViewer {
     // Only update if the width has changed significantly
     if (Math.abs(this.config.width - newWidth) > 10) {
       this.config.width = newWidth;
-      
-      // Update SVG width
       this.svg.attr('width', newWidth);
-      
-      // Update x scale range
-      this.x.range([0, newWidth - this.config.margin.left - this.config.margin.right]);
-      
-      // Update clipping path and background width
-      const chartWidth = newWidth - this.config.margin.left - this.config.margin.right;
-      this.svg.select('clipPath rect').attr('width', chartWidth);
-      this.clippedChart.select('.chart-background').attr('width', chartWidth);
-      
-      // Update zoom behavior with new dimensions
-      const chartHeight = this.config.height - this.config.margin.top - this.config.margin.bottom;
-      this.zoom
-        .translateExtent([[0, 0], [chartWidth, chartHeight]])
-        .extent([[0, 0], [chartWidth, chartHeight]]);
-      
-      // Redraw everything with new dimensions
-      this.drawTracks();
+      this.updateChartWidth();
     }
   }
 }

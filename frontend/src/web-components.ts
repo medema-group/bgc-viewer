@@ -32,5 +32,6 @@ export type {
   AnnotationType, 
   TrackViewerData,
   DrawingPrimitive,
-  DrawingPrimitiveType
+  DrawingPrimitiveType,
+  MenuItem
 } from './TrackViewer'

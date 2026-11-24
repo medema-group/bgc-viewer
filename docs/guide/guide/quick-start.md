@@ -25,10 +25,13 @@ The application will be available at http://localhost:5000
 ### Step 3: Load Your Data
 
 1. Open http://localhost:5000 in your browser
-2. Click "Select folder to index" to preprocess your antiSMASH JSON files
+2. Click **Index** in the header, then "Select folder to index" to preprocess your antiSMASH JSON files
 3. Select your data folder and wait for preprocessing to complete
-4. Browse and select records to visualize
-5. Explore the interactive visualization!
+4. The records of the new index are listed under **Results**; search them with the query builder above
+5. Click a result to view it below, and explore the interactive visualization!
+
+To look at a few files without indexing them, or at an entry from antiSMASH DB or MIBiG,
+click **Load data** in the header. Loaded records are listed in the **Loaded data** tab next to the search results.
 
 ## Basic Navigation
 

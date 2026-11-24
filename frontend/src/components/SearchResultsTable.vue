@@ -1,0 +1,347 @@
+<template>
+  <section class="results-table" aria-label="Search results">
+    <div class="table-scroll" :class="{ loading }">
+      <table>
+        <thead>
+          <tr>
+            <th
+              v-for="column in columns"
+              :key="column.key"
+              scope="col"
+              :class="{ number: column.numeric }"
+              :aria-sort="ariaSort(column)"
+            >
+              <button
+                v-if="column.sortField && sortable.has(column.sortField)"
+                type="button"
+                class="sort-button"
+                :title="`Sort by ${column.label}`"
+                @click="cycleSort(column.sortField)"
+              >
+                {{ column.label }}
+                <span class="sort-mark" aria-hidden="true">{{ sortMark(column) }}</span>
+              </button>
+              <span v-else>{{ column.label }}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="hit in response.hits"
+            :key="hitKey(hit)"
+            :class="{ selected: isSelected(hit) }"
+            tabindex="0"
+            @click="emit('select', hit)"
+            @keydown.enter="emit('select', hit)"
+          >
+            <td
+              v-for="column in columns"
+              :key="column.key"
+              :class="[column.key, { number: column.numeric }]"
+              :title="column.value(hit)"
+            >
+              {{ column.value(hit) }}
+            </td>
+          </tr>
+          <tr v-if="response.hits.length === 0">
+            <td :colspan="columns.length" class="empty">No {{ level }}s match this search.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <footer class="pager">
+      <span class="pager-status">{{ status }}</span>
+      <button
+        type="button"
+        aria-label="Previous page"
+        :disabled="page <= 1 || loading"
+        @click="emit('page', page - 1)"
+      >
+        ‹ Previous
+      </button>
+      <button
+        type="button"
+        aria-label="Next page"
+        :disabled="!response.has_more || loading"
+        @click="emit('page', page + 1)"
+      >
+        Next ›
+      </button>
+    </footer>
+  </section>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+import type {
+  ProtoclusterSearchHit,
+  RecordSearchHit,
+  RegionSearchHit,
+  SearchLevel,
+  SearchResponse,
+  SearchSort
+} from '@/services/dataProviders/types'
+import type { SearchHit } from '@/services/searchNavigation'
+import { formatKilobases } from '@/utils/format'
+
+interface Column {
+  key: string
+  label: string
+  sortField?: string
+  numeric?: boolean
+  value: (hit: SearchHit) => string
+}
+
+const props = withDefaults(defineProps<{
+  level: SearchLevel
+  response: SearchResponse<SearchHit>
+  page: number
+  perPage: number
+  sort: SearchSort | null
+  /** Fields hits can be sorted by, from the search schema. */
+  sortableFields: string[]
+  selectedHit: SearchHit | null
+  loading?: boolean
+}>(), {
+  loading: false
+})
+
+const emit = defineEmits<{
+  (event: 'select', hit: SearchHit): void
+  (event: 'page', page: number): void
+  (event: 'sort', sort: SearchSort | null): void
+}>()
+
+const sortable = computed(() => new Set(props.sortableFields))
+
+const region = (hit: SearchHit) => (hit as RegionSearchHit).fields
+const record = (hit: SearchHit) => hit as RecordSearchHit
+const protocluster = (hit: SearchHit) => (hit as ProtoclusterSearchHit).fields
+
+const REGION_COLUMNS: Column[] = [
+  { key: 'record', label: 'Record', sortField: 'record', value: hit => region(hit).record },
+  { key: 'region', label: 'Region', sortField: 'region', numeric: true, value: hit => `${region(hit).region}` },
+  { key: 'length', label: 'Length (kb)', sortField: 'length', numeric: true, value: hit => formatKilobases(region(hit).length) },
+  { key: 'product', label: 'Products', value: hit => region(hit).product.join(', ') },
+  { key: 'category', label: 'Categories', value: hit => region(hit).product_category.join(', ') },
+  { key: 'organism', label: 'Organism', sortField: 'organism', value: hit => region(hit).organism ?? '' },
+  { key: 'file', label: 'File', value: hit => region(hit).output_file }
+]
+
+// A protocluster has one product and category; its length is its full location's.
+const PROTOCLUSTER_COLUMNS: Column[] = [
+  { key: 'record', label: 'Record', sortField: 'record', value: hit => protocluster(hit).record },
+  { key: 'region', label: 'Region', sortField: 'region', numeric: true, value: hit => `${protocluster(hit).region}` },
+  {
+    key: 'protocluster',
+    label: 'Protocluster',
+    sortField: 'protocluster_number',
+    numeric: true,
+    value: hit => `${protocluster(hit).protocluster_number}`
+  },
+  { key: 'length', label: 'Length (kb)', sortField: 'length', numeric: true, value: hit => formatKilobases(protocluster(hit).length) },
+  { key: 'product', label: 'Product', value: hit => protocluster(hit).product.join(', ') },
+  { key: 'category', label: 'Category', value: hit => protocluster(hit).product_category.join(', ') },
+  { key: 'organism', label: 'Organism', sortField: 'organism', value: hit => protocluster(hit).organism ?? '' },
+  { key: 'file', label: 'File', value: hit => protocluster(hit).output_file }
+]
+
+const count = (value: number | null | undefined) => (value == null ? '' : value.toLocaleString())
+
+// The details beside the identity come from the SQLite record index, as in the record list.
+const RECORD_COLUMNS: Column[] = [
+  { key: 'record', label: 'Record', sortField: 'record', value: hit => record(hit).record },
+  { key: 'organism', label: 'Organism', sortField: 'organism', value: hit => record(hit).organism ?? '' },
+  { key: 'description', label: 'Description', value: hit => record(hit).description ?? '' },
+  { key: 'regions', label: 'Regions', numeric: true, value: hit => count(record(hit).region_count) },
+  { key: 'features', label: 'Features', numeric: true, value: hit => count(record(hit).feature_count) },
+  { key: 'file', label: 'File', value: hit => record(hit).output_file },
+  { key: 'input', label: 'Input file', value: hit => record(hit).input_file ?? '' }
+]
+
+const COLUMNS: Record<SearchLevel, Column[]> = {
+  region: REGION_COLUMNS,
+  record: RECORD_COLUMNS,
+  protocluster: PROTOCLUSTER_COLUMNS
+}
+
+const columns = computed(() => COLUMNS[props.level])
+
+const status = computed(() => {
+  const shown = props.response.hits.length
+  const total = props.response.total
+  // The total counts protoclusters at that level and regions otherwise, records included.
+  const unit = props.level === 'protocluster' ? 'protocluster' : 'region'
+  const matching = `${total.toLocaleString()} matching ${unit}${total === 1 ? '' : 's'}`
+  if (shown === 0) return matching
+  const first = (props.page - 1) * props.perPage + 1
+  const last = first + shown - 1
+  return props.level === 'record'
+    ? `Records ${first.toLocaleString()}–${last.toLocaleString()} · ${matching}`
+    : `${first.toLocaleString()}–${last.toLocaleString()} of ${matching}`
+})
+
+// Ascending, then descending, then back to relevance.
+function cycleSort(field: string) {
+  if (props.sort?.field !== field) emit('sort', { field, order: 'asc' })
+  else if (props.sort.order === 'asc') emit('sort', { field, order: 'desc' })
+  else emit('sort', null)
+}
+
+function sortMark(column: Column) {
+  if (!column.sortField || props.sort?.field !== column.sortField) return '↕'
+  return props.sort.order === 'asc' ? '▲' : '▼'
+}
+
+function ariaSort(column: Column) {
+  if (!column.sortField || props.sort?.field !== column.sortField) return undefined
+  return props.sort.order === 'asc' ? 'ascending' : 'descending'
+}
+
+function hitKey(hit: SearchHit) {
+  if (props.level === 'record') return `${record(hit).output_file}:${record(hit).record}`
+  const fields = region(hit)
+  const key = `${fields.output_file}:${fields.record}:${fields.region}`
+  return props.level === 'protocluster' ? `${key}:${protocluster(hit).protocluster_number}` : key
+}
+
+function isSelected(hit: SearchHit) {
+  return props.selectedHit !== null && hitKey(hit) === hitKey(props.selectedHit)
+}
+</script>
+
+<style scoped>
+.results-table {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border: 1px solid #dce3e8;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.table-scroll.loading {
+  opacity: 0.55;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  padding: 7px 8px;
+  border-bottom: 1px solid #dce3e8;
+  background: #f6f8f9;
+  color: #40525e;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.sort-mark {
+  color: #8796a0;
+  font-size: 10px;
+}
+
+td {
+  max-width: 260px;
+  padding: 6px 8px;
+  overflow: hidden;
+  border-bottom: 1px solid #edf2f5;
+  color: #263442;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Numbers align by place value, and their columns take only the width they
+   need, leaving the spare width to the text columns. */
+.number {
+  width: 1%;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+td.file {
+  color: #687681;
+}
+
+tbody tr {
+  cursor: pointer;
+}
+
+tbody tr:hover,
+tbody tr:focus-visible {
+  background: #f3f7fa;
+  outline: none;
+}
+
+tbody tr.selected {
+  background: #e3f0fa;
+}
+
+td.empty {
+  padding: 24px;
+  color: #687681;
+  cursor: default;
+  text-align: center;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 7px 8px;
+  border-top: 1px solid #dce3e8;
+  font-size: 12px;
+}
+
+.pager-status {
+  margin-right: auto;
+  color: #52616d;
+}
+
+.pager button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #aebbc4;
+  border-radius: 4px;
+  background: #fff;
+  color: #30434f;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.pager button:disabled {
+  color: #a3afb7;
+  cursor: default;
+}
+
+.sort-button:focus-visible,
+.pager button:focus-visible {
+  outline: 2px solid #1976d2;
+  outline-offset: 1px;
+}
+</style>

@@ -1,4 +1,4 @@
-"""Build protocluster search indexes on top of the ``tantivy`` engine.
+"""Build region and protocluster search indexes on top of the ``tantivy`` engine.
 
 The Tantivy schema, the query-time default fields and boosts, and the fields
 returned in hits are projected from the single field registry in
@@ -8,15 +8,20 @@ reader can validate compatibility when it opens the index.
 
 from __future__ import annotations
 
+import re
+
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, Generic, TypeVar
 
 from tantivy import (
     DocAddress,
     Document,
     Index,
+    Occur,
+    Order,
+    Query,
     Schema,
     SchemaBuilder,
     Searcher,
@@ -25,7 +30,15 @@ from tantivy import (
 )
 from tantivy import query_parser_error as parser_errors  # type: ignore[attr-defined]
 
-from .document import PATH_TOKENIZER_PATTERN, SEARCH_FIELDS, SEARCH_SCHEMA_VERSION
+from .document import (
+    KIND_FIELD,
+    PATH_TOKENIZER_PATTERN,
+    SEARCH_FIELDS,
+    SEARCH_FIELDS_BY_NAME,
+    SEARCH_SCHEMA_VERSION,
+    DocumentKind,
+    SearchField,
+)
 
 # The custom ``path`` tokenizer matches the runs *between* separators rather
 # than the separators themselves, so ``nested/NC_003888.3.json`` tokenizes
@@ -41,29 +54,26 @@ _PATH_TOKENIZER_NAME = "path"
 # matches; ``default`` -- Unicode word segmentation with lowercase
 # normalization and indexed positions, for full text; ``path`` -- the custom
 # tokenizer (see ``_register_custom_tokenizers``) that splits on ``/`` and
-# ``.``; or ``numeric`` -- a stored integer.
-_SCHEMA: tuple[tuple[str, str], ...] = tuple(
-    (field.name, field.tokenizer) for field in SEARCH_FIELDS
-)
-
+# ``.``; or ``integer``, ``float``, or ``boolean`` for a stored value of that
+# type.
 # All indexed field names, in schema order.
 _FIELD_NAMES: tuple[str, ...] = tuple(field.name for field in SEARCH_FIELDS)
 
-# Fields a bare term searches: every non-numeric field.
+# Fields a bare term searches: every text field.
 _DEFAULT_SEARCH_FIELDS: tuple[str, ...] = tuple(
     field.name for field in SEARCH_FIELDS if field.default_search
 )
 
-# Per-field relevance boosts applied to bare and fielded terms. Numeric fields
-# declare no boost.
+# Per-field relevance boosts applied to bare and fielded terms. Numeric and
+# boolean fields declare no boost.
 _FIELD_BOOSTS: dict[str, float] = {
     field.name: field.boost for field in SEARCH_FIELDS if field.boost is not None
 }
 
-# Fields read back into ordinary hits, in registry order. Every other field is
-# still stored in the index for example collection and diagnostics.
-_RETURNED_FIELDS: tuple[tuple[str, str], ...] = tuple(
-    (field.name, field.returned_kind) for field in SEARCH_FIELDS if field.in_hits
+# Fields read back into ordinary hits, in registry order. Every other stored
+# field is still kept in the index for example collection and diagnostics.
+_RETURNED_FIELDS: tuple[SearchField, ...] = tuple(
+    field for field in SEARCH_FIELDS if field.in_hits
 )
 
 
@@ -86,22 +96,34 @@ _VERSION_FILE = "version.txt"
 
 
 def build_schema() -> Schema:
-    """Build the Tantivy schema from the field declarations above.
+    """Build the Tantivy schema from the field registry.
 
-    Every field is stored so its value can be read back for example collection
-    and diagnostics; ``_RETURNED_FIELDS`` selects what comes back in ordinary
-    hits. Text fields use ``freq`` indexing when their tokenizer is ``raw``
-    (a single whole-value token) and ``position`` indexing otherwise, so
-    full-text phrases and path phrases/prefixes that span tokens work.
+    Every field but the catch-all text field is stored so its value can be
+    read back for example collection and diagnostics; ``_RETURNED_FIELDS``
+    selects what comes back in ordinary hits. Text fields use ``freq``
+    indexing when their tokenizer is ``raw`` (a single whole-value token) and
+    ``position`` indexing otherwise, so full-text phrases and path
+    phrases/prefixes that span tokens work. Exact text fields and all number
+    and boolean fields are fast fields, so they can be sorted and aggregated.
+    The internal :data:`KIND_FIELD` comes first; it is only ever matched whole.
     """
     builder = SchemaBuilder()
-    for name, tokenizer in _SCHEMA:
-        if tokenizer == "numeric":
-            builder.add_integer_field(name, stored=True, indexed=True, fast=True)
+    builder.add_text_field(
+        KIND_FIELD, stored=True, tokenizer_name="raw", index_option="basic"
+    )
+    for field in SEARCH_FIELDS:
+        name, tokenizer, stored = field.name, field.tokenizer, field.stored
+        if tokenizer == "integer":
+            builder.add_integer_field(name, stored=stored, indexed=True, fast=True)
+        elif tokenizer == "float":
+            builder.add_float_field(name, stored=stored, indexed=True, fast=True)
+        elif tokenizer == "boolean":
+            builder.add_boolean_field(name, stored=stored, indexed=True, fast=True)
         else:
             builder.add_text_field(
                 name,
-                stored=True,
+                stored=stored,
+                fast=tokenizer == "raw",
                 tokenizer_name=tokenizer,
                 index_option="freq" if tokenizer == "raw" else "position",
             )
@@ -222,39 +244,47 @@ HitT = TypeVar("HitT")
 
 @dataclass(frozen=True)
 class Results(Generic[HitT]):
-    """A page of hits plus whether more matching units remain."""
+    """A page of hits, whether more matching units remain, and the match count.
+
+    ``total`` counts every matching document of the searched kind: regions at
+    the region and record levels (where several regions can share one record),
+    protoclusters at the protocluster level.
+    """
 
     hits: tuple[HitT, ...]
     has_more: bool
+    total: int
 
 
 @dataclass(frozen=True)
 class SearchHit:
-    """One ranked protocluster hit with its stored summary values."""
+    """One ranked region or protocluster hit with its stored summary values.
 
-    score: float
+    ``score`` is the relevance score, or ``None`` when hits are sorted by a
+    field.
+    """
+
+    score: float | None
     fields: dict[str, Any]
 
 
 @dataclass(frozen=True)
-class RegionHit:
-    """One ranked region, scored by its best-matching protocluster."""
-
-    score: float
-    record: str
-    region: int
-    output_file: str
-    input_file: str | None
-
-
-@dataclass(frozen=True)
 class RecordHit:
-    """One ranked record, scored by its best-matching protocluster."""
+    """One ranked record, scored by its best-matching region.
 
-    score: float
+    The search index holds only the record's identity; the record list
+    details (``description`` through ``feature_count``) are filled in from the
+    SQLite record index by the HTTP layer and stay ``None`` until then.
+    """
+
+    score: float | None
     record: str
     output_file: str
     input_file: str | None
+    description: str | None = None
+    organism: str | None = None
+    region_count: int | None = None
+    feature_count: int | None = None
 
 
 def _index_present(path: Path) -> bool:
@@ -314,25 +344,32 @@ def open_index(index_path: Path) -> Index:
 def _stored_fields(searcher, address: Any) -> dict[str, Any]:
     raw = searcher.doc(address).to_dict()
     summary: dict[str, Any] = {}
-    for name, kind in _RETURNED_FIELDS:
-        if name not in raw:
+    for field in _RETURNED_FIELDS:
+        if field.name not in raw:
             continue
-        value = raw[name]
-        if kind == "numeric":
-            summary[name] = value[0] if value else None
+        value = raw[field.name]
+        if field.multi:
+            summary[field.name] = list(value)
+        elif field.is_text:
+            summary[field.name] = value[0] if value else ""
         else:
-            summary[name] = value[0] if value else ""
+            summary[field.name] = value[0] if value else None
     return summary
 
 
 def collect_first_values(index: Index) -> dict[str, str]:
     """Read the first non-empty stored value for each text field from ``index``.
 
-    Scan all segments until every text field has a value or the corpus ends,
-    and a multi-valued field contributes its first stored value. Numeric fields
-    are skipped because no example template consumes them.
+    Scan the region documents of all segments until every stored text field
+    has a value or the corpus ends, and a multi-valued field contributes its
+    first stored value. Protocluster documents repeat their region's values
+    and are skipped. Number
+    and boolean fields are skipped because no example template consumes them,
+    and so is the catch-all text field, which is not stored.
     """
-    text_fields = _DEFAULT_SEARCH_FIELDS
+    text_fields = tuple(
+        field.name for field in SEARCH_FIELDS if field.is_text and field.stored
+    )
     values: dict[str, str] = {}
     searcher = index.searcher()
     for segment_ord in range(searcher.num_segments):
@@ -344,6 +381,9 @@ def collect_first_values(index: Index) -> dict[str, str]:
                 raw = searcher.doc(DocAddress(segment_ord, doc_id)).to_dict()
             except ValueError:
                 break
+            if raw.get(KIND_FIELD) != ["region"]:
+                doc_id += 1
+                continue
             for name in text_fields:
                 if name in values:
                     continue
@@ -356,7 +396,7 @@ def collect_first_values(index: Index) -> dict[str, str]:
     return values
 
 
-def _parse_query(index: Index, query: str):
+def parse_query(index: Index, query: str) -> Query:
     """Parse ``query``, mapping parser errors onto structured search errors."""
     parsed, errors = index.parse_query_lenient(
         query,
@@ -372,6 +412,50 @@ def _parse_query(index: Index, query: str):
     return parsed
 
 
+def prepare_query(index: Index, query: str | Query) -> Query:
+    """Parse a query string, or pass an already built query through.
+
+    An empty query string raises :class:`EmptyQueryError`; a built query, such
+    as a structured filter, may match every region.
+    """
+    if isinstance(query, Query):
+        return query
+    if not query.strip():
+        raise EmptyQueryError()
+    return parse_query(index, query)
+
+
+def restrict_to_kind(index: Index, query: Query, kind: DocumentKind) -> Query:
+    """Match ``query`` against documents of ``kind`` only.
+
+    The kind clause scores zero, so relevance scores and their order are those
+    of ``query`` alone.
+    """
+    kind_query = Query.const_score_query(
+        Query.term_query(index.schema, KIND_FIELD, kind, index_option="basic"), 0.0
+    )
+    return Query.boolean_query([(Occur.Must, query), (Occur.Must, kind_query)])
+
+
+def count_documents(index: Index, kind: DocumentKind) -> int:
+    """The number of documents of ``kind`` in ``index``."""
+    everything = restrict_to_kind(index, Query.all_query(), kind)
+    # Tantivy exposes count at runtime, but its SearchResult stub omits it.
+    return index.searcher().search(everything, limit=1, count=True).count  # type: ignore[attr-defined]
+
+
+def _prepare(index: Index, query: str | Query, kind: DocumentKind) -> Query:
+    return restrict_to_kind(index, prepare_query(index, query), kind)
+
+
+@dataclass(frozen=True)
+class Sort:
+    """Order hits by one sortable field instead of by relevance."""
+
+    field: str
+    descending: bool = False
+
+
 def _validate_pagination(offset: int, limit: int) -> None:
     if offset < 0:
         raise ValueError("offset must not be negative")
@@ -379,37 +463,89 @@ def _validate_pagination(offset: int, limit: int) -> None:
         raise ValueError("limit must be at least 1")
 
 
-def search_protoclusters(
-    index: Index,
-    query: str,
-    offset: int = 0,
-    limit: int = 10,
-) -> Results[SearchHit]:
-    """Run ``query`` against an open ``index`` and return a page of hits.
+def _search(
+    searcher: Any,
+    parsed: Query,
+    limit: int,
+    offset: int,
+    sort: Sort | None,
+    *,
+    count: bool,
+) -> Any:
+    if sort is None:
+        return searcher.search(parsed, limit=limit, offset=offset, count=count)
+    return searcher.search(
+        parsed,
+        limit=limit,
+        offset=offset,
+        count=count,
+        order_by_field=sort.field,
+        order=Order.Desc if sort.descending else Order.Asc,
+    )
 
-    An empty query raises :class:`EmptyQueryError`. Unknown fields raise
-    :class:`UnknownFieldError` naming the field and the available fields; the
-    character position is not reported. Any other parser failure is surfaced as
-    :class:`QuerySyntaxError` carrying the parser message. Results use Tantivy
-    relevance ordering and carry the stored identity and display fields for
-    every hit. One extra hit beyond ``limit`` is fetched so ``has_more`` reports
-    whether further pages exist without counting the whole result set.
-    """
-    if not query.strip():
-        raise EmptyQueryError()
+
+def _search_documents(
+    index: Index,
+    query: str | Query,
+    kind: DocumentKind,
+    offset: int,
+    limit: int,
+    sort: Sort | None,
+) -> Results[SearchHit]:
+    parsed = _prepare(index, query, kind)
     _validate_pagination(offset, limit)
 
-    parsed = _parse_query(index, query)
-
     searcher: Any = index.searcher()
-    result = searcher.search(parsed, limit=limit + 1, offset=offset, count=False)
+    result = _search(searcher, parsed, limit + 1, offset, sort, count=True)
     fetched = list(result.hits)
     has_more = len(fetched) > limit
     hits = tuple(
-        SearchHit(score=score, fields=_stored_fields(searcher, address))
+        SearchHit(
+            score=None if sort else score,
+            fields=_stored_fields(searcher, address),
+        )
         for score, address in fetched[:limit]
     )
-    return Results(hits=hits, has_more=has_more)
+    return Results(hits=hits, has_more=has_more, total=result.count)
+
+
+def search_regions(
+    index: Index,
+    query: str | Query,
+    offset: int = 0,
+    limit: int = 10,
+    *,
+    sort: Sort | None = None,
+) -> Results[SearchHit]:
+    """Run ``query`` against an open ``index`` and return a page of regions.
+
+    ``query`` is a query string or a built query (see :func:`prepare_query`).
+    Unknown fields raise :class:`UnknownFieldError` naming the field and the
+    available fields; the character position is not reported. Any other parser
+    failure is surfaced as :class:`QuerySyntaxError` carrying the parser
+    message. Results use Tantivy relevance ordering, or ``sort`` when given,
+    and carry the stored identity and display fields for every hit. One extra
+    hit beyond ``limit`` is fetched so ``has_more`` reports whether further
+    pages exist.
+    """
+    return _search_documents(index, query, "region", offset, limit, sort)
+
+
+def search_protoclusters(
+    index: Index,
+    query: str | Query,
+    offset: int = 0,
+    limit: int = 10,
+    *,
+    sort: Sort | None = None,
+) -> Results[SearchHit]:
+    """Run ``query`` and return a page of protoclusters.
+
+    Each protocluster is matched on its own values, so every condition of
+    ``query`` must hold for the one protocluster; errors, ordering, and paging
+    are as for :func:`search_regions`.
+    """
+    return _search_documents(index, query, "protocluster", offset, limit, sort)
 
 
 # Number of raw Tantivy hits pulled per round when collapsing matches. Keeps the
@@ -417,28 +553,31 @@ def search_protoclusters(
 _FETCH_BATCH_SIZE = 1000
 
 
-def _unique_matching_protoclusters(
-    index: Index, parsed: Any, key_fields: tuple[str, ...], max_needed: int
-) -> list[tuple[float, dict[str, Any]]]:
-    """Return up to ``max_needed`` ``(score, stored_fields)`` distinct groups.
+def _unique_matching_regions(
+    index: Index,
+    parsed: Query,
+    key_fields: tuple[str, ...],
+    max_needed: int,
+    sort: Sort | None,
+) -> tuple[list[tuple[float | None, dict[str, Any]]], int]:
+    """Return up to ``max_needed`` distinct groups and the matching region count.
 
-    Matching protoclusters are fetched from Tantivy in batches of
-    :data:`_FETCH_BATCH_SIZE` and collapsed on ``key_fields`` so the full hit
-    list (which can reach millions) is never held in memory at once. Documents
-    arrive in Tantivy relevance order, so the first occurrence of a grouping key
-    carries that group's best score. Collapsing stops as soon as ``max_needed``
-    distinct groups have been collected, leaving the caller to tell from the
-    returned length whether more groups remain.
+    Each group is a ``(score, stored_fields)`` pair. Matching regions are
+    fetched from Tantivy in batches of :data:`_FETCH_BATCH_SIZE` and collapsed
+    on ``key_fields`` so the full hit list (which can reach millions) is never
+    held in memory at once. Documents arrive in relevance (or ``sort``) order,
+    so the first occurrence of a grouping key carries that group's best score
+    and position. Collapsing stops as soon as ``max_needed`` distinct groups
+    have been collected, leaving the caller to tell from the returned length
+    whether more groups remain.
     """
     searcher: Searcher = index.searcher()
     # Tantivy exposes count at runtime, but its SearchResult stub omits it.
     total = searcher.search(parsed, limit=1, count=True).count  # type: ignore[attr-defined]
     seen: set[tuple[Any, ...]] = set()
-    unique: list[tuple[float, dict[str, Any]]] = []
+    unique: list[tuple[float | None, dict[str, Any]]] = []
     for offset in range(0, total, _FETCH_BATCH_SIZE):
-        result = searcher.search(
-            parsed, limit=_FETCH_BATCH_SIZE, offset=offset, count=False
-        )
+        result = _search(searcher, parsed, _FETCH_BATCH_SIZE, offset, sort, count=False)
         if not result.hits:
             break
         for score, address in result.hits:
@@ -447,71 +586,34 @@ def _unique_matching_protoclusters(
             if key in seen:
                 continue
             seen.add(key)
-            unique.append((score, fields))
+            unique.append((None if sort else score, fields))
             if len(unique) >= max_needed:
-                return unique
-    return unique
-
-
-def search_region(
-    index: Index,
-    query: str,
-    offset: int = 0,
-    limit: int = 10,
-) -> Results[RegionHit]:
-    """Run ``query`` and return a page of unique regions.
-
-    A region is identified by its output file, record, and region number. Every
-    protocluster matching ``query`` contributes to its parent region, but each
-    region is reported once, scored by its highest-scoring matching
-    protocluster, and ordered by that score. ``offset``/``limit`` paginate that
-    distinct set; one extra group is collapsed so ``has_more`` reports whether
-    further regions remain.
-    """
-    if not query.strip():
-        raise EmptyQueryError()
-    _validate_pagination(offset, limit)
-
-    parsed = _parse_query(index, query)
-    unique = _unique_matching_protoclusters(
-        index, parsed, ("output_file", "record", "region"), offset + limit + 1
-    )
-    has_more = len(unique) > offset + limit
-    hits = tuple(
-        RegionHit(
-            score=score,
-            record=fields.get("record", ""),
-            region=cast(int, fields.get("region")),
-            output_file=fields.get("output_file", ""),
-            input_file=fields.get("input_file"),
-        )
-        for score, fields in unique[offset : offset + limit]
-    )
-    return Results(hits=hits, has_more=has_more)
+                return unique, total
+    return unique, total
 
 
 def search_record(
     index: Index,
-    query: str,
+    query: str | Query,
     offset: int = 0,
     limit: int = 10,
+    *,
+    sort: Sort | None = None,
 ) -> Results[RecordHit]:
     """Run ``query`` and return a page of unique records.
 
-    A record is identified by its output file and record id. Every protocluster
+    A record is identified by its output file and record id. Every region
     matching ``query`` contributes to its parent record, but each record is
-    reported once, scored by its highest-scoring matching protocluster, and
-    ordered by that score. ``offset``/``limit`` paginate that distinct set; one
-    extra group is collapsed so ``has_more`` reports whether further records
-    remain.
+    reported once, scored by its highest-scoring matching region, and ordered
+    by that score, or by its first region in ``sort`` order. ``offset`` and
+    ``limit`` paginate that distinct set; one extra group is collapsed so
+    ``has_more`` reports whether further records remain.
     """
-    if not query.strip():
-        raise EmptyQueryError()
+    parsed = _prepare(index, query, "region")
     _validate_pagination(offset, limit)
 
-    parsed = _parse_query(index, query)
-    unique = _unique_matching_protoclusters(
-        index, parsed, ("output_file", "record"), offset + limit + 1
+    unique, total = _unique_matching_regions(
+        index, parsed, ("output_file", "record"), offset + limit + 1, sort
     )
     has_more = len(unique) > offset + limit
     hits = tuple(
@@ -523,4 +625,110 @@ def search_record(
         )
         for score, fields in unique[offset : offset + limit]
     )
-    return Results(hits=hits, has_more=has_more)
+    return Results(hits=hits, has_more=has_more, total=total)
+
+
+@dataclass(frozen=True)
+class FacetBucket:
+    """One field value and the number of documents holding it."""
+
+    value: str
+    count: int
+
+
+class FacetFieldError(SearchError):
+    """Raised when values are requested for a field that cannot be counted."""
+
+    code = "invalid_facet_field"
+
+    def __init__(self, field: str) -> None:
+        super().__init__(
+            f"Values of field {field!r} cannot be counted; only exact text "
+            "and yes/no fields can"
+        )
+        self.field = field
+
+
+def _check_facet_field(name: str) -> SearchField:
+    field = SEARCH_FIELDS_BY_NAME.get(name)
+    if field is None:
+        raise UnknownFieldError(name, _FIELD_NAMES)
+    if not field.facet:
+        raise FacetFieldError(name)
+    return field
+
+
+def _buckets(aggregation: dict[str, Any]) -> list[FacetBucket]:
+    # Boolean buckets carry the value as ``key_as_string``, text buckets as ``key``.
+    return [
+        FacetBucket(
+            value=str(bucket.get("key_as_string", bucket["key"])),
+            count=int(bucket["doc_count"]),
+        )
+        for bucket in aggregation.get("buckets", [])
+    ]
+
+
+def facet_counts(
+    index: Index,
+    query: str | Query,
+    fields: Iterable[str],
+    size: int = 20,
+    *,
+    kind: DocumentKind = "region",
+) -> dict[str, list[FacetBucket]]:
+    """Count the most common values of ``fields`` over the matching documents.
+
+    Only documents of ``kind`` are counted: regions at the region and record
+    levels, protoclusters at the protocluster level. Each field reports up to
+    ``size`` values, most common first. Raises :class:`UnknownFieldError` or
+    :class:`FacetFieldError` for a field that cannot be counted.
+    """
+    names = list(dict.fromkeys(fields))
+    for name in names:
+        _check_facet_field(name)
+    if not names:
+        return {}
+    parsed = _prepare(index, query, kind)
+    result = index.searcher().aggregate(
+        parsed,
+        {name: {"terms": {"field": name, "size": size}} for name in names},
+    )
+    return {name: _buckets(result.get(name, {})) for name in names}
+
+
+# Number of matching values ranked when suggesting values for a field.
+_SUGGESTION_POOL = 1000
+
+
+def field_values(
+    index: Index,
+    field: str,
+    contains: str = "",
+    size: int = 20,
+    *,
+    kind: DocumentKind = "region",
+) -> list[FacetBucket]:
+    """Suggest values of ``field`` containing ``contains``, ignoring case.
+
+    Counts are documents of ``kind`` across the whole index. Values that start with
+    ``contains`` come first, then by count, then alphabetically, so typing the
+    start of a value finds it even when a more common value contains it later.
+    """
+    _check_facet_field(field)
+    needle = contains.strip()
+    terms: dict[str, Any] = {"field": field, "size": _SUGGESTION_POOL}
+    if needle:
+        terms["include"] = f"(?i).*{re.escape(needle)}.*"
+    everything = restrict_to_kind(index, Query.all_query(), kind)
+    result = index.searcher().aggregate(everything, {"values": {"terms": terms}})
+    buckets = _buckets(result.get("values", {}))
+    lowered = needle.lower()
+    buckets.sort(
+        key=lambda bucket: (
+            not bucket.value.lower().startswith(lowered),
+            -bucket.count,
+            bucket.value,
+        )
+    )
+    return buckets[:size]

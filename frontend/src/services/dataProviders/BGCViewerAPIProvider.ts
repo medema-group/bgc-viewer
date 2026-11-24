@@ -11,10 +11,13 @@ import {
   ResistanceFeaturesResponse,
   SearchLevel,
   SearchSchema,
-  ProtoclusterSearchHit,
   RegionSearchHit,
   RecordSearchHit,
-  SearchResponse
+  ProtoclusterSearchHit,
+  SearchResponse,
+  SearchCriteria,
+  StructuredSearchOptions,
+  FieldValuesResponse
 } from './types'
 import { fetchPfamColorMap } from './colorMapUtils'
 
@@ -67,14 +70,13 @@ export class BGCViewerAPIProvider extends DataProvider {
    * Get a list of available records
    */
   async getRecords(): Promise<RecordInfo[]> {
-    // This is currently handled by RecordListSelector component
-    // We might want to add an endpoint for this in the future
+    // Records are listed through searchRecords() or found with search()
     throw new Error('getRecords() is not yet implemented in the API')
   }
 
   /**
    * List records from the backend record index.
-   * The query is ignored: attribute search goes through searchLevel(),
+   * The query is ignored: attribute search goes through search(),
    * which is backed by the Tantivy search index.
    * @param _query - Unused
    * @param page - Page number (default: 1)
@@ -120,40 +122,50 @@ export class BGCViewerAPIProvider extends DataProvider {
     }
   }
 
-  async searchLevel(
-    level: 'protocluster',
-    query: string,
-    page?: number,
-    perPage?: number
-  ): Promise<SearchResponse<ProtoclusterSearchHit>>
-  async searchLevel(
+  async search(
     level: 'region',
-    query: string,
-    page?: number,
-    perPage?: number
+    criteria: SearchCriteria,
+    options?: StructuredSearchOptions
   ): Promise<SearchResponse<RegionSearchHit>>
-  async searchLevel(
+  async search(
     level: 'record',
-    query: string,
-    page?: number,
-    perPage?: number
+    criteria: SearchCriteria,
+    options?: StructuredSearchOptions
   ): Promise<SearchResponse<RecordSearchHit>>
-  async searchLevel(
+  async search(
+    level: 'protocluster',
+    criteria: SearchCriteria,
+    options?: StructuredSearchOptions
+  ): Promise<SearchResponse<ProtoclusterSearchHit>>
+  async search(
     level: SearchLevel,
-    query: string,
-    page?: number,
-    perPage?: number
-  ): Promise<SearchResponse<ProtoclusterSearchHit | RegionSearchHit | RecordSearchHit>>
-  async searchLevel(
+    criteria: SearchCriteria,
+    options?: StructuredSearchOptions
+  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit | ProtoclusterSearchHit>>
+  async search(
     level: SearchLevel,
-    query: string,
-    page: number = 1,
-    perPage: number = 20
-  ): Promise<SearchResponse<ProtoclusterSearchHit | RegionSearchHit | RecordSearchHit>> {
+    criteria: SearchCriteria,
+    options: StructuredSearchOptions = {}
+  ): Promise<SearchResponse<RegionSearchHit | RecordSearchHit | ProtoclusterSearchHit>> {
     const response = await this.axiosInstance.post(`/api/search/${level}`, {
-      query,
-      page,
-      per_page: perPage
+      ...criteria,
+      page: options.page ?? 1,
+      per_page: options.perPage ?? 20,
+      ...(options.sort ? { sort: options.sort } : {}),
+      ...(options.facets?.length ? { facets: options.facets, facet_size: options.facetSize } : {})
+    })
+    return response.data
+  }
+
+  /** Suggest values of a field containing `contains`, counting regions, or protoclusters at that level. */
+  async getFieldValues(
+    field: string,
+    contains: string = '',
+    size: number = 20,
+    level: SearchLevel = 'region'
+  ): Promise<FieldValuesResponse> {
+    const response = await this.axiosInstance.get<FieldValuesResponse>('/api/search/values', {
+      params: { field, q: contains, size, level }
     })
     return response.data
   }
@@ -188,18 +200,6 @@ export class BGCViewerAPIProvider extends DataProvider {
   }
 
   /**
-   * Get features for a specific region within a record
-   */
-  async getRegionFeatures(recordId: string, regionId: string): Promise<FeaturesResponse> {
-    // Extract actual record ID from entryId format (filename:recordId)
-    const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
-    const response = await this.axiosInstance.get<FeaturesResponse>(
-      `/api/records/${actualRecordId}/regions/${regionId}/features`
-    )
-    return response.data
-  }
-
-  /**
    * Get PFAM domain color mapping
    */
   async getPfamColorMap(): Promise<PfamColorMap> {
@@ -221,13 +221,14 @@ export class BGCViewerAPIProvider extends DataProvider {
   }
 
   /**
-   * Get TFBS finder binding site hits for a specific region
+   * Get TFBS finder binding site hits for a region, or for every region of the record
+   * when no region is given
    */
-  async getTFBSHits(recordId: string, region: string = '1'): Promise<TFBSHitsResponse> {
+  async getTFBSHits(recordId: string, region?: string): Promise<TFBSHitsResponse> {
     const actualRecordId = recordId.includes(':') ? recordId.split(':')[1] : recordId
     const response = await this.axiosInstance.get<TFBSHitsResponse>(
       `/api/records/${actualRecordId}/tfbs-hits`,
-      { params: { region } }
+      { params: region === undefined ? {} : { region } }
     )
     return response.data
   }

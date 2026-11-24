@@ -189,6 +189,62 @@ describe('TrackViewer', () => {
     expect(config.domain).toEqual([0, 500]);
   });
 
+  test('should zoom to a range, within the zoom extent', () => {
+    const viewer = new TrackViewer({
+      container: '#test-container',
+      width: 800,
+      domain: [0, 1000],
+      zoomExtent: [1, 10]
+    });
+
+    viewer.zoomTo(200, 400, 0);
+    let [start, end] = viewer.getCurrentDomain();
+    expect(start).toBeCloseTo(200);
+    expect(end).toBeCloseTo(400);
+
+    // A tiny range would need more than 10x zoom, so it is shown at 10x, centered on the range
+    viewer.zoomTo(500, 502, 0);
+    [start, end] = viewer.getCurrentDomain();
+    expect(end - start).toBeCloseTo(100);
+    expect((start + end) / 2).toBeCloseTo(501);
+    viewer.destroy();
+  });
+
+  test('should zoom to a box when double clicked, even if a click redraws it', () => {
+    const data: TrackViewerData = {
+      tracks: [{ id: 'track1', label: 'Track 1' }],
+      annotations: [
+        { id: 'box1', trackId: 'track1', type: 'box', classes: [], label: 'Box', start: 400, end: 600 },
+        { id: 'pin1', trackId: 'track1', type: 'pin', classes: [], label: 'Pin', start: 100, end: 100 }
+      ]
+    };
+    const viewer: TrackViewer = new TrackViewer({
+      container: '#test-container',
+      width: 800,
+      domain: [0, 1000],
+      // Redraw on click, as the RegionViewer does when highlighting the selection
+      onAnnotationClick: () => viewer.setData(data)
+    });
+    viewer.setData(data);
+    const zoomTo = vi.spyOn(viewer, 'zoomTo');
+    const click = (id: string) => container.querySelector(`[id="${id}"]`)!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    click('box1');
+    expect(zoomTo).not.toHaveBeenCalled();
+    click('box1');
+    // The box takes up 75% of the view, with 12.5% margin on each side
+    const [start, end] = zoomTo.mock.calls[0];
+    expect((600 - 400) / (end - start)).toBeCloseTo(0.75);
+    expect((400 - start) / (end - start)).toBeCloseTo(0.125);
+
+    // Point annotations keep d3's default double-click zoom
+    click('pin1');
+    click('pin1');
+    expect(zoomTo).toHaveBeenCalledTimes(1);
+    viewer.destroy();
+  });
+
   test('should throw error for invalid container', () => {
     expect(() => {
       new TrackViewer({

@@ -105,6 +105,32 @@ describe('JSONFileProvider', () => {
       expect(cdsFeature.id).toBe('gene1')
     })
   })
+  describe('getTFBSHits', () => {
+    const tfbsProvider = () => new JSONFileProvider({
+      records: [{
+        id: 'rec',
+        features: [],
+        modules: {
+          'antismash.modules.tfbs_finder': {
+            hits_by_region: { 10: [{ name: 'C' }], 2: [{ name: 'A' }, { name: 'B' }] }
+          }
+        }
+      }]
+    })
+
+    it('returns the hits of every region, in region order, without a region', async () => {
+      const result = await tfbsProvider().getTFBSHits('rec')
+      expect(result.region).toBeNull()
+      expect(result.hits.map(hit => hit.name)).toEqual(['A', 'B', 'C'])
+      expect(result.count).toBe(3)
+    })
+
+    it('returns the hits of one region', async () => {
+      const provider = tfbsProvider()
+      expect((await provider.getTFBSHits('rec', '10')).hits).toEqual([{ name: 'C' }])
+      expect((await provider.getTFBSHits('rec', '5')).hits).toEqual([])
+    })
+  })
 })
 
 describe('BGCViewerAPIProvider', () => {
@@ -131,14 +157,28 @@ describe('BGCViewerAPIProvider', () => {
     })
   })
 
+  describe('getTFBSHits', () => {
+    it('asks for the whole record without a region, and for one region with it', async () => {
+      axiosInstance.get.mockResolvedValue({ data: { hits: [] } })
+
+      await provider.getTFBSHits('rec.json:rec')
+      await provider.getTFBSHits('rec.json:rec', '3')
+
+      expect(axiosInstance.get.mock.calls).toEqual([
+        ['/api/records/rec/tfbs-hits', { params: {} }],
+        ['/api/records/rec/tfbs-hits', { params: { region: '3' } }]
+      ])
+    })
+  })
+
   describe('advanced search', () => {
-    it.each(['protocluster', 'region', 'record'])(
+    it.each(['region', 'record'])(
       'posts %s searches to the matching level endpoint',
       async (level) => {
-        const searchResponse = { hits: [], total: 0 }
+        const searchResponse = { hits: [], has_more: false }
         axiosInstance.post.mockResolvedValue({ data: searchResponse })
 
-        const result = await provider.searchLevel(level, 'pfam:PF00512', 2, 50)
+        const result = await provider.search(level, { query: 'pfam:PF00512' }, { page: 2, perPage: 50 })
 
         expect(axiosInstance.post).toHaveBeenCalledWith(`/api/search/${level}`, {
           query: 'pfam:PF00512',
@@ -148,6 +188,48 @@ describe('BGCViewerAPIProvider', () => {
         expect(result).toBe(searchResponse)
       }
     )
+
+    it('posts a filter with sort and facets', async () => {
+      axiosInstance.post.mockResolvedValue({ data: { hits: [] } })
+      const filter = { operator: 'AND', conditions: [], groups: [] }
+
+      await provider.search('region', { filter }, {
+        sort: { field: 'length', order: 'desc' },
+        facets: ['product'],
+        facetSize: 10
+      })
+
+      expect(axiosInstance.post).toHaveBeenCalledWith('/api/search/region', {
+        filter,
+        page: 1,
+        per_page: 20,
+        sort: { field: 'length', order: 'desc' },
+        facets: ['product'],
+        facet_size: 10
+      })
+    })
+
+    it('gets suggested field values', async () => {
+      const values = { field: 'pfam', values: [{ value: 'PF00501', count: 2 }] }
+      axiosInstance.get.mockResolvedValue({ data: values })
+
+      const result = await provider.getFieldValues('pfam', 'PF005', 5)
+
+      expect(axiosInstance.get).toHaveBeenCalledWith('/api/search/values', {
+        params: { field: 'pfam', q: 'PF005', size: 5, level: 'region' }
+      })
+      expect(result).toBe(values)
+    })
+
+    it('gets suggested field values counted at a level', async () => {
+      axiosInstance.get.mockResolvedValue({ data: { field: 'pfam', values: [] } })
+
+      await provider.getFieldValues('pfam', '', 20, 'protocluster')
+
+      expect(axiosInstance.get).toHaveBeenCalledWith('/api/search/values', {
+        params: { field: 'pfam', q: '', size: 20, level: 'protocluster' }
+      })
+    })
 
     it('gets the shared search schema', async () => {
       const schema = {

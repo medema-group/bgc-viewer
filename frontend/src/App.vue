@@ -3,11 +3,21 @@
     <!-- Header spanning full width -->
     <header class="app-header">
       <h1>BGC Viewer</h1>
+      <div class="header-actions">
+        <button
+          v-if="!isPublicMode"
+          type="button"
+          class="header-button"
+          :title="selectedIndexPath || 'No index open'"
+          @click="indexDialogOpen = true"
+        >
+          Index<span v-if="indexName" class="header-button-detail">{{ indexName }}</span>
+        </button>
+        <button type="button" class="header-button" @click="loadDialogOpen = true">
+          Load data
+        </button>
+      </div>
       <div class="header-tools">
-        <SearchBar
-          v-if="dataSource === 'api' && !folderForIndexing"
-          @open="searchDialogOpen = true"
-        />
         <div class="version-info">
           <span v-if="appVersion">{{ appName }} v{{ appVersion }}</span>
           <span v-else>Loading version...</span>
@@ -20,111 +30,35 @@
       </div>
     </header>
 
-    <SearchDialog
-      v-if="searchDialogOpen"
-      v-model:query="searchQuery"
-      v-model:level="searchLevel"
-      :response="searchResults"
-      :results-query="searchResultsQuery"
-      :results-level="searchResultsLevel"
-      :selected-hit="selectedSearchHit"
-      :loading="searchLoading"
-      :loading-more="searchLoadingMore"
-      :error="searchError"
-      :schema="searchSchema"
-      :schema-loading="searchSchemaLoading"
-      :schema-error="searchSchemaError"
-      @search="handleSearch"
-      @clear="clearSearch"
-      @request-help="loadSearchSchema"
-      @load-more="handleLoadMore"
-      @search-selected="handleSearchSelected"
-      @close="searchDialogOpen = false"
-    />
+    <!-- Main flow: search the index, pick a result or a loaded record, view it -->
+    <main class="main-content">
+      <SearchPanel
+        :search="advancedSearch"
+        :can-choose-index="!isPublicMode"
+        @open-index="indexDialogOpen = true"
+        @searched="resultsTab = 'search'"
+      />
 
-    <!-- Main content area with sidebar and viewer -->
-    <div class="main-content">
-      <!-- Left sidebar for controls -->
-      <aside class="sidebar" :style="{ width: sidebarWidth + '%' }">
-        <!-- Top section: Data source and file controls -->
-        <div class="sidebar-top" :style="{ height: sidebarTopHeight + '%' }">
-          <!-- Data Source Selector -->
-          <DataSourceSelector 
-            v-model="dataSource"
-          />
+      <ResultsPanel
+        v-if="showResults"
+        v-model:tab="resultsTab"
+        :search="advancedSearch"
+        :loaded-records="loadedRecords.records.value"
+        :loaded-regions="loadedRecords.regions.value"
+        :selected-loaded-key="selectedLoadedKey"
+        :loaded-loading="loadedRecords.loading.value"
+        :loaded-error="loadedRecords.error.value"
+        @select-hit="handleSearchSelected"
+        @select-loaded="handleLoadedSelected"
+        @select-loaded-region="handleLoadedRegionSelected"
+        @remove-source="handleRemoveSource"
+      />
 
-          <!-- API Mode: Index Selection Section - Only shown in API mode, local mode, and when not creating an index -->
-          <IndexSelection 
-            v-if="dataSource === 'api' && !isPublicMode && !folderForIndexing"
-            :index-path="selectedIndexPath"
-            @folder-selected="handleFolderSelected"
-            @folder-changed="handleFolderChanged"
-            @index-changed="handleIndexChanged"
-            @create-index-for-folder="handleCreateIndexForFolder"
-          />
-
-          <!-- API Mode: Index Creation Section - Only shown in API mode, local mode, and when creating a new index -->
-          <IndexCreation
-            v-if="dataSource === 'api' && !isPublicMode && folderForIndexing"
-            :folder-path="folderForIndexing"
-            :index-path="indexPathForCreation"
-            :available-files="availableFiles"
-            :is-loading-files="isLoadingFiles"
-            :needs-preprocessing="needsPreprocessing"
-            @preprocessing-completed="handlePreprocessingCompleted"
-            @folder-changed="handleFolderForIndexingChanged"
-            @cancel="handleCancelIndexCreation"
-          />
-
-          <!-- Upload Mode: File Upload Section -->
-          <FileUpload
-            v-if="dataSource === 'upload'"
-            @files-loaded="handleFilesLoaded"
-          />
-
-          <!-- antiSMASH DB / MIBiG Mode: Accession input -->
-          <AccessionLoader
-            v-if="EXTERNAL_SOURCES[dataSource]"
-            :key="dataSource"
-            :source="dataSource"
-            :initial-accession="urlAccession"
-            @files-loaded="handleFilesLoaded"
-          />
-        </div>
-
-        <!-- Horizontal draggable divider -->
-        <div 
-          class="horizontal-divider"
-          @mousedown="startVerticalDragging"
-        ></div>
-
-        <!-- Bottom section: Record list -->
-        <div class="sidebar-bottom">
-          <!-- Record List Selector Section - Hidden when creating an index -->
-          <RecordListSelector
-            v-if="!folderForIndexing"
-            ref="recordListSelectorRef"
-            :data-root="selectedDataRoot"
-            :index-path="selectedIndexPath"
-            :show-search="dataSource !== 'api'"
-            :data-source="dataSource"
-            @record-selected="handleRecordSelected"
-          />
-        </div>
-      </aside>
-
-      <!-- Draggable divider -->
-      <div 
-        class="divider"
-        @mousedown="startDragging"
-      ></div>
-
-      <!-- Right main viewer area -->
-      <main class="viewer-area">
-        <RegionViewerContainer 
-          v-if="!folderForIndexing && dataProvider"
-          ref="regionViewerRef"
-          :data-provider="dataProvider"
+      <section class="viewer-section" aria-label="Record viewer">
+        <RegionViewerContainer
+          v-if="viewerProvider && currentRecordId"
+          :key="viewerKey"
+          :data-provider="viewerProvider"
           :record-id="currentRecordId"
           :record-data="currentRecordData"
           :initial-region-id="initialRegionId"
@@ -134,322 +68,245 @@
           @error="handleViewerError"
         />
         <div v-else class="placeholder">
-          <p>Select a record from the sidebar to view details</p>
+          <p>Select a search result or a loaded record to view it here</p>
         </div>
-      </main>
+      </section>
+    </main>
 
-    </div>
+    <AppDialog
+      v-if="!isPublicMode"
+      :open="indexDialogOpen"
+      title="Index"
+      @close="indexDialogOpen = false"
+    >
+      <!-- Index selection stays mounted, as it reopens the last used index on startup -->
+      <IndexSelection
+        v-show="!folderForIndexing"
+        :index-path="selectedIndexPath"
+        @index-changed="handleIndexChanged"
+        @create-index-for-folder="handleCreateIndexForFolder"
+      />
+      <IndexCreation
+        v-if="folderForIndexing"
+        :folder-path="folderForIndexing"
+        :index-path="indexPathForCreation"
+        :available-files="availableFiles"
+        :is-loading-files="isLoadingFiles"
+        :needs-preprocessing="needsPreprocessing"
+        @preprocessing-completed="handlePreprocessingCompleted"
+        @folder-changed="handleFolderForIndexingChanged"
+        @cancel="handleCancelIndexCreation"
+      />
+    </AppDialog>
+
+    <LoadDataDialog
+      :open="loadDialogOpen"
+      :initial-accessions="urlAccessions"
+      @loaded="handleLoaded"
+      @close="loadDialogOpen = false"
+    />
   </div>
 </template>
 
 <script>
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { computed, markRaw, onMounted, ref } from 'vue'
 import axios from 'axios'
-import RegionViewerContainer from './components/RegionViewerContainer.vue'
-import IndexSelection from './components/IndexSelection.vue'
+import AppDialog from './components/AppDialog.vue'
 import IndexCreation from './components/IndexCreation.vue'
-import RecordListSelector from './components/RecordListSelector.vue'
-import DataSourceSelector from './components/DataSourceSelector.vue'
-import FileUpload from './components/FileUpload.vue'
-import AccessionLoader from './components/AccessionLoader.vue'
+import IndexSelection from './components/IndexSelection.vue'
+import LoadDataDialog from './components/LoadDataDialog.vue'
+import RegionViewerContainer from './components/RegionViewerContainer.vue'
+import ResultsPanel from './components/ResultsPanel.vue'
+import SearchPanel from './components/SearchPanel.vue'
 import { EXTERNAL_SOURCES } from './services/externalSources'
-import SearchBar from './components/SearchBar.vue'
-import SearchDialog from './components/SearchDialog.vue'
-import { BGCViewerAPIProvider, JSONFileProvider, GenbankFileProvider } from '@/services/dataProviders'
+import { BGCViewerAPIProvider } from '@/services/dataProviders'
 import {
   protoclusterNumberFromHit,
   recordSelectionFromHit,
   regionIdFromHit
 } from '@/services/searchNavigation'
+import { useAdvancedSearch } from '@/composables/useAdvancedSearch'
+import { UPLOAD_SOURCE, useLoadedRecords } from '@/composables/useLoadedRecords'
+
+// The viewer is remounted per provider, so a record never loads through the previous one.
+const providerKeys = new WeakMap()
+let providerCounter = 0
+const providerKey = (provider) => {
+  if (!providerKeys.has(provider)) providerKeys.set(provider, `provider-${++providerCounter}`)
+  return providerKeys.get(provider)
+}
 
 export default {
   name: 'App',
   components: {
-    RegionViewerContainer,
-    IndexSelection,
+    AppDialog,
     IndexCreation,
-    RecordListSelector,
-    DataSourceSelector,
-    FileUpload,
-    AccessionLoader,
-    SearchBar,
-    SearchDialog
+    IndexSelection,
+    LoadDataDialog,
+    RegionViewerContainer,
+    ResultsPanel,
+    SearchPanel
   },
   setup() {
-    const regionViewerRef = ref(null)
-    const recordListSelectorRef = ref(null)
-    
     // Version information
     const appVersion = ref('')
     const appName = ref('BGC Viewer')
-    
+
     // Mode information
     const isPublicMode = ref(true) // Default to true for safety
-    
-    // Restore data source from localStorage, default to 'api'
-    const savedDataSource = localStorage.getItem('bgc-viewer-data-source')
-    const dataSource = ref(savedDataSource || 'api') // 'api', 'upload' or a key of EXTERNAL_SOURCES
 
-    // An accession in the URL (e.g. ?antismash_db=GCF_000725555.1 or ?mibig=BGC0002204.3)
-    // selects the matching external source and loads it directly
+    // Accessions in the URL (e.g. ?antismash_db=GCF_000725555.1 or ?mibig=BGC0002204.3)
+    // are loaded on startup
     const urlParams = new URLSearchParams(window.location.search)
-    const urlSource = Object.keys(EXTERNAL_SOURCES).find(id => urlParams.get(EXTERNAL_SOURCES[id].urlParam))
-    const urlAccession = ref(urlSource ? urlParams.get(EXTERNAL_SOURCES[urlSource].urlParam) : '')
-    if (urlSource) {
-      dataSource.value = urlSource
-    }
-    
-    // Data root and index tracking
-    const selectedDataRoot = ref('')
+    const urlAccessions = Object.fromEntries(
+      Object.entries(EXTERNAL_SOURCES)
+        .map(([id, source]) => [id, urlParams.get(source.urlParam) || ''])
+        .filter(([, accession]) => accession)
+    )
+
+    // Index selection and creation, in the index dialog
+    const indexDialogOpen = ref(false)
     const selectedIndexPath = ref('')
-    
-    // Index creation state
     const folderForIndexing = ref('')
     const indexPathForCreation = ref('')
     const availableFiles = ref([])
     const isLoadingFiles = ref(false)
     const needsPreprocessing = ref(false)
-    
-    // Region viewer state
-    const dataProvider = ref(null) // Active provider for viewing
-    const dataProviders = ref([]) // All providers (one per file)
+    const indexName = computed(() => selectedIndexPath.value.split(/[\\/]/).pop() || '')
+
+    // The backend index is searched; loaded files and accessions sit beside it
+    const apiProvider = markRaw(new BGCViewerAPIProvider())
+    const advancedSearch = useAdvancedSearch(() => apiProvider)
+    const loadedRecords = useLoadedRecords()
+    const loadDialogOpen = ref(false)
+    const selectedLoadedKey = ref(null)
+
+    // Search results and loaded records share one panel as tabs
+    const resultsTab = ref('search')
+    const showResults = computed(() => Boolean(
+      advancedSearch.state.response || advancedSearch.state.loading
+      || loadedRecords.records.value.length || loadedRecords.loading.value || loadedRecords.error.value
+    ))
+
+    // The viewed record and the provider it comes from
+    const viewerProvider = ref(null)
+    const viewerKey = ref('')
     const currentRecordId = ref('')
     const currentRecordData = ref(null)
     const initialRegionId = ref('')
+    // Set for a protocluster search hit, whose protocluster the viewer zooms to instead of the region
     const initialProtoclusterNumber = ref(null)
 
-    // Advanced backend search state
-    const searchQuery = ref('')
-    const searchLevel = ref('protocluster')
-    const searchResults = ref(null)
-    const searchResultsQuery = ref('')
-    const searchResultsLevel = ref('protocluster')
-    const searchResultsPage = ref(1)
-    const selectedSearchHit = ref(null)
-    const searchLoading = ref(false)
-    const searchLoadingMore = ref(false)
-    const searchError = ref(null)
-    let searchRequest = 0
-    const searchDialogOpen = ref(false)
-    const searchSchema = ref(null)
-    const searchSchemaLoading = ref(false)
-    const searchSchemaError = ref(null)
-    let searchSchemaRequest = 0
-    
-    // Draggable divider state
-    const savedSidebarWidth = localStorage.getItem('bgc-viewer-sidebar-width')
-    const sidebarWidth = ref(savedSidebarWidth ? parseFloat(savedSidebarWidth) : 32) // Default width as percentage
-    const isDragging = ref(false)
-    const minSidebarWidth = 15 // Minimum 15%
-    const maxSidebarWidth = 50 // Maximum 50%
-    
-    // Vertical (horizontal divider) state for sidebar sections
-    const savedSidebarTopHeight = localStorage.getItem('bgc-viewer-sidebar-top-height')
-    const sidebarTopHeight = ref(savedSidebarTopHeight ? parseFloat(savedSidebarTopHeight) : 30) // Default top section height as percentage
-    const isVerticalDragging = ref(false)
-    const minSidebarTopHeight = 15 // Minimum 15%
-    const maxSidebarTopHeight = 70 // Maximum 70%
-    
-    const handleFolderSelected = async (folderPath) => {
-      // Update the selected data root
-      selectedDataRoot.value = folderPath
-    }
-
-    const handleFolderChanged = async (folderPath) => {
-      // Clear the record list immediately when folder changes
-      if (recordListSelectorRef.value) {
-        recordListSelectorRef.value.clearRecords()
-      }
-      // Update the selected data root
-      selectedDataRoot.value = folderPath
-    }
-
-    const loadSearchSchema = async () => {
-      if (searchSchema.value || searchSchemaLoading.value) return
-
-      const request = ++searchSchemaRequest
-      searchSchemaLoading.value = true
-      searchSchemaError.value = null
-
-      try {
-        const provider = dataProvider.value
-        if (!(provider instanceof BGCViewerAPIProvider)) {
-          throw new Error('Advanced search is only available for backend datasets')
-        }
-        const schema = await provider.getSearchSchema()
-        if (request === searchSchemaRequest) {
-          searchSchema.value = schema
-        }
-      } catch (error) {
-        if (request === searchSchemaRequest) {
-          const apiError = error?.response?.data?.error
-          searchSchemaError.value = apiError && apiError.code && apiError.message
-            ? { code: apiError.code, message: apiError.message }
-            : { code: 'schema_failed', message: error?.message || 'Failed to load search reference' }
-        }
-      } finally {
-        if (request === searchSchemaRequest) {
-          searchSchemaLoading.value = false
-        }
-      }
-    }
-
-    const invalidateSearchSchema = () => {
-      searchSchemaRequest += 1
-      searchSchema.value = null
-      searchSchemaLoading.value = false
-      searchSchemaError.value = null
-    }
-
-    const handleIndexChanged = async (indexPath) => {
-      // Clear the viewer when the index changes
+    const clearViewer = () => {
+      viewerProvider.value = null
+      viewerKey.value = ''
       currentRecordId.value = ''
+      currentRecordData.value = null
       initialRegionId.value = ''
-      clearSearch()
-      
-      // Store the index file path (not data root)
-      selectedIndexPath.value = indexPath
-      invalidateSearchSchema()
-      // Refresh the record list when index has changed
-      if (recordListSelectorRef.value) {
-        await recordListSelectorRef.value.refreshEntries()
-      }
+      initialProtoclusterNumber.value = null
+      selectedLoadedKey.value = null
     }
 
-    const runSearch = async (query, level, page, append) => {
-      const request = ++searchRequest
-      if (append) {
-        searchLoadingMore.value = true
-      } else {
-        searchLoading.value = true
-        searchError.value = null
-      }
-
-      try {
-        const provider = dataProvider.value
-        if (!(provider instanceof BGCViewerAPIProvider)) {
-          throw new Error('Advanced search is only available for backend datasets')
-        }
-        const results = await provider.searchLevel(level, query, page)
-        if (request === searchRequest) {
-          const existing = append && searchResults.value ? searchResults.value.hits : []
-          searchResults.value = {
-            hits: [...existing, ...results.hits],
-            has_more: results.has_more
-          }
-          searchResultsQuery.value = query
-          searchResultsLevel.value = level
-          searchResultsPage.value = page
-          if (!append) {
-            selectedSearchHit.value = null
-          }
-        }
-      } catch (error) {
-        if (request === searchRequest) {
-          const apiError = error?.response?.data?.error
-          searchError.value = apiError && apiError.code && apiError.message
-            ? { code: apiError.code, message: apiError.message }
-            : { code: 'search_failed', message: error?.message || 'Search failed' }
-        }
-      } finally {
-        if (request === searchRequest) {
-          searchLoading.value = false
-          searchLoadingMore.value = false
-        }
-      }
-    }
-
-    const handleSearch = ({ query, level, page = 1 }) => {
-      searchQuery.value = query
-      searchLevel.value = level
-      if (!query.trim()) {
-        clearSearch()
-        return
-      }
-      runSearch(query, level, page, false)
-    }
-
-    const clearSearch = () => {
-      searchRequest += 1
-      searchQuery.value = ''
-      searchResults.value = null
-      searchResultsQuery.value = ''
-      searchResultsPage.value = 1
-      selectedSearchHit.value = null
-      searchLoading.value = false
-      searchLoadingMore.value = false
-      searchError.value = null
-    }
-
-    const handleLoadMore = () => {
-      if (!searchResultsQuery.value || searchLoadingMore.value) {
-        return
-      }
-      runSearch(
-        searchResultsQuery.value,
-        searchResultsLevel.value,
-        searchResultsPage.value + 1,
-        true
-      )
-    }
-
-    const handleSearchSelected = async (hit) => {
-      selectedSearchHit.value = hit
-      await handleRecordSelected(
-        recordSelectionFromHit(searchResultsLevel.value, hit),
-        regionIdFromHit(searchResultsLevel.value, hit),
-        protoclusterNumberFromHit(searchResultsLevel.value, hit)
-      )
-      searchDialogOpen.value = false
-    }
-
-    const handleRecordSelected = async (recordData, regionId = '', protoclusterNumber = null) => {
-      recordListSelectorRef.value?.setSelectedEntry(recordData.entryId)
-
-      // Store the selected entry ID - container will load it through the provider
+    const showRecord = (provider, recordData, regionId = '', protoclusterNumber = null) => {
+      viewerProvider.value = provider
+      viewerKey.value = providerKey(provider)
       currentRecordData.value = {
         entryId: recordData.entryId,
         recordId: recordData.recordId,
         filename: recordData.filename
       }
-      
-      // Find the provider that contains this record
-      if (dataProviders.value.length > 0) {
-        for (const provider of dataProviders.value) {
-          const records = await provider.getRecords()
-          if (records.some(r => r.recordId === recordData.entryId)) {
-            dataProvider.value = provider
-            break
-          }
-        }
-      }
-      
-      // Set the record ID to trigger the container to load
-      // Use entryId (which includes filename) for uniqueness, not recordId
+      // Use entryId (which includes the filename) for uniqueness, not recordId
       currentRecordId.value = recordData.entryId
       initialRegionId.value = regionId
       initialProtoclusterNumber.value = protoclusterNumber
-      
-      console.log('Record selected:', recordData.recordId, 'from', recordData.filename, '(entryId:', recordData.entryId, ')')
     }
-    
-    const handleRegionChanged = (regionId) => {
-      console.log('Region changed to:', regionId)
-      // You can add custom handling here if needed
+
+    const handleSearchSelected = (hit) => {
+      const level = advancedSearch.state.searchedLevel
+      advancedSearch.state.selectedHit = hit
+      selectedLoadedKey.value = null
+      showRecord(
+        apiProvider,
+        recordSelectionFromHit(level, hit),
+        regionIdFromHit(level, hit),
+        protoclusterNumberFromHit(level, hit)
+      )
     }
-    
-    const handleAnnotationClicked = (data) => {
-      console.log('Annotation clicked:', data)
-      // You can add custom handling here
+
+    const handleLoadedSelected = (record) => {
+      advancedSearch.state.selectedHit = null
+      selectedLoadedKey.value = record.key
+      showRecord(record.provider, record)
     }
-    
-    const handleViewerError = (error) => {
-      console.error('Viewer error:', error)
-      // You can add error handling/display here
+
+    const handleLoadedRegionSelected = (region) => {
+      advancedSearch.state.selectedHit = null
+      selectedLoadedKey.value = region.key
+      showRecord(region.record.provider, region.record, region.regionId)
     }
-    
-    const handleCreateIndexForFolder = async ({ folderPath, indexPath, files }) => {
-      // Set up state for index creation
+
+    // Clear the viewer when the record it shows is no longer loaded
+    const dropViewerIfUnloaded = () => {
+      const provider = viewerProvider.value
+      if (provider && provider !== apiProvider
+          && !loadedRecords.records.value.some(record => record.provider === provider)) {
+        clearViewer()
+      }
+    }
+
+    const handleLoaded = async (source, files) => {
+      // Uploads restored from browser storage on startup arrive with the dialog closed;
+      // they should not take the place of the search results
+      const asked = loadDialogOpen.value || source !== UPLOAD_SOURCE
+      const records = await loadedRecords.setFiles(source, files)
+      dropViewerIfUnloaded()
+      if (asked && records.length > 0) resultsTab.value = 'loaded'
+      // An entry fetched from a database is shown right away; uploads may still grow
+      if (source !== UPLOAD_SOURCE && records.length > 0) {
+        loadDialogOpen.value = false
+        handleLoadedSelected(records[0])
+      }
+    }
+
+    const handleRemoveSource = (source) => {
+      loadedRecords.removeSource(source)
+      dropViewerIfUnloaded()
+      // Its accession should not load again with the page
+      const url = new URL(window.location.href)
+      const param = EXTERNAL_SOURCES[source]?.urlParam
+      if (param && url.searchParams.has(param)) {
+        url.searchParams.delete(param)
+        window.history.replaceState(null, '', url)
+      }
+    }
+
+    const openIndex = async (indexPath) => {
+      if (indexPath) {
+        try {
+          await axios.post('/api/select-database', { path: indexPath })
+        } catch (err) {
+          console.warn('Failed to set database path:', err.response?.data?.error || err.message)
+        }
+      }
+      if (viewerProvider.value === apiProvider) clearViewer()
+      await advancedSearch.openIndex()
+    }
+
+    const handleIndexChanged = async (indexPath) => {
+      selectedIndexPath.value = indexPath
+      indexDialogOpen.value = false
+      await openIndex(indexPath)
+    }
+
+    const resetIndexCreation = () => {
+      folderForIndexing.value = ''
+      indexPathForCreation.value = ''
+      availableFiles.value = []
+      isLoadingFiles.value = false
+      needsPreprocessing.value = false
+    }
+
+    const handleCreateIndexForFolder = ({ folderPath, indexPath, files }) => {
       folderForIndexing.value = folderPath
       indexPathForCreation.value = indexPath || ''
       availableFiles.value = files.availableFiles || []
@@ -460,222 +317,28 @@ export default {
     const handleFolderForIndexingChanged = (newFolderPath) => {
       folderForIndexing.value = newFolderPath
     }
-    
+
     const handlePreprocessingCompleted = async (indexPath) => {
-      // Clear index creation state
-      folderForIndexing.value = ''
-      indexPathForCreation.value = ''
-      availableFiles.value = []
-      isLoadingFiles.value = false
-      needsPreprocessing.value = false
-      
-      // Update the selected index path - this will trigger the watcher in RecordListSelector
-      // which will call setDatabasePath and loadEntries automatically
-      selectedIndexPath.value = indexPath
-      invalidateSearchSchema()
-      
-      // Give the watcher time to process the change
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
-      // Refresh the record list to ensure it's fully loaded
-      if (recordListSelectorRef.value) {
-        await recordListSelectorRef.value.refreshEntries()
-      }
+      resetIndexCreation()
+      await handleIndexChanged(indexPath)
     }
-    
+
     const handleCancelIndexCreation = () => {
-      // Clear index creation state
-      folderForIndexing.value = ''
-      indexPathForCreation.value = ''
-      availableFiles.value = []
-      isLoadingFiles.value = false
-      needsPreprocessing.value = false
+      resetIndexCreation()
     }
-    
-    const handleFilesLoaded = async (files) => {
-      if (files.length === 0) {
-        // All files removed
-        dataProvider.value = null
-        dataProviders.value = []
-        currentRecordId.value = ''
-        currentRecordData.value = null
-        initialRegionId.value = ''
-        
-        if (recordListSelectorRef.value) {
-          await recordListSelectorRef.value.clearRecords()
-        }
-        return
-      }
-      
-      // Signal to RecordListSelector that loading has started
-      if (recordListSelectorRef.value) {
-        recordListSelectorRef.value.setLoadingState()
-      }
-      
-      console.log('Files loaded:', files.length)
-      
-      // Create one provider per file
-      const providers = []
-      
-      for (const fileInfo of files) {
-        let provider = null
-        
-        if (fileInfo.type === 'json') {
-          provider = new JSONFileProvider()
-          await provider.loadFromFile(fileInfo.file)
-        } else if (fileInfo.type === 'genbank') {
-          provider = new GenbankFileProvider()
-          await provider.loadFromFile(fileInfo.file)
-        }
-        
-        if (provider) {
-          providers.push(provider)
-        }
-      }
-      
-      if (providers.length === 0) {
-        console.error('No valid files to load')
-        return
-      }
-      
-      // Store all providers
-      dataProviders.value = providers
-      
-      // Set the first provider as active for viewing
-      dataProvider.value = providers[0]
-      
-      // Count total records across all providers
-      let totalRecords = 0
-      for (const provider of providers) {
-        const records = await provider.getRecords()
-        totalRecords += records.length
-      }
-      console.log('Total records loaded:', totalRecords, 'from', providers.length, 'files')
-      
-      // Clear current selection
-      currentRecordId.value = ''
-      currentRecordData.value = null
-      initialRegionId.value = ''
-      clearSearch()
-      
-      // Pass all providers to RecordListSelector for searching
-      if (recordListSelectorRef.value) {
-        await recordListSelectorRef.value.setRecordsFromProviders(providers)
-      }
-    }
-    
-    // Watch for data source changes
-    watch(dataSource, async (newSource) => {
-      // Save to localStorage
-      localStorage.setItem('bgc-viewer-data-source', newSource)
 
-      // Drop the accession URL parameters of other sources when switching,
-      // so they aren't loaded again when switching back
-      if (newSource !== urlSource) {
-        urlAccession.value = ''
-      }
-      const url = new URL(window.location.href)
-      for (const [id, source] of Object.entries(EXTERNAL_SOURCES)) {
-        if (id !== newSource && url.searchParams.has(source.urlParam)) {
-          url.searchParams.delete(source.urlParam)
-          window.history.replaceState(null, '', url)
-        }
-      }
+    const handleRegionChanged = (regionId) => {
+      console.log('Region changed to:', regionId)
+    }
 
-      // Clear current data when switching sources
-      currentRecordId.value = ''
-      currentRecordData.value = null
-      initialRegionId.value = ''
-      clearSearch()
+    const handleAnnotationClicked = (data) => {
+      console.log('Annotation clicked:', data)
+    }
 
-      // Reset data provider based on source
-      if (newSource === 'api') {
-        const apiProvider = new BGCViewerAPIProvider()
-        dataProvider.value = apiProvider
+    const handleViewerError = (error) => {
+      console.error('Viewer error:', error)
+    }
 
-        // Set API provider in RecordListSelector
-        if (recordListSelectorRef.value) {
-          await recordListSelectorRef.value.setRecordsFromProvider(apiProvider, false)
-        }
-      } else if (newSource === 'upload' || EXTERNAL_SOURCES[newSource]) {
-        searchDialogOpen.value = false
-        invalidateSearchSchema()
-        // Clear records and wait for file upload / accession load
-        if (recordListSelectorRef.value) {
-          recordListSelectorRef.value.clearRecords()
-        }
-        dataProvider.value = null
-      }
-    }, { immediate: true })
-    
-    // Draggable divider functions
-    const startDragging = (e) => {
-      isDragging.value = true
-      e.preventDefault()
-      document.addEventListener('mousemove', onDrag)
-      document.addEventListener('mouseup', stopDragging)
-      document.body.style.cursor = 'col-resize'
-      document.body.style.userSelect = 'none'
-    }
-    
-    const onDrag = (e) => {
-      if (!isDragging.value) return
-      
-      // Calculate percentage based on window width
-      const percentage = (e.clientX / window.innerWidth) * 100
-      if (percentage >= minSidebarWidth && percentage <= maxSidebarWidth) {
-        sidebarWidth.value = percentage
-      }
-    }
-    
-    const stopDragging = () => {
-      isDragging.value = false
-      document.removeEventListener('mousemove', onDrag)
-      document.removeEventListener('mouseup', stopDragging)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      
-      // Save to localStorage
-      localStorage.setItem('bgc-viewer-sidebar-width', sidebarWidth.value.toString())
-    }
-    
-    // Vertical draggable divider functions (for sidebar sections)
-    const startVerticalDragging = (e) => {
-      isVerticalDragging.value = true
-      e.preventDefault()
-      document.addEventListener('mousemove', onVerticalDrag)
-      document.addEventListener('mouseup', stopVerticalDragging)
-      document.body.style.cursor = 'row-resize'
-      document.body.style.userSelect = 'none'
-    }
-    
-    const onVerticalDrag = (e) => {
-      if (!isVerticalDragging.value) return
-      
-      // Get sidebar element to calculate relative position
-      const sidebar = e.target.closest('.sidebar')
-      if (!sidebar) return
-      
-      const sidebarRect = sidebar.getBoundingClientRect()
-      const relativeY = e.clientY - sidebarRect.top
-      const percentage = (relativeY / sidebarRect.height) * 100
-      
-      if (percentage >= minSidebarTopHeight && percentage <= maxSidebarTopHeight) {
-        sidebarTopHeight.value = percentage
-      }
-    }
-    
-    const stopVerticalDragging = () => {
-      isVerticalDragging.value = false
-      document.removeEventListener('mousemove', onVerticalDrag)
-      
-      // Save to localStorage
-      localStorage.setItem('bgc-viewer-sidebar-top-height', sidebarTopHeight.value.toString())
-      document.removeEventListener('mouseup', stopVerticalDragging)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    
     const fetchVersion = async () => {
       try {
         const response = await axios.get('/api/version')
@@ -683,10 +346,9 @@ export default {
         appName.value = response.data.name
       } catch (error) {
         console.warn('Failed to fetch version:', error)
-        // Keep default values if fetch fails
       }
     }
-    
+
     const fetchStatus = async () => {
       try {
         const response = await axios.get('/api/status')
@@ -698,80 +360,53 @@ export default {
         isPublicMode.value = true
       }
     }
-    
-    // Fetch application version and status on component mount
+
     onMounted(async () => {
       fetchVersion()
-      fetchStatus()
-      
-      // Initialize data provider - this will be shared with the container
-      dataProvider.value = new BGCViewerAPIProvider()
+      await fetchStatus()
+      // Public mode serves one fixed index; in local mode the index dialog opens
+      // the last used index and reports it through handleIndexChanged
+      if (isPublicMode.value) await openIndex('')
     })
-    
-    // Cleanup on unmount
-    onUnmounted(() => {
-      document.removeEventListener('mousemove', onDrag)
-      document.removeEventListener('mouseup', stopDragging)
-      document.removeEventListener('mousemove', onVerticalDrag)
-      document.removeEventListener('mouseup', stopVerticalDragging)
-    })
-    
+
     return {
-      regionViewerRef,
-      recordListSelectorRef,
       appVersion,
       appName,
       isPublicMode,
-      dataSource,
-      EXTERNAL_SOURCES,
-      urlAccession,
-      selectedDataRoot,
+      urlAccessions,
+      indexDialogOpen,
       selectedIndexPath,
+      indexName,
       folderForIndexing,
       indexPathForCreation,
       availableFiles,
       isLoadingFiles,
       needsPreprocessing,
-      dataProvider,
+      advancedSearch,
+      loadedRecords,
+      loadDialogOpen,
+      selectedLoadedKey,
+      resultsTab,
+      showResults,
+      viewerProvider,
+      viewerKey,
       currentRecordId,
       currentRecordData,
-      searchQuery,
-      searchLevel,
-      searchResults,
-      searchResultsQuery,
-      searchResultsLevel,
-      searchResultsPage,
-      selectedSearchHit,
-      searchLoading,
-      searchLoadingMore,
-      searchError,
-      searchDialogOpen,
-      searchSchema,
-      searchSchemaLoading,
-      searchSchemaError,
-      sidebarTopHeight,
       initialRegionId,
       initialProtoclusterNumber,
-      sidebarWidth,
-      handleFolderSelected,
-      handleFolderChanged,
-      handleIndexChanged,
-      handleSearch,
-      handleLoadMore,
       handleSearchSelected,
-      clearSearch,
-      loadSearchSchema,
-      handleRecordSelected,
-      handleRegionChanged,
-      handleAnnotationClicked,
-      handleViewerError,
+      handleLoadedSelected,
+      handleLoadedRegionSelected,
+      handleLoaded,
+      handleRemoveSource,
+      handleIndexChanged,
       handleCreateIndexForFolder,
       handleFolderForIndexingChanged,
       handlePreprocessingCompleted,
       handleCancelIndexCreation,
-      handleFilesLoaded,
-      startDragging,
-      startVerticalDragging
+      handleRegionChanged,
+      handleAnnotationClicked,
+      handleViewerError
     }
   }
 }
@@ -785,7 +420,7 @@ export default {
   box-sizing: border-box;
 }
 
-body, 
+body,
 html,
 #app {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -811,8 +446,8 @@ html,
   padding: 12px 20px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.08);
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 20px;
   flex-shrink: 0;
   z-index: 10;
 }
@@ -823,12 +458,54 @@ html,
   font-size: 24px;
 }
 
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.header-button {
+  display: inline-flex;
+  max-width: 320px;
+  height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid #aebbc4;
+  border-radius: 4px;
+  background: #fff;
+  color: #30434f;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.header-button:hover {
+  background: #edf2f5;
+}
+
+.header-button:focus-visible {
+  outline: 2px solid #1976d2;
+  outline-offset: 1px;
+}
+
+.header-button-detail {
+  overflow: hidden;
+  color: #687681;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .header-tools {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 16px;
   min-width: 0;
+  margin-left: auto;
 }
 
 .app-header .version-info {
@@ -840,19 +517,14 @@ html,
 
 @media (max-width: 900px) {
   .app-header {
-    align-items: flex-start;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 10px;
   }
 
   .header-tools {
-    align-items: flex-end;
-    flex-direction: column-reverse;
-    gap: 4px;
-    width: min(70%, 560px);
-  }
-
-  .header-tools .search-bar {
     width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
   }
 }
 
@@ -878,86 +550,28 @@ html,
   text-decoration: underline;
 }
 
-/* Main content area with sidebar and viewer */
+/* Main content: one scrolling column of search, loaded records, and viewer */
 .main-content {
-  position: relative;
   display: flex;
   flex: 1;
-  overflow: hidden;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: 16px 20px 24px;
+  overflow-y: auto;
   background-color: #f4f4f4;
 }
 
-/* Left sidebar (30%) */
-.sidebar {
+/* The viewer keeps a screen-sized box of its own, as it had beside the sidebar */
+.viewer-section {
   flex-shrink: 0;
-  background: white;
-  overflow: hidden; /* Parent doesn't scroll */
-  display: flex;
-  flex-direction: column;
-  min-height: 0; /* Critical for flexbox scrolling */
-  scrollbar-width: thin; /* Firefox */
-  scrollbar-color: #888 #f1f1f1; /* Firefox - thumb and track */
-}
-
-/* Sidebar top section */
-.sidebar-top {
-  flex-shrink: 0;
-  overflow: hidden; /* No scrollbar - children handle scrolling */
-  display: flex;
-  flex-direction: column;
-  min-height: 100px; /* Prevent it from becoming too small */
-}
-
-/* Horizontal draggable divider */
-.horizontal-divider {
-  height: 4px;
-  background: #e0e0e0;
-  cursor: row-resize;
-  flex-shrink: 0;
-  transition: background-color 0.2s;
-}
-
-.horizontal-divider:hover {
-  background: #1976d2;
-}
-
-.horizontal-divider:active {
-  background: #1565c0;
-}
-
-/* Sidebar bottom section */
-.sidebar-bottom {
-  flex: 1;
-  overflow: hidden; /* No scrollbar */
-  display: flex;
-  flex-direction: column;
-  min-height: 100px; /* Prevent it from becoming too small */
-}
-
-/* Draggable divider */
-.divider {
-  width: 4px;
-  background: #e0e0e0;
-  cursor: col-resize;
-  flex-shrink: 0;
-  transition: background-color 0.2s;
-  position: relative;
-}
-
-.divider:hover {
-  background: #1976d2;
-}
-
-.divider:active {
-  background: #1565c0;
-}
-
-/* Right viewer area (70%) */
-.viewer-area {
-  flex: 1;
+  height: calc(100vh - 110px);
+  min-height: 480px;
   overflow-y: auto;
-  background: #f8f9fa;
   padding: 15px;
+  border: 1px solid #dce3e8;
+  border-radius: 8px;
+  background: #f8f9fa;
 }
 
 .placeholder {
@@ -969,43 +583,24 @@ html,
   font-style: italic;
 }
 
-/* Scrollbar styling for sidebar sections */
-.sidebar-top::-webkit-scrollbar,
-.sidebar-bottom::-webkit-scrollbar {
-  width: 8px;
-}
-
-.sidebar-top::-webkit-scrollbar-track,
-.sidebar-bottom::-webkit-scrollbar-track {
-  background: #f1f1f1;
-}
-
-.sidebar-top::-webkit-scrollbar-thumb,
-.sidebar-bottom::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
-}
-
-.sidebar-top::-webkit-scrollbar-thumb:hover,
-.sidebar-bottom::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
-
-/* Scrollbar styling for viewer area */
-.viewer-area::-webkit-scrollbar {
+.main-content::-webkit-scrollbar,
+.viewer-section::-webkit-scrollbar {
   width: 10px;
 }
 
-.viewer-area::-webkit-scrollbar-track {
+.main-content::-webkit-scrollbar-track,
+.viewer-section::-webkit-scrollbar-track {
   background: #f1f1f1;
 }
 
-.viewer-area::-webkit-scrollbar-thumb {
+.main-content::-webkit-scrollbar-thumb,
+.viewer-section::-webkit-scrollbar-thumb {
   background: #888;
   border-radius: 5px;
 }
 
-.viewer-area::-webkit-scrollbar-thumb:hover {
+.main-content::-webkit-scrollbar-thumb:hover,
+.viewer-section::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
 </style>
