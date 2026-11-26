@@ -14,32 +14,60 @@
         </template>
       </div>
 
-      <form v-else class="search-form" @submit.prevent="runSearch">
+      <!-- The rows are searched by themselves after a pause; Enter searches them right away -->
+      <form v-else class="search-form" @submit.prevent @keydown.enter="search.searchNow()">
+        <!-- The summary, level and search buttons share the line of the builder's own buttons -->
         <QueryBuilder
           :rows="state.rows"
           :fields="search.builderFields.value"
           :load-values="search.loadValues"
           @update:rows="state.rows = $event"
-        />
-        <div v-if="summary.length" class="summary" aria-label="Search summary">
-          <div v-for="(line, index) in summary" :key="index" class="summary-line">
-            <span class="summary-joiner">{{ line.joiner }}</span>
-            <span>
-              <template v-for="(part, partIndex) in line.parts" :key="partIndex">
-                <span v-if="part.kind === 'op'" class="summary-op"> {{ part.value }} </span>
-                <span v-else-if="part.kind === 'paren'" class="summary-paren">{{ part.value }}</span>
-                <span v-else>{{ part.value }}</span>
-              </template>
-            </span>
-          </div>
-        </div>
+        >
+          <template #actions>
+            <button
+              type="button"
+              class="icon-button help-button"
+              title="Search help"
+              aria-label="Search help"
+              @click="helpOpen = true"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="6.5" />
+                <path d="M6.2 6.3a1.8 1.8 0 1 1 2.6 1.6c-.5.3-.8.6-.8 1.2v.4" />
+                <circle class="dot" cx="8" cy="11.4" r="0.4" />
+              </svg>
+            </button>
 
-        <div class="form-actions">
-          <button type="submit" class="submit-button" :disabled="!search.canSearch.value">
-            {{ search.hasRules.value ? 'Search' : 'Browse all' }}
-          </button>
-          <button type="button" class="help-button" @click="helpOpen = true">Search help</button>
-        </div>
+            <!-- The summary of what the builder asks, shown on hover or keyboard focus -->
+            <div v-if="summary.length" class="summary-hint">
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Search summary"
+                :aria-describedby="summaryId"
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M3 8h10M3 11.5h6" /></svg>
+              </button>
+              <div :id="summaryId" class="summary" role="tooltip">
+                <div v-for="(line, index) in summary" :key="index" class="summary-line">
+                  <span v-if="line.joiner" class="summary-joiner">{{ line.joiner }}</span>
+                  <span>
+                    <template v-for="(part, partIndex) in line.parts" :key="partIndex">
+                      <span v-if="part.kind === 'op'" class="summary-op"> {{ part.value }} </span>
+                      <span v-else-if="part.kind === 'paren'" class="summary-paren">{{ part.value }}</span>
+                      <span v-else>{{ part.value }}</span>
+                    </template>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <span class="search-status" role="status">{{ state.loading ? 'Searching...' : '' }}</span>
+              <LevelToggle :model-value="state.level" @update:model-value="search.setLevel" />
+            </div>
+          </template>
+        </QueryBuilder>
       </form>
 
       <div v-if="state.error" class="search-error" role="alert">
@@ -59,11 +87,13 @@
 </template>
 
 <script setup lang="ts">
-// The query part of a search window: the builder, a summary of what it asks, and
-// the search button. The results are shown by SearchWindow below it. The search
-// help opens in a dialog.
+// The query part of a search window: the builder, with the search help, a summary
+// of what it asks (on hover), the level to list, and the search button on the line
+// of its own buttons. The
+// results are shown by SearchWindow below it. The search help opens in a dialog.
 import { computed, ref } from 'vue'
 import AppDialog from './AppDialog.vue'
+import LevelToggle from './LevelToggle.vue'
 import QueryBuilder from './QueryBuilder.vue'
 import SearchHelpPopup from './SearchHelpPopup.vue'
 import type { AdvancedSearch } from '@/composables/useAdvancedSearch'
@@ -79,22 +109,17 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'open-index'): void
-  /** A search the user asked for, so its results can be brought forward. */
-  (event: 'searched'): void
 }>()
 
 const state = props.search.state
 const helpOpen = ref(false)
+// Ties the summary button to its tooltip; there can be several search windows
+const summaryId = `search-summary-${Math.random().toString(36).slice(2, 10)}`
 
 const summary = computed(() => {
   const fields = new Map(props.search.builderFields.value.map(field => [field.name, field]))
   return summarizeRows(state.rows, condition => describeCondition(condition, fields))
 })
-
-function runSearch() {
-  emit('searched')
-  props.search.search()
-}
 
 // An example is a query string, so it becomes the builder's one condition.
 function useExample(example: string) {
@@ -104,7 +129,6 @@ function useExample(example: string) {
 </script>
 
 <style scoped>
-.help-button,
 .secondary-button {
   height: 30px;
   padding: 0 12px;
@@ -117,7 +141,6 @@ function useExample(example: string) {
   font-size: 12px;
 }
 
-.help-button:hover,
 .secondary-button:hover {
   background: #edf2f5;
 }
@@ -141,27 +164,78 @@ function useExample(example: string) {
 }
 
 .search-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   padding: 12px 14px;
 }
 
+/* Small square buttons beside the builder's own buttons */
+.icon-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #aebbc4;
+  border-radius: 4px;
+  background: #fff;
+  color: #52616d;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: #edf2f5;
+  color: #263442;
+}
+
+.icon-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.icon-button svg .dot {
+  fill: currentColor;
+}
+
+.summary-hint {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The summary opens below its button while the button is hovered or focused */
 .summary {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  display: none;
+  width: max-content;
+  max-width: min(480px, 70vw);
   padding: 8px 10px;
+  border: 1px solid #dce3e8;
   border-radius: 6px;
-  background: #f6f8f9;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(38, 52, 66, 0.15);
   color: #30434f;
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.summary-hint:hover .summary,
+.summary-hint:focus-within .summary {
+  display: block;
 }
 
 .summary-line {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .summary-joiner {
-  width: 30px;
   flex-shrink: 0;
   color: #687681;
   font-size: 11px;
@@ -182,34 +256,14 @@ function useExample(example: string) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-}
-
-.submit-button {
-  height: 34px;
-  padding: 0 17px;
-  border: 1px solid #176da7;
-  border-radius: 4px;
-  background: #1976b5;
-  color: #fff;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.form-actions .help-button {
+  gap: 8px;
   margin-left: auto;
 }
 
-.submit-button:hover {
-  background: #145f92;
-}
-
-.submit-button:disabled {
-  border-color: #a3afb7;
-  background: #a3afb7;
-  cursor: default;
+.search-status {
+  color: #687681;
+  font-size: 12px;
+  font-style: italic;
 }
 
 .search-panel button:focus-visible {

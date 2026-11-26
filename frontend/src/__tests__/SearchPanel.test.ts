@@ -1,8 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SearchPanel from '@/components/SearchPanel.vue'
-import { useAdvancedSearch } from '@/composables/useAdvancedSearch'
+import { AUTO_SEARCH_DELAY, useAdvancedSearch } from '@/composables/useAdvancedSearch'
 import type { BGCViewerAPIProvider } from '@/services/dataProviders/BGCViewerAPIProvider'
 import type { SearchSchema } from '@/services/dataProviders/types'
 
@@ -84,30 +84,85 @@ describe('SearchPanel', () => {
   it('lists every region of a newly opened index under one starter condition', async () => {
     const { provider, wrapper } = await mountPanel()
 
+    // A blank condition asks nothing, so there is no summary to show
+    expect(wrapper.find('[aria-label="Search summary"]').exists()).toBe(false)
+
+    expect(provider.search).toHaveBeenCalledTimes(1)
     expect(provider.search.mock.calls[0][0]).toBe('region')
-    // The blank starter condition is left out, so nothing narrows the search
+    // The blank starter condition is left out, so nothing narrows the search, which the row shows
     expect(provider.search.mock.calls[0][1].filter).toMatchObject({ conditions: [], groups: [] })
     expect(wrapper.findAll('.condition-row')).toHaveLength(1)
+    expect(wrapper.get('.condition-row').classes()).toContain('incomplete')
     expect(wrapper.get<HTMLSelectElement>('[aria-label="Field"]').element.value).toBe('text')
-    expect(wrapper.get('.submit-button').text()).toBe('Browse all')
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('runs the builder and reports the search', async () => {
-    const { provider, wrapper } = await mountPanel()
-    await wrapper.get('[aria-label="Value"]').setValue('coelicolor')
-
-    expect(wrapper.text()).toContain('Any text contains coelicolor')
-    await wrapper.get('form').trigger('submit')
-    await flushPromises()
-
-    expect(provider.search.mock.calls.slice(-1)[0][1].filter.conditions[0]).toMatchObject({
-      field: 'text',
-      operator: 'contains',
-      value: 'coelicolor'
+  describe('searching by itself', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     })
-    expect(wrapper.emitted('searched')).toHaveLength(1)
-    wrapper.unmount()
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    const lastFilter = (provider: { search: ReturnType<typeof vi.fn> }) =>
+      provider.search.mock.calls.slice(-1)[0][1].filter
+
+    it('searches once after a pause in typing', async () => {
+      const { provider, wrapper } = await mountPanel()
+      const value = wrapper.get('[aria-label="Value"]')
+      for (const typed of ['c', 'co', 'coeli', 'coelicolor']) {
+        await value.setValue(typed)
+        vi.advanceTimersByTime(AUTO_SEARCH_DELAY / 2)
+      }
+      expect(provider.search).toHaveBeenCalledTimes(1)
+      expect(wrapper.find('.condition-row.incomplete').exists()).toBe(false)
+
+      // The summary is the tooltip of its button
+      const summaryButton = wrapper.get('[aria-label="Search summary"]')
+      const tooltip = wrapper.get(`#${summaryButton.attributes('aria-describedby')}`)
+      expect(tooltip.attributes('role')).toBe('tooltip')
+      expect(tooltip.text()).toBe('Any text contains coelicolor')
+
+      vi.advanceTimersByTime(AUTO_SEARCH_DELAY)
+      await flushPromises()
+      expect(provider.search).toHaveBeenCalledTimes(2)
+      expect(lastFilter(provider).conditions[0]).toMatchObject({ field: 'text', operator: 'contains', value: 'coelicolor' })
+      wrapper.unmount()
+    })
+
+    it('does not search for changes that leave the query as it was', async () => {
+      const { provider, wrapper } = await mountPanel()
+
+      // Another operator for a condition without a value asks nothing new
+      await wrapper.get('[aria-label="Operator"]').setValue('not_contains')
+      await wrapper.findAll('button').find(button => button.text() === '+ Add condition')!.trigger('click')
+      vi.advanceTimersByTime(AUTO_SEARCH_DELAY * 2)
+      await flushPromises()
+
+      expect(provider.search).toHaveBeenCalledTimes(1)
+      expect(wrapper.findAll('.condition-row.incomplete')).toHaveLength(2)
+      wrapper.unmount()
+    })
+
+    it('searches right away on Enter', async () => {
+      const { provider, wrapper } = await mountPanel()
+      const value = wrapper.get('[aria-label="Value"]')
+      await value.setValue('coelicolor')
+      await value.trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+
+      expect(provider.search).toHaveBeenCalledTimes(2)
+      expect(lastFilter(provider).conditions[0]).toMatchObject({ value: 'coelicolor' })
+
+      // The pause after typing does not search the same again
+      vi.advanceTimersByTime(AUTO_SEARCH_DELAY * 2)
+      await flushPromises()
+      expect(provider.search).toHaveBeenCalledTimes(2)
+      wrapper.unmount()
+    })
   })
 
   it('opens the search help in a dialog and uses an example as a query string condition', async () => {

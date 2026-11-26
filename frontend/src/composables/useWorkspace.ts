@@ -172,6 +172,7 @@ export function useWorkspace(getProvider: () => BGCViewerAPIProvider | null, opt
   function removeSearch(id: string) {
     const index = searches.value.findIndex(window => window.id === id)
     if (index < 0) return
+    searches.value[index].search.dispose()
     searches.value = searches.value.filter(window => window.id !== id)
     if (focus.value === id) {
       focus.value = searches.value[Math.max(0, index - 1)]?.id ?? VIEWER

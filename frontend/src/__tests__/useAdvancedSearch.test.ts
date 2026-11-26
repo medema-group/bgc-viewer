@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { PAGE_SIZE, useAdvancedSearch } from '@/composables/useAdvancedSearch'
+import { AUTO_SEARCH_DELAY, PAGE_SIZE, useAdvancedSearch } from '@/composables/useAdvancedSearch'
 import type { BGCViewerAPIProvider } from '@/services/dataProviders/BGCViewerAPIProvider'
 import type { SearchFieldInfo, SearchSchema } from '@/services/dataProviders/types'
 import { RAW_QUERY_FIELD, conditionRow, createCondition, groupRow } from '@/services/filterRows'
@@ -223,27 +224,69 @@ describe('useAdvancedSearch', () => {
     expect(criteria.filter.conditions[0]).toMatchObject({ field: 'product', value: ['NRPS'] })
   })
 
-  it('runs the search that ran on a reopened index, without later edits to the rows', async () => {
-    const { provider, search } = setup()
-    await search.loadSchema()
-    search.state.rows = [conditionRow(createCondition('product', 'in', ['NRPS']))]
-    await search.search()
-    search.state.rows = [conditionRow(createCondition('product', 'in', ['T1PKS']))]
+  describe('searching by itself', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    })
 
-    await search.reopenIndex()
+    afterEach(() => {
+      vi.useRealTimers()
+    })
 
-    expect(lastSearch(provider)![1].filter.conditions[0]).toMatchObject({ value: ['NRPS'] })
-    expect(search.state.rows).toMatchObject([{ condition: { value: ['T1PKS'] } }])
-  })
+    // Vue runs the watcher that schedules the search after the current task
+    const pause = async () => {
+      await flushPromises()
+      vi.advanceTimersByTime(AUTO_SEARCH_DELAY)
+      await flushPromises()
+    }
 
-  it('does not search a reopened index for rows that never ran', async () => {
-    const { provider, search } = setup()
-    await search.loadSchema()
-    await search.reopenIndex()
+    it('runs the search that ran on a reopened index first, then the edits made since', async () => {
+      const { provider, search } = setup()
+      await search.loadSchema()
+      search.state.rows = [conditionRow(createCondition('product', 'in', ['NRPS']))]
+      await search.search()
+      search.state.rows = [conditionRow(createCondition('product', 'in', ['T1PKS']))]
 
-    expect(search.state.schema).toEqual(schema)
-    expect(search.state.rows).toHaveLength(1)
-    expect(provider.search).not.toHaveBeenCalled()
+      await search.reopenIndex()
+      expect(lastSearch(provider)![1].filter.conditions[0]).toMatchObject({ value: ['NRPS'] })
+      expect(search.state.rows).toMatchObject([{ condition: { value: ['T1PKS'] } }])
+
+      await pause()
+      expect(lastSearch(provider)![1].filter.conditions[0]).toMatchObject({ value: ['T1PKS'] })
+    })
+
+    it('searches rows set before the fields were known once they are', async () => {
+      const { provider, search } = setup()
+      search.state.rows = [conditionRow(createCondition('product', 'in', ['NRPS']))]
+      await pause()
+      expect(provider.search).not.toHaveBeenCalled()
+
+      await search.loadSchema()
+      await pause()
+      expect(provider.search).toHaveBeenCalledTimes(1)
+    })
+
+    it('searches a query string from the help after the pause', async () => {
+      const { provider, search } = setup()
+      await search.loadSchema()
+      await pause()
+      provider.search.mockClear()
+
+      search.useQueryString('product:NRPS')
+      await pause()
+      expect(lastSearch(provider)![1].filter.conditions[0]).toMatchObject({ field: RAW_QUERY_FIELD, value: 'product:NRPS' })
+    })
+
+    it('stops searching by itself once disposed', async () => {
+      const { provider, search } = setup()
+      await search.loadSchema()
+      search.state.rows = [conditionRow(createCondition('product', 'in', ['NRPS']))]
+      await flushPromises()
+      search.dispose()
+
+      await pause()
+      expect(provider.search).not.toHaveBeenCalled()
+    })
   })
 
   it('loads suggested values through the provider', async () => {

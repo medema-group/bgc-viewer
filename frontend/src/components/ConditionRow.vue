@@ -1,5 +1,5 @@
 <template>
-  <div class="condition-row">
+  <div class="condition-row" :class="{ incomplete }">
     <select
       class="group-select"
       :value="field.group"
@@ -117,6 +117,7 @@ import {
   OPERATOR_LABELS,
   RAW_QUERY_FIELD,
   defaultCondition,
+  isBlankCondition,
   normalizeValue
 } from '@/services/filterRows'
 import type {
@@ -136,6 +137,9 @@ const emit = defineEmits<{
   (event: 'update', condition: FilterCondition): void
   (event: 'remove'): void
 }>()
+
+/** Whether the condition lacks a value, which leaves it out of the search. */
+const incomplete = computed(() => isBlankCondition(props.condition))
 
 const field = computed(
   () => props.fields.find(f => f.name === props.condition.field) ?? props.fields[0]
@@ -290,6 +294,15 @@ button:focus-visible {
 .range-and {
   color: #687681;
   font-size: 12px;
+}
+
+/* A condition left out of the search, as it has no value yet: its value boxes are dashed */
+.incomplete > input,
+.incomplete .range-inputs input,
+.incomplete :deep(.combobox-trigger) {
+  border-style: dashed;
+  border-color: #c99a2e;
+  background: #fffbf2;
 }
 
 .remove-button {

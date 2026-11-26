@@ -39,6 +39,8 @@
         Remove group
       </button>
       <button v-else type="button" class="action-button" @click="addGroup">+ Add group</button>
+      <!-- More controls on the same line, such as the search button of the top level -->
+      <slot v-if="!nested" name="actions" />
     </div>
   </div>
 </template>
@@ -137,6 +139,7 @@ function addGroup() {
 .builder-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   padding-left: 70px;
 }

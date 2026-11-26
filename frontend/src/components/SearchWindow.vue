@@ -27,10 +27,6 @@
     />
 
     <section v-if="state.schema || state.response" class="results-section" aria-label="Search results">
-      <div class="results-bar">
-        <h3>Results</h3>
-        <LevelToggle :model-value="state.level" @update:model-value="search.setLevel" />
-      </div>
       <div v-if="state.response" class="results">
         <SearchResultsTable
           :level="state.searchedLevel"
@@ -65,7 +61,6 @@
 // A search window: the query builder with the results of its search below it.
 // Compact, it shows what was searched and how much matched.
 import { computed } from 'vue'
-import LevelToggle from './LevelToggle.vue'
 import MiniWindow from './MiniWindow.vue'
 import RefinePanel from './RefinePanel.vue'
 import SearchPanel from './SearchPanel.vue'
@@ -151,26 +146,11 @@ const compactCount = computed(() => {
   border-top: 1px solid #dce3e8;
 }
 
-.results-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 20px;
-  padding: 8px 14px 0;
-}
-
-.results-bar h3 {
-  margin: 0;
-  color: #263442;
-  font-size: 14px;
-}
-
 .results {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 230px;
   gap: 14px;
-  padding: 10px 14px 14px;
+  padding: 12px 14px 14px;
 }
 
 /* Absolutely placed content adds no height, so the row is as tall as the table

@@ -1,7 +1,7 @@
 // State and actions of one search window: its query builder rows and the results
 // they returned. Kept outside the window, so a search survives the window being
 // made compact and normal again.
-import { computed, reactive } from 'vue'
+import { computed, effectScope, reactive, watch } from 'vue'
 import type { BGCViewerAPIProvider } from '@/services/dataProviders/BGCViewerAPIProvider'
 import type {
   FacetBucket,
@@ -40,6 +40,9 @@ export const REFINE_FIELDS = ['product_category', 'product', 'organism', 'knownc
 
 export const PAGE_SIZE = 20
 
+/** How long the builder rows must stay unchanged before they are searched (ms). */
+export const AUTO_SEARCH_DELAY = 500
+
 const NOT_AVAILABLE = 'Advanced search is only available for backend datasets'
 
 function toSearchError(error: any, fallback: string): SearchError {
@@ -55,10 +58,23 @@ export interface AdvancedSearchOptions {
    * schema is fetched once for all of them. Defaults to asking the provider.
    */
   getSchema?: () => Promise<SearchSchema>
+  /**
+   * Search the builder rows by itself once they stay unchanged this long (ms), when
+   * they ask something else than the last search; 0 searches only when asked.
+   * Defaults to AUTO_SEARCH_DELAY.
+   */
+  autoSearchDelay?: number
 }
 
 /** A deep copy of builder rows, which share no objects with the rows copied. */
 export const cloneRows = (rows: FilterRow[]): FilterRow[] => JSON.parse(JSON.stringify(rows))
+
+/**
+ * The filter that rows ask for, as text: rows that ask the same differ only in ids,
+ * which the conversion makes anew, and in blank conditions, which it leaves out.
+ */
+export const queryKey = (rows: FilterRow[]): string =>
+  JSON.stringify(rowsToGroup(pruneRows(rows)), (key, value) => (key === 'id' ? undefined : value))
 
 export function useAdvancedSearch(
   getProvider: () => BGCViewerAPIProvider | null,
@@ -84,6 +100,10 @@ export function useAdvancedSearch(
   })
   let searchRequest = 0
   let schemaRequest = 0
+  /** The query of the last search asked for, run or under way. */
+  let lastQuery: string | null = null
+  let autoSearchTimer: ReturnType<typeof setTimeout> | null = null
+  const autoSearchDelay = options.autoSearchDelay ?? AUTO_SEARCH_DELAY
 
   /** Fields offered by the builder: the schema's, with the query-string pseudo-field after "Any text". */
   const builderFields = computed<SearchFieldInfo[]>(() => {
@@ -128,6 +148,8 @@ export function useAdvancedSearch(
       if (request === schemaRequest) {
         state.schema = schema
         ensureStarterRow()
+        // Rows set before the fields were known have not been searched yet
+        scheduleSearch()
       }
     } catch (error) {
       if (request === schemaRequest) state.schemaError = toSearchError(error, 'schema_failed')
@@ -174,8 +196,46 @@ export function useAdvancedSearch(
     // A builder without conditions browses every region. Blank rows go before the
     // AND/OR grouping, as in the summary: left in, "a OR <blank> AND b" would group
     // as "a OR (b)" once the backend drops the blank, not as the "a AND b" shown.
-    const rows = pruneRows(state.rows)
-    await fetchPage({ filter: rowsToGroup(rows) }, state.level, 1, cloneRows(rows))
+    await runRows(state.rows, state.level)
+  }
+
+  async function runRows(rows: FilterRow[], level: SearchLevel) {
+    cancelScheduledSearch()
+    lastQuery = queryKey(rows)
+    const pruned = pruneRows(rows)
+    await fetchPage({ filter: rowsToGroup(pruned) }, level, 1, cloneRows(pruned))
+  }
+
+  /** Search the rows after a pause in editing them, unless they ask what was searched last. */
+  function scheduleSearch() {
+    cancelScheduledSearch()
+    if (autoSearchDelay <= 0) return
+    autoSearchTimer = setTimeout(() => {
+      autoSearchTimer = null
+      void searchNow()
+    }, autoSearchDelay)
+  }
+
+  function cancelScheduledSearch() {
+    if (autoSearchTimer !== null) clearTimeout(autoSearchTimer)
+    autoSearchTimer = null
+  }
+
+  // Only a change to what the rows ask schedules a search: picking a field or an
+  // operator for a condition that has no value yet does not
+  const scope = effectScope()
+  scope.run(() => watch(() => queryKey(state.rows), scheduleSearch))
+
+  /** Search the rows now instead of after the pause, unless they ask what was searched last. */
+  async function searchNow() {
+    cancelScheduledSearch()
+    if (state.schema && queryKey(state.rows) !== lastQuery) await search()
+  }
+
+  /** Stop searching by itself, as when its window is closed. */
+  function dispose() {
+    cancelScheduledSearch()
+    scope.stop()
   }
 
   async function goToPage(page: number) {
@@ -208,6 +268,8 @@ export function useAdvancedSearch(
 
   function clearResults() {
     searchRequest += 1
+    lastQuery = null
+    cancelScheduledSearch()
     state.response = null
     state.searchedCriteria = null
     state.searchedRows = null
@@ -228,8 +290,8 @@ export function useAdvancedSearch(
   /**
    * Run the same query on a newly opened index: the builder rows and level are
    * kept, the schema is fetched again, and the search that gave the shown results
-   * runs again, without the edits made to the rows since. A search under way runs
-   * again as asked; rows that were never searched are kept unsearched.
+   * runs again first; edits made to the rows since are searched after a pause, as
+   * any edit is. A search under way runs again as asked.
    */
   async function reopenIndex() {
     const running = state.loading
@@ -238,9 +300,9 @@ export function useAdvancedSearch(
     clearResults()
     forgetSchema()
     await loadSchema()
-    if (state.schema && rows) {
-      await fetchPage({ filter: rowsToGroup(rows) }, level, 1, cloneRows(rows))
-    }
+    if (state.schema && rows) await runRows(rows, level)
+    // Edits made since are searched after it, as they would have been
+    scheduleSearch()
   }
 
   function forgetSchema() {
@@ -276,6 +338,8 @@ export function useAdvancedSearch(
     reset,
     openIndex,
     reopenIndex,
+    searchNow,
+    dispose,
     loadValues: async (field: string, contains: string): Promise<FacetBucket[]> => {
       const provider = getProvider()
       if (!provider) throw new Error(NOT_AVAILABLE)
