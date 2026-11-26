@@ -119,6 +119,8 @@ export class TrackViewer {
   private lastAnnotationClick: { id: string; time: number } | null = null;
   private lastAnnotationDoubleClickTime: number = -Infinity;
   private static readonly DOUBLE_CLICK_INTERVAL = 500; // Max ms between the clicks of a double click
+  // The domain range a running zoom transition goes to, and when it ends; null when none runs
+  private zoomTarget: { domain: [number, number]; endTime: number } | null = null;
 
   constructor(config: TrackViewerConfig) {
     // Check if width was explicitly provided
@@ -596,11 +598,18 @@ export class TrackViewer {
 
     // The zoom transform is in pixels, so it has to be adjusted to the new range to keep
     // showing the same domain. This triggers a zoom event, which redraws the tracks.
+    // Applying it interrupts a running zoom transition, such as one that changes the
+    // height, and so the width, as it shows or hides tracks; that one is continued to
+    // its target, which needs another transform at this width, for the time it had left.
+    const target = this.zoomTarget;
     const k = this.currentTransform.k;
     const transform = d3.zoomIdentity
       .translate(-this.x(domain[0]) * k, this.currentTransform.y)
       .scale(k);
     this.svg.call(this.zoom.transform, transform);
+    if (target) {
+      this.animateToDomain(target.domain, Math.max(0, target.endTime - Date.now()));
+    }
   }
 
   private toggleHideEmptyTracks(): void {
@@ -1563,37 +1572,50 @@ export class TrackViewer {
   }
 
   public zoomTo(start: number, end: number, duration: number = 750): void {
-    const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
-    // Stay within the zoom extent (zooming to a tiny range would exceed it), centered on the range
-    const [minScale, maxScale] = this.zoom.scaleExtent();
-    const scale = Math.max(minScale, Math.min(maxScale, chartWidth / (this.x(end) - this.x(start))));
-    const translate = chartWidth / 2 - (this.x(start) + this.x(end)) / 2 * scale;
-
-    const transform = d3.zoomIdentity
-      .translate(translate, 0)
-      .scale(scale);
-
-    this.applyTransform(transform, duration);
+    this.animateToDomain([start, end], duration);
   }
 
   public resetZoom(duration: number = 750): void {
-    this.applyTransform(d3.zoomIdentity, duration);
+    // The unzoomed scale's domain is the whole domain
+    this.animateToDomain(this.x.domain() as [number, number], duration);
   }
 
-  // Without a duration, the transform is applied immediately instead of in a transition
-  private applyTransform(transform: ZoomTransform, duration: number): void {
-    if (duration > 0) {
-      // d3 zooms out, pans and zooms in along a smooth path. The default cubic easing peaks
-      // at 3x the average speed mid-transition, which makes the panning in the middle rush;
-      // sine easing peaks at ~1.6x, spreading the pan more evenly over the transition.
-      this.svg
-        .transition()
-        .duration(duration)
-        .ease(d3.easeSinInOut)
-        .call(this.zoom.transform, transform);
-    } else {
+  // The transform that shows the given domain range across the chart, centered on it, within
+  // the zoom extent (zooming to a tiny range would exceed it). It depends on the chart width.
+  private transformForDomain([start, end]: [number, number]): ZoomTransform {
+    const chartWidth = this.config.width - this.config.margin.left - this.config.margin.right;
+    const [minScale, maxScale] = this.zoom.scaleExtent();
+    const scale = Math.max(minScale, Math.min(maxScale, chartWidth / (this.x(end) - this.x(start))));
+    const translate = chartWidth / 2 - (this.x(start) + this.x(end)) / 2 * scale;
+    return d3.zoomIdentity.translate(translate, 0).scale(scale);
+  }
+
+  // Show a domain range, in a transition when a duration is given. The target of a running
+  // transition is kept, so a resize, which interrupts it, can continue it to the same range.
+  private animateToDomain(domain: [number, number], duration: number): void {
+    const transform = this.transformForDomain(domain);
+    if (duration <= 0) {
+      this.zoomTarget = null;
       this.svg.call(this.zoom.transform, transform);
+      return;
     }
+
+    const target = { domain, endTime: Date.now() + duration };
+    this.zoomTarget = target;
+    // Done, or stopped by the user zooming or by another transition: nothing to continue.
+    // Only this transition's own target is forgotten, not that of one that replaced it.
+    const forget = () => {
+      if (this.zoomTarget === target) this.zoomTarget = null;
+    };
+    // d3 zooms out, pans and zooms in along a smooth path. The default cubic easing peaks
+    // at 3x the average speed mid-transition, which makes the panning in the middle rush;
+    // sine easing peaks at ~1.6x, spreading the pan more evenly over the transition.
+    this.svg
+      .transition()
+      .duration(duration)
+      .ease(d3.easeSinInOut)
+      .call(this.zoom.transform, transform)
+      .on('end.target interrupt.target', forget);
   }
 
   public destroy(): void {

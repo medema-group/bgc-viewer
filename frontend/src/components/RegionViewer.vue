@@ -1085,11 +1085,14 @@ export default {
 </script>
 
 <style scoped>
+/* The scrollbar always shows: one that came and went with the feature details or the
+   height of the tracks would change the track viewer's width, which redraws it during
+   zoom transitions and between the clicks of a double click */
 .region-viewer-wrapper {
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  overflow-y: auto;
+  overflow-y: scroll;
 }
 
 .current-record-info {
