@@ -73,10 +73,14 @@ export interface TrackViewerConfig {
   domain?: [number, number];
   zoomExtent?: [number, number];
   showTrackLabels?: boolean;
+  // Hide the tracks that have no annotations in the visible part of the domain; they come back
+  // when zooming or panning to a part where they do. Drawing primitives don't count as content.
+  hideEmptyTracks?: boolean;
   onAnnotationClick?: (annotation: AnnotationData, track: TrackData) => void;
   onAnnotationHover?: (annotation: AnnotationData, track: TrackData, event: MouseEvent) => void;
   onBackgroundClick?: () => void;
   onDomainChange?: (domain: [number, number]) => void;
+  onHideEmptyTracksChange?: (hideEmptyTracks: boolean) => void; // Called when the context menu toggles it
   // Extra items shown at the top of the options menu, read each time the menu opens
   menuItems?: () => MenuItem[];
 }
@@ -105,6 +109,11 @@ export class TrackViewer {
   private contextMenuController?: ContextMenuController;
   private showTrackLabels: boolean;
   private showAllAnnotationLabels: boolean = false;
+  private hideEmptyTracks: boolean;
+  // Vertical position of each shown track; hidden tracks are left out
+  private trackYPositions = new Map<string, number>();
+  // The ids of the shown tracks when the layout was last applied, to skip unchanged layouts
+  private trackLayoutKey: string | null = null;
   private labelGroups!: Selection<SVGGElement, TrackData, SVGGElement, unknown>;
   private isDragging: boolean = false;
   private lastAnnotationClick: { id: string; time: number } | null = null;
@@ -144,10 +153,12 @@ export class TrackViewer {
       domain: config.domain || [0, 100],
       zoomExtent: config.zoomExtent || [0.5, 20],
       showTrackLabels: config.showTrackLabels !== undefined ? config.showTrackLabels : true,
+      hideEmptyTracks: config.hideEmptyTracks ?? false,
       onAnnotationClick: config.onAnnotationClick || (() => {}),
       onAnnotationHover: config.onAnnotationHover || (() => {}),
       onBackgroundClick: config.onBackgroundClick || (() => {}),
       onDomainChange: config.onDomainChange || (() => {}),
+      onHideEmptyTracksChange: config.onHideEmptyTracksChange || (() => {}),
       menuItems: config.menuItems || (() => [])
     };
 
@@ -156,6 +167,7 @@ export class TrackViewer {
 
     // Initialize showTrackLabels from config
     this.showTrackLabels = this.config.showTrackLabels;
+    this.hideEmptyTracks = this.config.hideEmptyTracks;
 
     // If track labels are hidden from the start, use minimal margin
     if (!this.showTrackLabels) {
@@ -342,6 +354,7 @@ export class TrackViewer {
           { label: 'Save as PNG', action: () => this.saveAsPNG() },
           { type: 'separator' },
           { label: 'Show track labels', action: () => this.toggleTrackLabels(), checked: () => this.showTrackLabels },
+          { label: 'Hide empty tracks', action: () => this.toggleHideEmptyTracks(), checked: () => this.hideEmptyTracks },
           { label: 'Show all annotation labels', action: () => this.toggleAllAnnotationLabels(), checked: () => this.showAllAnnotationLabels }
         ];
       }
@@ -590,6 +603,11 @@ export class TrackViewer {
     this.svg.call(this.zoom.transform, transform);
   }
 
+  private toggleHideEmptyTracks(): void {
+    this.setHideEmptyTracks(!this.hideEmptyTracks);
+    this.config.onHideEmptyTracksChange(this.hideEmptyTracks);
+  }
+
   private toggleAllAnnotationLabels(): void {
     this.showAllAnnotationLabels = !this.showAllAnnotationLabels;
     
@@ -628,15 +646,46 @@ export class TrackViewer {
   }
 
   private getTotalTracksHeight(): number {
-    return this.data.tracks.reduce((total, track) => total + this.getTrackHeight(track), 0);
+    return this.getShownTracks().reduce((total, track) => total + this.getTrackHeight(track), 0);
   }
 
-  private getTrackYPosition(trackIndex: number): number {
-    let y = 0;
-    for (let i = 0; i < trackIndex; i++) {
-      y += this.getTrackHeight(this.data.tracks[i]);
+  // The tracks that are drawn: all of them, or with hideEmptyTracks only those with an annotation
+  // in the visible domain
+  private getShownTracks(): TrackData[] {
+    if (!this.hideEmptyTracks) {
+      return this.data.tracks;
     }
-    return y;
+    const [start, end] = this.getCurrentDomain();
+    const filled = new Set(this.data.annotations
+      .filter(annotation => annotation.end >= start && annotation.start <= end)
+      .map(annotation => annotation.trackId));
+    return this.data.tracks.filter(track => filled.has(track.id));
+  }
+
+  // Stack the shown tracks and their labels, hide the others, and fit the height to them.
+  // Does nothing when the same tracks are shown as before, unless forced.
+  private applyTrackLayout(force: boolean = false): void {
+    const shownTracks = this.getShownTracks();
+    const key = shownTracks.map(track => track.id).join('\n');
+    if (!force && key === this.trackLayoutKey) {
+      return;
+    }
+    this.trackLayoutKey = key;
+
+    this.trackYPositions = new Map();
+    let y = 0;
+    shownTracks.forEach(track => {
+      this.trackYPositions.set(track.id, y);
+      y += this.getTrackHeight(track);
+    });
+
+    const position = (selection: Selection<SVGGElement, TrackData, SVGGElement, unknown>) => selection
+      .style('display', (d: TrackData) => this.trackYPositions.has(d.id) ? null : 'none')
+      .attr('transform', (d: TrackData) => `translate(0, ${this.trackYPositions.get(d.id) ?? 0})`);
+    position(this.trackGroups);
+    position(this.labelGroups);
+
+    this.updateHeight();
   }
 
   private updateHeight(): void {
@@ -663,8 +712,7 @@ export class TrackViewer {
       .data(this.data.tracks, (d: TrackData) => d.id)
       .join('g')
       .attr('id', (d: TrackData) => d.id)
-      .attr('class', 'track')
-      .attr('transform', (_: TrackData, i: number) => `translate(0, ${this.getTrackYPosition(i)})`);
+      .attr('class', 'track');
 
     // Create or select a single container group for all track labels
     let labelsContainer = this.chart.select<SVGGElement>('.track-labels-container');
@@ -681,8 +729,7 @@ export class TrackViewer {
       .data(this.data.tracks, (d: TrackData) => d.id)
       .join('g')
       .attr('id', (d: TrackData) => `${d.id}-label`)
-      .attr('class', 'track-label-group')
-      .attr('transform', (_: TrackData, i: number) => `translate(0, ${this.getTrackYPosition(i)})`);
+      .attr('class', 'track-label-group');
 
     this.labelGroups
       .selectAll('.track-label')
@@ -694,6 +741,8 @@ export class TrackViewer {
       .attr('dy', '0.35em')
       .attr('text-anchor', 'end')
       .text((d: TrackData) => d.label);
+
+    this.applyTrackLayout(true);
   }
 
   private drawTracks(): void {
@@ -711,13 +760,20 @@ export class TrackViewer {
       return;
     }
 
+    // Show the tracks that have something in view, when empty ones are hidden
+    this.applyTrackLayout();
+
     // Collect all labels data to render them in a separate layer on top
     const allLabelsData: Array<{ annotation: AnnotationData; trackData: TrackData; x: number; y: number; width: number; height: number; trackY: number }> = [];
 
     // Update annotations and primitives for each track
     this.trackGroups.each((trackData: TrackData, trackIndex: number, trackNodes: SVGGElement[] | ArrayLike<SVGGElement>) => {
+      // Hidden tracks have nothing in view; they are drawn again once they are shown
+      const trackY = this.trackYPositions.get(trackData.id);
+      if (trackY === undefined) {
+        return;
+      }
       const trackGroup = d3.select(trackNodes[trackIndex]);
-      const trackY = this.getTrackYPosition(trackIndex);
 
       // Get annotations and primitives for this track
       const trackAnnotations = this.data.annotations.filter(ann => ann.trackId === trackData.id);
@@ -1432,7 +1488,6 @@ export class TrackViewer {
       annotations: data.annotations,
       primitives: data.primitives || []
     };
-    this.updateHeight();
     this.createTrackGroups();
     this.updateMarginAndLayout();
     this.drawTracks();
@@ -1449,7 +1504,6 @@ export class TrackViewer {
       }
       this.data.primitives.push(...primitives);
     }
-    this.updateHeight();
     this.createTrackGroups();
     this.updateMarginAndLayout();
     this.drawTracks();
@@ -1459,7 +1513,6 @@ export class TrackViewer {
     this.data.tracks = this.data.tracks.filter(track => track.id !== trackId);
     this.data.annotations = this.data.annotations.filter(annotation => annotation.trackId !== trackId);
     this.data.primitives = (this.data.primitives || []).filter(primitive => primitive.trackId !== trackId);
-    this.updateHeight();
     this.createTrackGroups();
     this.updateMarginAndLayout();
     this.drawTracks();
@@ -1488,6 +1541,19 @@ export class TrackViewer {
       this.data.primitives = this.data.primitives.filter(primitive => primitive.id !== primitiveId);
       this.drawTracks();
     }
+  }
+
+  // Hide the tracks without annotations in the visible domain, or show all tracks again
+  public setHideEmptyTracks(hide: boolean): void {
+    if (hide === this.hideEmptyTracks) {
+      return;
+    }
+    this.hideEmptyTracks = hide;
+    this.drawTracks();
+  }
+
+  public getHideEmptyTracks(): boolean {
+    return this.hideEmptyTracks;
   }
 
   public updateDomain(domain: [number, number]): void {

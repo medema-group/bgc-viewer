@@ -143,6 +143,24 @@ export default {
     
     let regionViewer = null
     let allTrackData = {} // Store all generated tracks
+    // Whether tracks without features in view are hidden; a viewer is made per record, so the
+    // choice is kept here, and in browser storage for the next visit
+    const HIDE_EMPTY_TRACKS_KEY = 'bgc-viewer-hide-empty-tracks'
+    // On unless it was turned off
+    let hideEmptyTracks = true
+    try {
+      hideEmptyTracks = localStorage.getItem(HIDE_EMPTY_TRACKS_KEY) !== 'false'
+    } catch {
+      // Storage may be unavailable; the empty tracks are then hidden
+    }
+    const setHideEmptyTracks = (hide) => {
+      hideEmptyTracks = hide
+      try {
+        localStorage.setItem(HIDE_EMPTY_TRACKS_KEY, String(hide))
+      } catch {
+        // The choice then lasts until the page is reloaded
+      }
+    }
     const selectedAnnotation = ref(null) // Track the selected annotation for highlighting
     const ANNOTATION_THRESHOLD = 500 // Max annotations to render before showing placeholder
     const REGION_ZOOM_DURATION = 1500 // Duration (ms) of the zoom out, pan and zoom in to a selected region
@@ -439,6 +457,8 @@ export default {
         // Zooming out stops at the whole record; zooming in goes down to about 100 bp
         zoomExtent: [1, Math.max(1000, (maxPos - minPos) / 100)],
         showTrackLabels: false,
+        hideEmptyTracks,
+        onHideEmptyTracksChange: setHideEmptyTracks,
         menuItems: getMenuItems,
         onAnnotationClick: (annotation, track) => {
           console.log('Clicked annotation:', annotation, 'on track:', track)
