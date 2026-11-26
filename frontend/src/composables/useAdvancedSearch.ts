@@ -1,5 +1,6 @@
-// State and actions of the advanced search dialog, kept outside the dialog so a
-// search survives closing and reopening it.
+// State and actions of one search window: its query builder rows and the results
+// they returned. Kept outside the window, so a search survives the window being
+// made compact and normal again.
 import { computed, reactive } from 'vue'
 import type { BGCViewerAPIProvider } from '@/services/dataProviders/BGCViewerAPIProvider'
 import type {
@@ -48,9 +49,25 @@ function toSearchError(error: any, fallback: string): SearchError {
     : { code: fallback, message: error?.message || 'Search failed' }
 }
 
-export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null) {
+export interface AdvancedSearchOptions {
+  /**
+   * Fetches the index schema; given when several searches share one index, so the
+   * schema is fetched once for all of them. Defaults to asking the provider.
+   */
+  getSchema?: () => Promise<SearchSchema>
+}
+
+/** A deep copy of builder rows, which share no objects with the rows copied. */
+export const cloneRows = (rows: FilterRow[]): FilterRow[] => JSON.parse(JSON.stringify(rows))
+
+export function useAdvancedSearch(
+  getProvider: () => BGCViewerAPIProvider | null,
+  options: AdvancedSearchOptions = {}
+) {
   const state = reactive({
     rows: [] as FilterRow[],
+    /** The rows that asked for the shown response, as they were when the search ran. */
+    searchedRows: null as FilterRow[] | null,
     level: 'region' as SearchLevel,
     sort: null as SearchSort | null,
     page: 1,
@@ -94,15 +111,20 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     }
   }
 
+  function fetchSchema(): Promise<SearchSchema> {
+    if (options.getSchema) return options.getSchema()
+    const provider = getProvider()
+    if (!provider) throw new Error(NOT_AVAILABLE)
+    return provider.getSearchSchema()
+  }
+
   async function loadSchema() {
     if (state.schema || state.schemaLoading) return
     const request = ++schemaRequest
     state.schemaLoading = true
     state.schemaError = null
     try {
-      const provider = getProvider()
-      if (!provider) throw new Error(NOT_AVAILABLE)
-      const schema = await provider.getSearchSchema()
+      const schema = await fetchSchema()
       if (request === schemaRequest) {
         state.schema = schema
         ensureStarterRow()
@@ -114,7 +136,12 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     }
   }
 
-  async function fetchPage(criteria: SearchCriteria, level: SearchLevel, page: number) {
+  async function fetchPage(
+    criteria: SearchCriteria,
+    level: SearchLevel,
+    page: number,
+    rows: FilterRow[] | null = state.searchedRows
+  ) {
     const request = ++searchRequest
     state.loading = true
     state.error = null
@@ -131,6 +158,7 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
         if (page === 1) state.selectedHit = null
         state.response = response
         state.searchedCriteria = criteria
+        state.searchedRows = rows
         state.searchedLevel = level
         state.page = page
       }
@@ -146,7 +174,8 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     // A builder without conditions browses every region. Blank rows go before the
     // AND/OR grouping, as in the summary: left in, "a OR <blank> AND b" would group
     // as "a OR (b)" once the backend drops the blank, not as the "a AND b" shown.
-    await fetchPage({ filter: rowsToGroup(pruneRows(state.rows)) }, state.level, 1)
+    const rows = pruneRows(state.rows)
+    await fetchPage({ filter: rowsToGroup(rows) }, state.level, 1, cloneRows(rows))
   }
 
   async function goToPage(page: number) {
@@ -181,6 +210,7 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     searchRequest += 1
     state.response = null
     state.searchedCriteria = null
+    state.searchedRows = null
     state.selectedHit = null
     state.loading = false
     state.error = null
@@ -195,13 +225,30 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     if (state.schema) await search()
   }
 
-  /** Forget the conditions and results, as when another index is selected. */
-  function reset() {
+  /**
+   * Run the same query on a newly opened index: the rows and level are kept, the
+   * results and schema are fetched again. Rows that were never searched are kept
+   * unsearched.
+   */
+  async function reopenIndex() {
+    const searched = state.searchedCriteria !== null || state.loading
     clearResults()
+    forgetSchema()
+    await loadSchema()
+    if (state.schema && searched) await search()
+  }
+
+  function forgetSchema() {
     schemaRequest += 1
     state.schema = null
     state.schemaLoading = false
     state.schemaError = null
+  }
+
+  /** Forget the conditions and results, as when another index is selected. */
+  function reset() {
+    clearResults()
+    forgetSchema()
     state.rows = []
     state.sort = null
   }
@@ -223,6 +270,7 @@ export function useAdvancedSearch(getProvider: () => BGCViewerAPIProvider | null
     clearResults,
     reset,
     openIndex,
+    reopenIndex,
     loadValues: async (field: string, contains: string): Promise<FacetBucket[]> => {
       const provider = getProvider()
       if (!provider) throw new Error(NOT_AVAILABLE)

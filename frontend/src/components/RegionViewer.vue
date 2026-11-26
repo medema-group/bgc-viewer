@@ -1,7 +1,7 @@
 <template>
   <div class="region-viewer-wrapper">
     <!-- Current Record Info -->
-    <div v-if="recordInfo" class="current-record-info">
+    <div v-if="recordInfo && showRecordInfo" class="current-record-info">
       <span>Current Record: {{ recordInfo.recordId }} - {{ recordInfo?.recordInfo?.description }} </span>
       <div class="file-metadata">File: {{ recordInfo.filename }}, 
         version {{ recordInfo.fileMetadata?.version || 'unknown' }}, 
@@ -82,6 +82,11 @@ export default {
       type: Object,
       default: () => ({})
       // Expected shape: { 'PF00001': '#FF0000', ... }
+    },
+    // Whether the record ID, description and file are shown above the tracks
+    showRecordInfo: {
+      type: Boolean,
+      default: true
     },
     // Selected region ID (controlled from parent)
     selectedRegionId: {

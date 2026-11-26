@@ -160,6 +160,15 @@ export function summarizeRows(rows: FilterRow[], describe: (c: FilterCondition) 
   return runs.map((run, i) => ({ joiner: i ? 'OR' : null, parts: runParts(run, true) }))
 }
 
+/** A summary as one line of text, as a compact search window shows it. */
+export function summaryText(lines: SummaryLine[]): string {
+  return lines
+    .map(line => [line.joiner ?? '', ...line.parts.map(part => part.value)].join(' ').trim())
+    .join(' ')
+    .replace(/\( /g, '(')
+    .replace(/ \)/g, ')')
+}
+
 // Lowercase on purpose: a row reads as a phrase, "Product · is any of · NRPS".
 export const OPERATOR_LABELS: Record<FilterOperator, string> = {
   in: 'is any of',

@@ -1,11 +1,6 @@
 <template>
   <div class="search-panel">
-    <section class="panel" aria-labelledby="search-panel-title">
-      <header class="panel-header">
-        <h2 id="search-panel-title">Search</h2>
-        <button type="button" class="help-button" @click="helpOpen = true">Search help</button>
-      </header>
-
+    <div class="query">
       <div v-if="!state.schema" class="index-note">
         <p v-if="state.schemaLoading">Loading fields...</p>
         <template v-else>
@@ -43,13 +38,14 @@
           <button type="submit" class="submit-button" :disabled="!search.canSearch.value">
             {{ search.hasRules.value ? 'Search' : 'Browse all' }}
           </button>
+          <button type="button" class="help-button" @click="helpOpen = true">Search help</button>
         </div>
       </form>
 
       <div v-if="state.error" class="search-error" role="alert">
         <strong>{{ state.error.code }}</strong>: {{ state.error.message }}
       </div>
-    </section>
+    </div>
 
     <AppDialog :open="helpOpen" title="Search help" width="min(860px, 100%)" @close="helpOpen = false">
       <SearchHelpPopup
@@ -63,8 +59,9 @@
 </template>
 
 <script setup lang="ts">
-// The main view's query builder; the results are shown by ResultsPanel. The
-// search help opens in a dialog.
+// The query part of a search window: the builder, a summary of what it asks, and
+// the search button. The results are shown by SearchWindow below it. The search
+// help opens in a dialog.
 import { computed, ref } from 'vue'
 import AppDialog from './AppDialog.vue'
 import QueryBuilder from './QueryBuilder.vue'
@@ -107,33 +104,6 @@ function useExample(example: string) {
 </script>
 
 <style scoped>
-.search-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.panel {
-  border: 1px solid #dce3e8;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  border-bottom: 1px solid #dce3e8;
-}
-
-.panel-header h2 {
-  margin: 0;
-  color: #263442;
-  font-size: 15px;
-  letter-spacing: 0;
-}
-
 .help-button,
 .secondary-button {
   height: 30px;
@@ -174,7 +144,7 @@ function useExample(example: string) {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 12px 14px;
 }
 
 .summary {
@@ -226,6 +196,10 @@ function useExample(example: string) {
   font: inherit;
   font-size: 13px;
   font-weight: 700;
+}
+
+.form-actions .help-button {
+  margin-left: auto;
 }
 
 .submit-button:hover {

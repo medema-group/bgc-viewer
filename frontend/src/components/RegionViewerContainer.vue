@@ -7,6 +7,7 @@
     <RegionViewer
       v-else-if="recordInfo"
       :record-info="recordInfo"
+      :show-record-info="showRecordInfo"
       :regions="regions"
       :features="features"
       :pfam-color-map="pfamColorMap"
@@ -59,6 +60,11 @@ export default {
     initialProtoclusterNumber: {
       type: Number,
       default: null
+    },
+    // Whether the record ID, description and file are shown above the tracks
+    showRecordInfo: {
+      type: Boolean,
+      default: true
     }
   },
   emits: [

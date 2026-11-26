@@ -183,6 +183,56 @@ describe('useAdvancedSearch', () => {
     expect(search.state.response).toBeNull()
   })
 
+  it('keeps the rows a search ran with, apart from the rows being edited', async () => {
+    const { search } = setup()
+    await search.loadSchema()
+    search.state.rows = [conditionRow(createCondition('product', 'in', ['NRPS']))]
+    await search.search()
+    search.state.rows = []
+    await search.goToPage(2)
+
+    expect(search.state.searchedRows).toMatchObject([{ condition: { field: 'product', value: ['NRPS'] } }])
+    search.clearResults()
+    expect(search.state.searchedRows).toBeNull()
+  })
+
+  it('fetches the schema through a shared loader when given one', async () => {
+    const provider = fakeProvider()
+    const getSchema = vi.fn().mockResolvedValue(schema)
+    const search = useAdvancedSearch(() => provider as unknown as BGCViewerAPIProvider, { getSchema })
+    await search.loadSchema()
+
+    expect(getSchema).toHaveBeenCalledTimes(1)
+    expect(provider.getSearchSchema).not.toHaveBeenCalled()
+    expect(search.state.schema).toEqual(schema)
+  })
+
+  it('runs the same query again on a reopened index', async () => {
+    const { provider, search } = setup()
+    await search.loadSchema()
+    search.state.rows = [conditionRow(createCondition('product', 'in', ['NRPS']))]
+    search.state.level = 'record'
+    await search.search()
+
+    await search.reopenIndex()
+
+    expect(provider.getSearchSchema).toHaveBeenCalledTimes(2)
+    expect(provider.search).toHaveBeenCalledTimes(2)
+    const [level, criteria] = lastSearch(provider)!
+    expect(level).toBe('record')
+    expect(criteria.filter.conditions[0]).toMatchObject({ field: 'product', value: ['NRPS'] })
+  })
+
+  it('does not search a reopened index for rows that never ran', async () => {
+    const { provider, search } = setup()
+    await search.loadSchema()
+    await search.reopenIndex()
+
+    expect(search.state.schema).toEqual(schema)
+    expect(search.state.rows).toHaveLength(1)
+    expect(provider.search).not.toHaveBeenCalled()
+  })
+
   it('loads suggested values through the provider', async () => {
     const { provider, search } = setup()
     expect(await search.loadValues('product', 'NR')).toEqual([{ value: 'NRPS', count: 3 }])
