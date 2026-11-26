@@ -32,6 +32,10 @@ export type ContextMenuController = {
 };
 
 const CHECK_COLOR = '#2196F3';
+// Space kept between a menu and the edges of the browser window
+const VIEWPORT_MARGIN = 8;
+// Gap between the menu button and the menu
+const BUTTON_GAP = 4;
 
 export function initTrackViewerContextMenu(cb: ContextMenuCallbacks): ContextMenuController {
   const body = document.body || document.documentElement;
@@ -157,10 +161,11 @@ export function initTrackViewerContextMenu(cb: ContextMenuCallbacks): ContextMen
           .append('div')
           .attr('class', 'track-viewer-submenu')
           .style('display', 'none')
-          .style('max-height', '60vh')
           .style('overflow-y', 'auto')
           .style('cursor', 'default');
         stylePanel(submenu);
+        // Placed against the window, so a scrolling main menu doesn't clip it
+        submenu.style('position', 'fixed');
         renderItems(submenu, item.children);
       }
 
@@ -198,20 +203,31 @@ export function initTrackViewerContextMenu(cb: ContextMenuCallbacks): ContextMen
     });
   }
 
-  // Open a submenu beside its item, on the side where it fits
+  // Open a submenu beside its item, on the side where it fits, and within the window: moved
+  // up as far as needed, and scrolling when it is taller than the window
   function showSubmenu(submenu: Div) {
+    const node = submenu.node() as HTMLElement;
+    const item = node.parentElement!.getBoundingClientRect();
     submenu
       .style('display', 'block')
-      .style('top', '-5px')
-      .style('left', '100%')
-      .style('right', null);
-    const rect = (submenu.node() as HTMLElement).getBoundingClientRect();
-    if (rect.right > window.innerWidth) {
-      submenu.style('left', null).style('right', '100%');
-    }
-    if (rect.bottom > window.innerHeight) {
-      submenu.style('top', `${-5 - (rect.bottom - window.innerHeight) - 8}px`);
-    }
+      .style('max-height', `${Math.max(0, window.innerHeight - 2 * VIEWPORT_MARGIN)}px`);
+    const { width, height } = node.getBoundingClientRect();
+
+    const fitsRight = item.right + width <= window.innerWidth - VIEWPORT_MARGIN;
+    const fitsLeft = item.left - width >= VIEWPORT_MARGIN;
+    const left = fitsRight || !fitsLeft ? item.right : item.left - width;
+    // Its top lines up with the item's, as far as the window allows
+    const top = item.top - 5;
+
+    submenu
+      .style('left', `${clamp(left, width, window.innerWidth)}px`)
+      .style('top', `${clamp(top, height, window.innerHeight)}px`);
+  }
+
+  // A position along one axis that keeps a panel of the given size within the window,
+  // preferring its start edge when the panel is too large to fit
+  function clamp(position: number, size: number, windowSize: number): number {
+    return Math.max(VIEWPORT_MARGIN, Math.min(position, windowSize - VIEWPORT_MARGIN - size));
   }
 
   // Show button on container hover
@@ -236,12 +252,23 @@ export function initTrackViewerContextMenu(cb: ContextMenuCallbacks): ContextMen
     const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
     const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
 
-    // Right-align the menu with the button
-    menu.style('display', 'block');
-    const menuWidth = (menu.node() as HTMLElement).offsetWidth;
+    // A menu taller than the window scrolls
     menu
-      .style('top', `${buttonRect.bottom + scrollTop + 4}px`)
-      .style('left', `${buttonRect.right + scrollLeft - menuWidth}px`);
+      .style('display', 'block')
+      .style('max-height', `${Math.max(0, window.innerHeight - 2 * VIEWPORT_MARGIN)}px`)
+      .style('overflow-y', 'auto');
+    const { width, height } = (menu.node() as HTMLElement).getBoundingClientRect();
+
+    // Right-aligned with the button, and below it; above it when it only fits there.
+    // Otherwise it is moved up as far as needed to fit in the window.
+    const below = buttonRect.bottom + BUTTON_GAP;
+    const above = buttonRect.top - BUTTON_GAP - height;
+    const top = below + height <= window.innerHeight - VIEWPORT_MARGIN || above < VIEWPORT_MARGIN ? below : above;
+    const left = buttonRect.right - width;
+
+    menu
+      .style('top', `${clamp(top, height, window.innerHeight) + scrollTop}px`)
+      .style('left', `${clamp(left, width, window.innerWidth) + scrollLeft}px`);
   }
 
   function hideMenu() {
