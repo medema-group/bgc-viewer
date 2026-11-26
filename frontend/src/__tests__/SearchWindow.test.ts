@@ -71,12 +71,11 @@ async function mountWindow({ compact = false, open = true, active = false } = {}
 }
 
 describe('SearchWindow', () => {
-  it('shows the query builder with the results and refine values below it', async () => {
+  it('shows the query builder with the results below it', async () => {
     const { wrapper } = await mountWindow()
 
     expect(wrapper.find('.condition-row').exists()).toBe(true)
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
-    expect(wrapper.get('.refine-scroll').text()).toContain('NRPS')
 
     await wrapper.get('tbody tr').trigger('click')
     expect(wrapper.emitted('select-hit')).toEqual([[regionHit]])

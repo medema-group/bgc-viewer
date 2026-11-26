@@ -165,9 +165,45 @@ describe('SearchPanel', () => {
     })
   })
 
+  // The backdrop of the dialog with this title, which is hidden while the dialog is closed
+  const dialogNamed = (wrapper: Awaited<ReturnType<typeof mountPanel>>['wrapper'], title: string) =>
+    wrapper.findAll('[role="dialog"]').find(dialog => dialog.get('h2').text() === title)!.element.parentElement as HTMLElement
+
+  it('opens the refine values in a dialog, which narrow the search to a picked value', async () => {
+    const { provider, wrapper } = await mountPanel()
+    const dialog = () => dialogNamed(wrapper, 'Refine')
+    const refineButton = wrapper.findAll('button').find(button => button.text() === 'Refine')!
+
+    expect(dialog().style.display).toBe('none')
+    await refineButton.trigger('click')
+    expect(dialog().style.display).toBe('')
+
+    await wrapper.get('[title="Add filter: Product is NRPS"]').trigger('click')
+    await flushPromises()
+
+    expect(dialog().style.display).toBe('none')
+    expect(provider.search.mock.calls.slice(-1)[0][1].filter.conditions[0]).toMatchObject({
+      field: 'product',
+      operator: 'in',
+      value: ['NRPS']
+    })
+    wrapper.unmount()
+  })
+
+  it('offers no refine values while there are no results', async () => {
+    const { search, wrapper } = await mountPanel()
+    const refineButton = () => wrapper.findAll('button').find(button => button.text() === 'Refine')!
+    expect(refineButton().attributes('disabled')).toBeUndefined()
+
+    search.clearResults()
+    await flushPromises()
+    expect(refineButton().attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
   it('opens the search help in a dialog and uses an example as a query string condition', async () => {
     const { wrapper } = await mountPanel()
-    const dialog = () => wrapper.get('[role="dialog"]').element.parentElement as HTMLElement
+    const dialog = () => dialogNamed(wrapper, 'Search help')
 
     expect(dialog().style.display).toBe('none')
     await wrapper.get('.help-button').trigger('click')

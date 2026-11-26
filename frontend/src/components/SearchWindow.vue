@@ -41,16 +41,6 @@
           @page="search.goToPage"
           @sort="search.setSort"
         />
-        <!-- The table sets the height; the refine values scroll beside it. -->
-        <div class="refine-column">
-          <div class="refine-scroll">
-            <RefinePanel
-              :facets="state.response.facets ?? {}"
-              :labels="search.fieldLabels.value"
-              @add="search.addRefinement"
-            />
-          </div>
-        </div>
       </div>
       <p v-else class="empty-note">{{ state.loading ? 'Searching...' : 'Run the search to list its results here.' }}</p>
     </section>
@@ -62,7 +52,6 @@
 // Compact, it shows what was searched and how much matched.
 import { computed } from 'vue'
 import MiniWindow from './MiniWindow.vue'
-import RefinePanel from './RefinePanel.vue'
 import SearchPanel from './SearchPanel.vue'
 import SearchResultsTable from './SearchResultsTable.vue'
 import { PAGE_SIZE, type AdvancedSearch, type SearchHit } from '@/composables/useAdvancedSearch'
@@ -142,29 +131,9 @@ const compactCount = computed(() => {
   outline-offset: 1px;
 }
 
-.results-section {
-  border-top: 1px solid #dce3e8;
-}
-
+/* The query form's bottom padding is the gap above the results */
 .results {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 230px;
-  gap: 14px;
-  padding: 12px 14px 14px;
-}
-
-/* Absolutely placed content adds no height, so the row is as tall as the table
-   and the refine values scroll within it. */
-.refine-column {
-  position: relative;
-  min-height: 200px;
-}
-
-.refine-scroll {
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  padding-right: 4px;
+  padding: 0 14px 14px;
 }
 
 .empty-note {
@@ -175,18 +144,4 @@ const compactCount = computed(() => {
   text-align: center;
 }
 
-@media (max-width: 800px) {
-  .results {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .refine-column {
-    min-height: 0;
-  }
-
-  .refine-scroll {
-    position: static;
-    max-height: 280px;
-  }
-}
 </style>

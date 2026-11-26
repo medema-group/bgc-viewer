@@ -1,6 +1,5 @@
 <template>
-  <aside class="refine-panel" aria-label="Refine results">
-    <h3>Refine</h3>
+  <div class="refine-panel">
     <p v-if="entries.length === 0" class="refine-note">No values to refine by.</p>
     <section v-for="[field, buckets] in entries" :key="field" class="facet">
       <h4>{{ labels.get(field) ?? field }}</h4>
@@ -17,10 +16,12 @@
         </li>
       </ul>
     </section>
-  </aside>
+  </div>
 </template>
 
 <script setup lang="ts">
+// The most common values of some fields among the results; clicking one narrows the
+// search to it. Shown in the refine dialog, which gives it its title.
 import { computed } from 'vue'
 import type { FacetBucket } from '@/services/dataProviders/types'
 
@@ -43,16 +44,12 @@ const entries = computed(() => Object.entries(props.facets).filter(([, buckets])
 
 <style scoped>
 .refine-panel {
-  display: flex;
+  display: grid;
   min-width: 0;
-  flex-direction: column;
-  gap: 10px;
-}
-
-h3 {
-  margin: 0;
-  color: #30434f;
-  font-size: 13px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-items: start;
+  gap: 12px;
+  padding: 16px 20px 20px;
 }
 
 h4 {
@@ -62,6 +59,7 @@ h4 {
 }
 
 .refine-note {
+  grid-column: 1 / -1;
   margin: 0;
   color: #687681;
   font-size: 12px;

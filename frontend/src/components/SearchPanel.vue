@@ -65,6 +65,16 @@
             <div class="form-actions">
               <span class="search-status" role="status">{{ state.loading ? 'Searching...' : '' }}</span>
               <LevelToggle :model-value="state.level" @update:model-value="search.setLevel" />
+              <button
+                type="button"
+                class="refine-button"
+                title="Narrow the search to a common value among the results"
+                :disabled="!state.response"
+                @click="refineOpen = true"
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11l-4.3 5v4.2l-2.4-1.2v-3z" /></svg>
+                Refine
+              </button>
             </div>
           </template>
         </QueryBuilder>
@@ -74,6 +84,14 @@
         <strong>{{ state.error.code }}</strong>: {{ state.error.message }}
       </div>
     </div>
+
+    <AppDialog :open="refineOpen" title="Refine" width="min(980px, 100%)" @close="refineOpen = false">
+      <RefinePanel
+        :facets="state.response?.facets ?? {}"
+        :labels="search.fieldLabels.value"
+        @add="refine"
+      />
+    </AppDialog>
 
     <AppDialog :open="helpOpen" title="Search help" width="min(860px, 100%)" @close="helpOpen = false">
       <SearchHelpPopup
@@ -88,13 +106,14 @@
 
 <script setup lang="ts">
 // The query part of a search window: the builder, with the search help, a summary
-// of what it asks (on hover), the level to list, and the search button on the line
-// of its own buttons. The
-// results are shown by SearchWindow below it. The search help opens in a dialog.
+// of what it asks (on hover), the level to list, and the refine button on the line
+// of its own buttons. The results are shown by SearchWindow below it. The search
+// help and the refine values open in dialogs.
 import { computed, ref } from 'vue'
 import AppDialog from './AppDialog.vue'
 import LevelToggle from './LevelToggle.vue'
 import QueryBuilder from './QueryBuilder.vue'
+import RefinePanel from './RefinePanel.vue'
 import SearchHelpPopup from './SearchHelpPopup.vue'
 import type { AdvancedSearch } from '@/composables/useAdvancedSearch'
 import { describeCondition, summarizeRows } from '@/services/filterRows'
@@ -113,6 +132,13 @@ const emit = defineEmits<{
 
 const state = props.search.state
 const helpOpen = ref(false)
+const refineOpen = ref(false)
+
+// A picked value narrows the search, whose results show once the dialog closes
+function refine(field: string, value: string) {
+  refineOpen.value = false
+  void props.search.addRefinement(field, value)
+}
 // Ties the summary button to its tooltip; there can be several search windows
 const summaryId = `search-summary-${Math.random().toString(36).slice(2, 10)}`
 
@@ -258,6 +284,39 @@ function useExample(example: string) {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+}
+
+.refine-button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid #aebbc4;
+  border-radius: 4px;
+  background: #fff;
+  color: #30434f;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.refine-button:hover:not(:disabled) {
+  background: #edf2f5;
+}
+
+.refine-button:disabled {
+  color: #a3afb7;
+  cursor: default;
+}
+
+.refine-button svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
 }
 
 .search-status {
