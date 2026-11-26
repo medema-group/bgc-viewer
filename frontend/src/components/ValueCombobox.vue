@@ -1,5 +1,5 @@
 <template>
-  <div ref="root" class="value-combobox">
+  <div ref="root" class="value-combobox" :class="{ 'has-chips': multiple && modelValue.length }">
     <button
       type="button"
       class="combobox-trigger"
@@ -168,12 +168,24 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* The picked values follow the dropdown on its line. In a row of controls it takes
+   the room left, so many values wrap beside the dropdown, not below the row. */
 .value-combobox {
   position: relative;
   display: inline-flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 4px;
+  flex: 1 1 220px;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.combobox-trigger {
+  flex-shrink: 0;
+}
+
+/* The values show beside it, so the dropdown only needs room for their count */
+.has-chips .combobox-trigger {
+  width: 130px;
 }
 
 .combobox-trigger {
@@ -296,9 +308,12 @@ onUnmounted(() => {
 
 .chips {
   display: flex;
-  max-width: 260px;
+  min-width: 0;
+  flex: 1;
   flex-wrap: wrap;
   gap: 4px;
+  /* The first line of values is centred on the 30px dropdown */
+  padding-top: 5px;
 }
 
 .chip {
