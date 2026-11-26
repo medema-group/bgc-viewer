@@ -223,6 +223,19 @@ describe('useAdvancedSearch', () => {
     expect(criteria.filter.conditions[0]).toMatchObject({ field: 'product', value: ['NRPS'] })
   })
 
+  it('runs the search that ran on a reopened index, without later edits to the rows', async () => {
+    const { provider, search } = setup()
+    await search.loadSchema()
+    search.state.rows = [conditionRow(createCondition('product', 'in', ['NRPS']))]
+    await search.search()
+    search.state.rows = [conditionRow(createCondition('product', 'in', ['T1PKS']))]
+
+    await search.reopenIndex()
+
+    expect(lastSearch(provider)![1].filter.conditions[0]).toMatchObject({ value: ['NRPS'] })
+    expect(search.state.rows).toMatchObject([{ condition: { value: ['T1PKS'] } }])
+  })
+
   it('does not search a reopened index for rows that never ran', async () => {
     const { provider, search } = setup()
     await search.loadSchema()

@@ -243,7 +243,14 @@ export default {
     // The backend index is searched in any number of search windows; loaded files
     // and accessions are listed beside them in a window of their own
     const apiProvider = markRaw(new BGCViewerAPIProvider())
-    const workspace = useWorkspace(() => apiProvider)
+    // The search windows are kept in the browser, so a reload brings them back
+    let storage = null
+    try {
+      storage = window.localStorage
+    } catch {
+      // Without storage, the searches last as long as the page
+    }
+    const workspace = useWorkspace(() => apiProvider, { storage })
     const loadedRecords = useLoadedRecords()
     const loadDialogOpen = ref(false)
     const selectedLoadedKey = ref(null)
@@ -492,7 +499,7 @@ export default {
     }
 
     // Before an index opens, its search window says how to open one
-    workspace.addSearch()
+    if (workspace.searches.value.length === 0) workspace.addSearch()
 
     onMounted(async () => {
       fetchVersion()

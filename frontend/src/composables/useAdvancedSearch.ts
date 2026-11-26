@@ -226,16 +226,21 @@ export function useAdvancedSearch(
   }
 
   /**
-   * Run the same query on a newly opened index: the rows and level are kept, the
-   * results and schema are fetched again. Rows that were never searched are kept
-   * unsearched.
+   * Run the same query on a newly opened index: the builder rows and level are
+   * kept, the schema is fetched again, and the search that gave the shown results
+   * runs again, without the edits made to the rows since. A search under way runs
+   * again as asked; rows that were never searched are kept unsearched.
    */
   async function reopenIndex() {
-    const searched = state.searchedCriteria !== null || state.loading
+    const running = state.loading
+    const rows = running ? pruneRows(state.rows) : state.searchedRows
+    const level = running ? state.level : state.searchedLevel
     clearResults()
     forgetSchema()
     await loadSchema()
-    if (state.schema && searched) await search()
+    if (state.schema && rows) {
+      await fetchPage({ filter: rowsToGroup(rows) }, level, 1, cloneRows(rows))
+    }
   }
 
   function forgetSchema() {

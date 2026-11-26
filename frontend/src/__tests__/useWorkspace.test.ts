@@ -1,7 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 
-import { VIEWER, useWorkspace } from '@/composables/useWorkspace'
+import { VIEWER, WORKSPACE_STORAGE_KEY, useWorkspace } from '@/composables/useWorkspace'
 import type { BGCViewerAPIProvider } from '@/services/dataProviders/BGCViewerAPIProvider'
 import type { SearchSchema } from '@/services/dataProviders/types'
 import { RAW_QUERY_FIELD, conditionRow, createCondition } from '@/services/filterRows'
@@ -24,13 +24,24 @@ const schema: SearchSchema = {
   raw_query_field: RAW_QUERY_FIELD
 }
 
-function setup() {
+function memoryStorage(initial: Record<string, string> = {}) {
+  const items = new Map(Object.entries(initial))
+  return {
+    getItem: (key: string) => items.get(key) ?? null,
+    setItem: (key: string, value: string) => { items.set(key, value) },
+    saved: () => JSON.parse(items.get(WORKSPACE_STORAGE_KEY) ?? 'null')
+  }
+}
+
+function setup(storage?: ReturnType<typeof memoryStorage>) {
   const provider = {
     getSearchSchema: vi.fn().mockResolvedValue(schema),
     search: vi.fn().mockResolvedValue({ hits: [], has_more: false, total: 3, facets: {} }),
     getFieldValues: vi.fn()
   }
-  const workspace = useWorkspace(() => provider as unknown as BGCViewerAPIProvider)
+  const workspace = useWorkspace(() => provider as unknown as BGCViewerAPIProvider, {
+    storage: storage as unknown as Storage
+  })
   return { provider, workspace }
 }
 
@@ -125,5 +136,87 @@ describe('useWorkspace', () => {
     expect(first.search.state.response).not.toBeNull()
     expect(draft.search.state.response).toBeNull()
     expect(draft.search.state.rows).toHaveLength(1)
+  })
+
+  describe('saving in the browser', () => {
+    it('saves the windows as they change, with what they searched but not the results', async () => {
+      const storage = memoryStorage()
+      const { workspace } = setup(storage)
+      await workspace.openIndex()
+      const [first] = workspace.searches.value
+      first.label = 'Coelicolor'
+      first.search.state.rows = coelicolor()
+      await first.search.search()
+      first.search.state.level = 'record'
+      await flushPromises()
+
+      const saved = storage.saved()
+      expect(saved).toMatchObject({
+        version: 1,
+        focus: first.id,
+        searches: [{
+          id: first.id,
+          label: 'Coelicolor',
+          level: 'record',
+          searchedLevel: 'region',
+          rows: [{ condition: { value: 'coelicolor' } }],
+          searchedRows: [{ condition: { value: 'coelicolor' } }]
+        }]
+      })
+      expect(JSON.stringify(saved)).not.toContain('"total"')
+
+      workspace.removeSearch(first.id)
+      await flushPromises()
+      expect(storage.saved().searches).toEqual([])
+    })
+
+    it('brings the windows back and runs what they searched once the index opens', async () => {
+      const storage = memoryStorage()
+      const before = setup(storage).workspace
+      await before.openIndex()
+      const [first] = before.searches.value
+      first.search.state.rows = coelicolor()
+      first.search.state.level = 'record'
+      await first.search.search()
+      // Edited after the search, and not searched again
+      first.search.state.rows = [...coelicolor(), ...coelicolor()]
+      const second = before.addSearch()
+      second.label = 'Draft'
+      second.search.state.rows = coelicolor()
+      before.focus.value = first.id
+      await flushPromises()
+
+      const { provider, workspace } = setup(memoryStorage({ [WORKSPACE_STORAGE_KEY]: JSON.stringify(storage.saved()) }))
+      expect(workspace.searches.value.map(window => [window.id, window.label])).toEqual([
+        ['search-1', 'Search 1'],
+        ['search-2', 'Draft']
+      ])
+      expect(workspace.focus.value).toBe('search-1')
+      const [restored, draft] = workspace.searches.value
+      expect(restored.search.state.rows).toHaveLength(2)
+      expect(provider.search).not.toHaveBeenCalled()
+
+      await workspace.openIndex()
+
+      // Only the search that ran before runs again, as it was searched
+      expect(provider.search).toHaveBeenCalledTimes(1)
+      const [level, criteria] = provider.search.mock.calls[0]
+      expect(level).toBe('record')
+      expect(criteria.filter.conditions).toHaveLength(1)
+      expect(restored.search.state.response).not.toBeNull()
+      expect(restored.search.state.rows).toHaveLength(2)
+      expect(draft.search.state.response).toBeNull()
+      expect(draft.search.state.rows).toMatchObject([{ condition: { value: 'coelicolor' } }])
+
+      // New windows are numbered after the restored ones
+      expect(workspace.addSearch().label).toBe('Search 3')
+    })
+
+    it('starts without windows when the saved value cannot be used', () => {
+      for (const value of ['not json', '{"version":2,"searches":[]}', '{"version":1,"searches":[{"id":"x"}]}']) {
+        const { workspace } = setup(memoryStorage({ [WORKSPACE_STORAGE_KEY]: value }))
+        expect(workspace.searches.value).toEqual([])
+      }
+    })
   })
 })
