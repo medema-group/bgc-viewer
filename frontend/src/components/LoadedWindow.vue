@@ -3,6 +3,7 @@
     label="Loaded data"
     :compact="compact"
     :viewing="viewing"
+    :active="active"
     @expand="emit('expand')"
     @minimize="emit('minimize')"
   >
@@ -56,6 +57,8 @@ const props = withDefaults(defineProps<{
   compact?: boolean
   /** Whether the viewer shows one of these records. */
   viewing?: boolean
+  /** Whether this is the card of the window that is open at normal size. */
+  active?: boolean
 }>(), {
   regions: () => [],
   level: 'region',
@@ -63,7 +66,8 @@ const props = withDefaults(defineProps<{
   loading: false,
   error: null,
   compact: false,
-  viewing: false
+  viewing: false,
+  active: false
 })
 
 const emit = defineEmits<{

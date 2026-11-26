@@ -81,7 +81,9 @@ describe('LoadedWindow', () => {
     expect(wrapper.get('.compact-count').text()).toBe('1 record · 1 region')
     expect(wrapper.find('.viewing-mark').exists()).toBe(true)
 
-    await wrapper.get('button.compact').trigger('click')
+    await wrapper.get('button.compact-card').trigger('click')
     expect(wrapper.emitted('expand')).toHaveLength(1)
+    // Loaded data is removed by source, in the window or the load dialog
+    expect(wrapper.find('.delete').exists()).toBe(false)
   })
 })

@@ -31,7 +31,8 @@
     </header>
 
     <!-- Main flow: search windows and loaded data beside the one viewer. The focused
-         window, or the viewer, is shown at normal size; the rest are compact. -->
+         window, or the viewer, is shown at normal size. Every window has a compact card,
+         the focused one's too, so the cards keep their places. -->
     <main class="main-content">
       <div
         class="workspace"
@@ -40,40 +41,44 @@
         aria-label="Windows"
       >
         <template v-for="item in windows" :key="item.id">
-          <SearchWindow
-            v-if="item.search"
-            :class="item.id === focusedWindowId ? 'focused' : 'docked'"
-            :search="item.search.search"
-            :label="item.search.label"
-            :compact="item.id !== focusedWindowId"
-            :viewing="viewingWindow === item.id"
-            :can-choose-index="!isPublicMode"
-            @expand="focusWindow(item.id)"
-            @minimize="focusViewer"
-            @close="closeSearch(item.id)"
-            @duplicate="workspace.duplicateSearch(item.id)"
-            @update:label="item.search.label = $event"
-            @select-hit="handleSearchSelected(item.search, $event)"
-            @open-index="indexDialogOpen = true"
-          />
-          <LoadedWindow
-            v-else
-            v-model:level="loadedLevel"
-            :class="item.id === focusedWindowId ? 'focused' : 'docked'"
-            :records="loadedRecords.records.value"
-            :regions="loadedRecords.regions.value"
-            :selected-key="selectedLoadedKey"
-            :loading="loadedRecords.loading.value"
-            :error="loadedRecords.error.value"
-            :compact="item.id !== focusedWindowId"
-            :viewing="viewingWindow === item.id"
-            @expand="focusWindow(item.id)"
-            @minimize="focusViewer"
-            @load="loadDialogOpen = true"
-            @select="handleLoadedSelected"
-            @select-region="handleLoadedRegionSelected"
-            @remove-source="handleRemoveSource"
-          />
+          <template v-for="view in viewsOf(item)" :key="`${item.id}-${view}`">
+            <SearchWindow
+              v-if="item.search"
+              :class="view === 'normal' ? 'focused' : 'docked'"
+              :search="item.search.search"
+              :label="item.search.label"
+              :compact="view === 'card'"
+              :active="view === 'card' && item.id === focusedWindowId"
+              :viewing="viewingWindow === item.id"
+              :can-choose-index="!isPublicMode"
+              @expand="focusWindow(item.id)"
+              @minimize="focusViewer"
+              @close="closeSearch(item.id)"
+              @duplicate="workspace.duplicateSearch(item.id)"
+              @update:label="item.search.label = $event"
+              @select-hit="handleSearchSelected(item.search, $event)"
+              @open-index="indexDialogOpen = true"
+            />
+            <LoadedWindow
+              v-else
+              v-model:level="loadedLevel"
+              :class="view === 'normal' ? 'focused' : 'docked'"
+              :records="loadedRecords.records.value"
+              :regions="loadedRecords.regions.value"
+              :selected-key="selectedLoadedKey"
+              :loading="loadedRecords.loading.value"
+              :error="loadedRecords.error.value"
+              :compact="view === 'card'"
+              :active="view === 'card' && item.id === focusedWindowId"
+              :viewing="viewingWindow === item.id"
+              @expand="focusWindow(item.id)"
+              @minimize="focusViewer"
+              @load="loadDialogOpen = true"
+              @select="handleLoadedSelected"
+              @select-region="handleLoadedRegionSelected"
+              @remove-source="handleRemoveSource"
+            />
+          </template>
         </template>
         <button type="button" class="new-search docked" title="Open a new search window" @click="workspace.addSearch()">
           <span aria-hidden="true">+</span> New search
@@ -266,13 +271,15 @@ export default {
       workspace.focus.value = windows.value.some(window => window.id === id) ? id : windows.value[0]?.id ?? VIEWER
     }
     const focusViewer = () => { workspace.focus.value = VIEWER }
+    // How a window is shown: as a card, and the focused one also at normal size
+    const viewsOf = (item) => (item.id === focusedWindowId.value ? ['normal', 'card'] : ['card'])
 
-    // The focused window fills the first column; the compact ones stack beside it,
-    // each row as tall as its card, and the last row takes what is left
+    // The focused window fills the first column; the cards stack beside it, each
+    // row as tall as its card, and the last row takes what is left
     const workspaceStyle = computed(() => {
       if (viewerFocused.value) return {}
-      // Every window but the focused one, and the new search button
-      return { gridTemplateRows: `repeat(${windows.value.length}, auto) minmax(0, 1fr)` }
+      // A card for every window, and the new search button
+      return { gridTemplateRows: `repeat(${windows.value.length + 1}, auto) minmax(0, 1fr)` }
     })
 
     // The window whose result the viewer shows, marked in its compact card
@@ -517,6 +524,7 @@ export default {
       viewingWindow,
       focusWindow,
       focusViewer,
+      viewsOf,
       closeSearch,
       loadedRecords,
       loadDialogOpen,

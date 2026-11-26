@@ -1,19 +1,32 @@
 <template>
-  <button
-    v-if="compact"
-    type="button"
-    class="miniwindow compact"
-    :class="{ viewing }"
-    :title="`Show ${label}`"
-    @click="emit('expand')"
-  >
-    <span class="compact-head">
-      <span class="compact-label">{{ label }}</span>
-      <span v-if="viewing" class="viewing-mark" title="The viewer shows a result of this window">viewing</span>
-    </span>
-    <span class="compact-summary"><slot name="summary" /></span>
-    <span class="compact-count"><slot name="count" /></span>
-  </button>
+  <div v-if="compact" class="miniwindow compact" :class="{ viewing, active }">
+    <button
+      type="button"
+      class="compact-card"
+      :title="active ? `Make ${label} compact` : `Enlarge ${label}`"
+      :aria-current="active ? 'true' : undefined"
+      @click="emit(active ? 'minimize' : 'expand')"
+    >
+      <span class="compact-head">
+        <span class="compact-label">{{ label }}</span>
+        <span v-if="viewing" class="viewing-mark" title="The viewer shows a result of this window">viewing</span>
+      </span>
+      <span class="compact-summary"><slot name="summary" /></span>
+      <span class="compact-count"><slot name="count" /></span>
+    </button>
+    <button
+      v-if="closable && !active"
+      type="button"
+      class="icon-button delete"
+      :title="`Delete ${label}`"
+      :aria-label="`Delete ${label}`"
+      @click="emit('close')"
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9M6.8 7v4M9.2 7v4" />
+      </svg>
+    </button>
+  </div>
 
   <section v-else class="miniwindow normal" :aria-label="label">
     <header class="window-header">
@@ -30,17 +43,7 @@
       <div class="window-actions">
         <slot name="actions" />
         <button type="button" class="icon-button" title="Make compact" aria-label="Make compact" @click="emit('minimize')">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 12h10" /></svg>
-        </button>
-        <button
-          v-if="closable"
-          type="button"
-          class="icon-button close"
-          :title="`Close ${label}`"
-          :aria-label="`Close ${label}`"
-          @click="emit('close')"
-        >
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3v3H3M10 3v3h3M6 13v-3H3M10 13v-3h3" /></svg>
         </button>
       </div>
     </header>
@@ -52,21 +55,29 @@
 
 <script setup lang="ts">
 // The shell of a window in the main view. At normal size it shows its content
-// under a header with its label; compact, it is a card with the label, a summary
-// and a count, which the window fills in through the `summary` and `count` slots.
+// under a header with its label and a button to make it compact; compact, it is a
+// card with the label, a summary and a count, which the window fills in through
+// the `summary` and `count` slots. Clicking the card enlarges the window. The
+// card of the window that is open at normal size stays in place, marked active;
+// clicking it makes the window compact again. A closable window is deleted from
+// its card while compact, so it is not lost by accident while being worked on.
 const props = withDefaults(defineProps<{
   label: string
   compact?: boolean
   /** Whether the user can rename the window in its header. */
   editableLabel?: boolean
+  /** Whether the compact card offers to delete the window. */
   closable?: boolean
   /** Whether the viewer shows something picked in this window. */
   viewing?: boolean
+  /** Whether this is the card of the window that is open at normal size. */
+  active?: boolean
 }>(), {
   compact: false,
   editableLabel: false,
   closable: false,
-  viewing: false
+  viewing: false,
+  active: false
 })
 
 const emit = defineEmits<{
@@ -91,18 +102,11 @@ function renameTo(input: HTMLInputElement) {
   background: #fff;
 }
 
-/* Compact card */
+/* Compact card: the card itself enlarges the window; the delete button sits beside it */
 .compact {
   display: flex;
-  width: 100%;
+  align-items: flex-start;
   min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-  padding: 7px 10px 8px;
-  color: #30434f;
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
@@ -111,14 +115,45 @@ function renameTo(input: HTMLInputElement) {
   box-shadow: 0 1px 4px rgba(25, 118, 181, 0.15);
 }
 
-.compact:focus-visible {
-  outline: 2px solid #1976d2;
-  outline-offset: 1px;
-}
-
 .compact.viewing {
   border-left: 3px solid #1976b5;
+}
+
+.compact.active {
+  border-color: #1976b5;
+  background: #eef5fb;
+  box-shadow: inset 0 0 0 1px #1976b5;
+}
+
+.compact-card {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #30434f;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.compact.viewing .compact-card {
   padding-left: 8px;
+}
+
+.compact-card:focus-visible {
+  outline: 2px solid #1976d2;
+  outline-offset: -2px;
+}
+
+.compact .delete {
+  flex-shrink: 0;
+  margin: 4px 4px 0 -4px;
+  color: #8a97a0;
 }
 
 .compact-head {
@@ -248,7 +283,7 @@ function renameTo(input: HTMLInputElement) {
   background: #edf2f5;
 }
 
-.icon-button.close:hover {
+.icon-button.delete:hover {
   border-color: #efc8c4;
   background: #fff3f2;
   color: #a1261d;

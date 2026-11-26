@@ -3,6 +3,7 @@
     :label="label"
     :compact="compact"
     :viewing="viewing"
+    :active="active"
     editable-label
     closable
     @expand="emit('expand')"
@@ -78,11 +79,14 @@ const props = withDefaults(defineProps<{
   compact?: boolean
   /** Whether the viewer shows one of this window's results. */
   viewing?: boolean
+  /** Whether this is the card of the window that is open at normal size. */
+  active?: boolean
   /** Whether the index can be chosen here, which public mode does not allow. */
   canChooseIndex?: boolean
 }>(), {
   compact: false,
   viewing: false,
+  active: false,
   canChooseIndex: false
 })
 

@@ -52,7 +52,7 @@ const regionHit = {
   }
 }
 
-async function mountWindow({ compact = false, open = true } = {}) {
+async function mountWindow({ compact = false, open = true, active = false } = {}) {
   const provider = {
     getSearchSchema: vi.fn().mockResolvedValue(schema),
     search: vi.fn(async (level: string) => ({
@@ -65,7 +65,7 @@ async function mountWindow({ compact = false, open = true } = {}) {
   }
   const search = useAdvancedSearch(() => provider as unknown as BGCViewerAPIProvider)
   if (open) await search.openIndex()
-  const wrapper = mount(SearchWindow, { props: { search, label: 'Search 1', compact } })
+  const wrapper = mount(SearchWindow, { props: { search, label: 'Search 1', compact, active } })
   await flushPromises()
   return { wrapper, provider, search }
 }
@@ -94,7 +94,7 @@ describe('SearchWindow', () => {
     expect(provider.search.mock.calls.slice(-1)[0][0]).toBe('record')
   })
 
-  it('is renamed, duplicated, made compact, and closed from its header', async () => {
+  it('is renamed, duplicated, and made compact from its header, but not deleted', async () => {
     const { wrapper } = await mountWindow()
     const label = wrapper.get<HTMLInputElement>('[aria-label="Window label"]')
 
@@ -104,14 +104,13 @@ describe('SearchWindow', () => {
 
     await wrapper.findAll('button').find(button => button.text() === 'Duplicate')!.trigger('click')
     await wrapper.get('[aria-label="Make compact"]').trigger('click')
-    await wrapper.get('[aria-label="Close Search 1"]').trigger('click')
 
     // A blank label keeps the old one
     expect(wrapper.emitted('update:label')).toEqual([['NRPS in Streptomyces']])
     expect(label.element.value).toBe('Search 1')
     expect(wrapper.emitted('duplicate')).toHaveLength(1)
     expect(wrapper.emitted('minimize')).toHaveLength(1)
-    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.find('[aria-label="Delete Search 1"]').exists()).toBe(false)
   })
 
   it('shows its label, what was searched, and the number of matches when compact', async () => {
@@ -131,8 +130,26 @@ describe('SearchWindow', () => {
     await flushPromises()
     expect(wrapper.get('.compact-summary').text()).toBe('Any text contains coelicolor')
 
-    await wrapper.get('button.compact').trigger('click')
+    await wrapper.get('button.compact-card').trigger('click')
     expect(wrapper.emitted('expand')).toHaveLength(1)
+
+    // Deleting does not enlarge the window first
+    await wrapper.get('[aria-label="Delete Search 1"]').trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.emitted('expand')).toHaveLength(1)
+  })
+
+  it('marks the card of the open window, which makes it compact again and cannot delete it', async () => {
+    const { wrapper } = await mountWindow({ compact: true, active: true })
+    const card = wrapper.get('button.compact-card')
+
+    expect(wrapper.classes()).toContain('active')
+    expect(card.attributes('aria-current')).toBe('true')
+    expect(wrapper.find('[aria-label="Delete Search 1"]').exists()).toBe(false)
+
+    await card.trigger('click')
+    expect(wrapper.emitted('minimize')).toHaveLength(1)
+    expect(wrapper.emitted('expand')).toBeUndefined()
   })
 
   it('says when no index is open or nothing was searched yet', async () => {
